@@ -1,0 +1,574 @@
+//! Command-line surface for the `zen` binary (SPEC §1, Appendix B1).
+//!
+//! Every user-facing flag and subcommand is declared here as a clap derive struct so that
+//! `zen --help` and argument validation come for free. This module only *describes* the CLI;
+//! turning the parsed `Cli` into a resolved runtime configuration happens in [`crate::settings`],
+//! and dispatch to headless/REPL/subcommand behaviour happens in [`crate::run_with_home`].
+//!
+//! Key design decision: the positional `prompt` is a plain `Vec<String>` (words joined with
+//! spaces) rather than `trailing_var_arg`. That lets flags such as `--output-format json` appear
+//! *after* the prompt, which the integrator explicitly requires.
+
+use clap::{Args, Parser, Subcommand, ValueEnum};
+use std::path::PathBuf;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum OutputFormat {
+    Text,
+    Json,
+    #[value(name = "stream-json")]
+    StreamJson,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum InputFormat {
+    Text,
+    #[value(name = "stream-json")]
+    StreamJson,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PermissionMode {
+    Default,
+    #[value(name = "acceptEdits")]
+    AcceptEdits,
+    Plan,
+    #[value(name = "bypassPermissions")]
+    BypassPermissions,
+    #[value(name = "dontAsk")]
+    DontAsk,
+}
+
+impl PermissionMode {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            PermissionMode::Default => "default",
+            PermissionMode::AcceptEdits => "acceptEdits",
+            PermissionMode::Plan => "plan",
+            PermissionMode::BypassPermissions => "bypassPermissions",
+            PermissionMode::DontAsk => "dontAsk",
+        }
+    }
+    pub fn parse(s: &str) -> Option<Self> {
+        Some(match s {
+            // `manual` is an alias of default; `auto` (classifier) is P3 → default (C2.11).
+            "default" | "manual" | "auto" => PermissionMode::Default,
+            "acceptEdits" => PermissionMode::AcceptEdits,
+            "plan" => PermissionMode::Plan,
+            "bypassPermissions" => PermissionMode::BypassPermissions,
+            "dontAsk" => PermissionMode::DontAsk,
+            _ => return None,
+        })
+    }
+}
+
+/// `--permission-mode` values: the five modes plus `manual` (alias of default) and `auto`, which
+/// zen does not implement and runs as default with a warning (SPEC C2.11).
+fn parse_permission_mode_flag(s: &str) -> Result<PermissionMode, String> {
+    if s == "auto" {
+        eprintln!("warning: permission mode 'auto' is not supported; using 'default'");
+    }
+    PermissionMode::parse(s).ok_or_else(|| {
+        format!(
+            "invalid permission mode '{}' (expected one of: default, manual, acceptEdits, plan, \
+             dontAsk, bypassPermissions)",
+            s
+        )
+    })
+}
+
+impl std::fmt::Display for PermissionMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            PermissionMode::Default => "default",
+            PermissionMode::AcceptEdits => "acceptEdits",
+            PermissionMode::Plan => "plan",
+            PermissionMode::BypassPermissions => "bypassPermissions",
+            PermissionMode::DontAsk => "dontAsk",
+        };
+        write!(f, "{}", s)
+    }
+}
+
+/// `--autocompact` value parser: `auto`, `off` or a positive token count.
+fn parse_autocompact(s: &str) -> Result<String, String> {
+    match s {
+        "auto" | "off" => Ok(s.to_string()),
+        n if n.parse::<u64>().map(|v| v > 0).unwrap_or(false) => Ok(n.to_string()),
+        _ => Err(format!("invalid --autocompact '{}': use auto, off or a token count", s)),
+    }
+}
+
+/// `--session-id` value parser: a valid UUID, normalised to lowercase hyphenated form (C9.2).
+fn parse_session_uuid(s: &str) -> Result<String, String> {
+    uuid::Uuid::parse_str(s.trim())
+        .map(|u| u.hyphenated().to_string())
+        .map_err(|_| format!("invalid session id '{}': must be a valid UUID", s))
+}
+
+#[derive(Parser, Debug, Clone)]
+#[command(name = "zen", version, about = "zen-code CLI coding agent")]
+pub struct Cli {
+    /// Headless: run one prompt and exit
+    #[arg(short = 'p', long = "print")]
+    pub print: bool,
+
+    /// Output format (with -p): text, json, stream-json
+    #[arg(long = "output-format", value_enum, default_value_t = OutputFormat::Text)]
+    pub output_format: OutputFormat,
+
+    /// Input format (with -p): text, stream-json
+    #[arg(long = "input-format", value_enum, default_value_t = InputFormat::Text)]
+    pub input_format: InputFormat,
+
+    /// Emit partial stream events in stream-json mode
+    #[arg(long = "include-partial-messages")]
+    pub include_partial_messages: bool,
+
+    /// Extra diagnostics on stderr; in stream-json, emit every message
+    #[arg(long = "verbose")]
+    pub verbose: bool,
+
+    /// Continue most recent session for current directory
+    #[arg(short = 'c', long = "continue")]
+    pub continue_session: bool,
+
+    /// Resume a session by id or path
+    #[arg(short = 'r', long = "resume", num_args = 0..=1, default_missing_value = "")]
+    pub resume: Option<String>,
+
+    /// Auto-compaction: `auto` (80% of the context window), `off`, or a token threshold
+    /// (overrides the `autoCompact` setting, SPEC C10.1)
+    #[arg(long = "autocompact", value_parser = parse_autocompact)]
+    pub autocompact: Option<String>,
+
+    /// Use a fixed session id (must be a valid UUID, SPEC C9.2)
+    #[arg(long = "session-id", value_parser = parse_session_uuid)]
+    pub session_id: Option<String>,
+
+    /// With resume/continue: copy history into a new session id
+    #[arg(long = "fork-session")]
+    pub fork_session: bool,
+
+    /// Do not write transcript (only with -p)
+    #[arg(long = "no-session-persistence")]
+    pub no_session_persistence: bool,
+
+    /// Override model
+    #[arg(long = "model")]
+    pub model: Option<String>,
+
+    /// OpenAI-compatible endpoint base URL
+    #[arg(long = "base-url")]
+    pub base_url: Option<String>,
+
+    /// Permission mode
+    #[arg(long = "permission-mode", value_parser = parse_permission_mode_flag)]
+    pub permission_mode: Option<PermissionMode>,
+
+    /// Allowed tool permission rules (comma/space separated)
+    #[arg(long = "allowedTools", visible_alias = "allowed-tools", num_args = 1..)]
+    pub allowed_tools: Vec<String>,
+
+    /// Disallowed tool permission rules (comma/space separated)
+    #[arg(long = "disallowedTools", visible_alias = "disallowed-tools", num_args = 1..)]
+    pub disallowed_tools: Vec<String>,
+
+    /// Built-in tool set: "" = none, "default" = all, "Read,Bash" = only those,
+    /// "-Bash,-Write" / "+Name" = default set minus/plus (no mixing with plain names)
+    #[arg(long = "tools", allow_hyphen_values = true)]
+    pub tools: Option<String>,
+
+    /// Replace built-in system prompt
+    #[arg(long = "system-prompt")]
+    pub system_prompt: Option<String>,
+
+    /// Append to built-in system prompt
+    #[arg(long = "append-system-prompt")]
+    pub append_system_prompt: Option<String>,
+
+    /// Extra directories file tools may access
+    #[arg(long = "add-dir", num_args = 1..)]
+    pub add_dir: Vec<PathBuf>,
+
+    /// Load MCP servers from file or JSON string
+    #[arg(long = "mcp-config", num_args = 1..)]
+    pub mcp_config: Vec<String>,
+
+    /// Only use MCP servers from --mcp-config
+    #[arg(long = "strict-mcp-config")]
+    pub strict_mcp_config: bool,
+
+    /// Session-only settings layer (file path or JSON string)
+    #[arg(long = "settings")]
+    pub settings: Option<String>,
+
+    /// Comma-separated list of setting layers to load: user,project,local
+    #[arg(long = "setting-sources")]
+    pub setting_sources: Option<String>,
+
+    /// Define sub-agents inline (JSON or file path)
+    #[arg(long = "agents")]
+    pub agents: Option<String>,
+
+    /// Run a named sub-agent definition as the main agent (B1)
+    #[arg(long = "agent")]
+    pub agent: Option<String>,
+
+    /// Cap agent loop iterations
+    #[arg(long = "max-turns")]
+    pub max_turns: Option<usize>,
+
+    /// Skip ZEN.md, hooks, skills, custom commands, agents, MCP auto-discovery
+    #[arg(long = "bare")]
+    pub bare: bool,
+
+    #[command(subcommand)]
+    pub subcommand: Option<Commands>,
+
+    /// Prompt text. Words are joined with spaces. Flags may appear before or after it
+    /// (no trailing_var_arg: that would swallow `--output-format json` placed after the prompt).
+    pub prompt: Vec<String>,
+}
+
+#[derive(Subcommand, Debug, Clone)]
+pub enum Commands {
+    /// Manage MCP servers
+    Mcp(McpArgs),
+    /// Check loaded settings sources and model reachability
+    Doctor,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct McpArgs {
+    #[command(subcommand)]
+    pub command: McpSubcommand,
+}
+
+#[derive(Subcommand, Debug, Clone)]
+pub enum McpSubcommand {
+    /// List configured MCP servers
+    List,
+    /// Add an MCP server
+    Add {
+        /// Transport type (stdio or http)
+        #[arg(long = "transport", default_value = "stdio")]
+        transport: String,
+        /// Configuration scope: local, project, user
+        #[arg(short = 's', long = "scope", default_value = "local")]
+        scope: String,
+        /// Environment variable for a stdio server (repeatable), KEY=VALUE
+        #[arg(short = 'e', long = "env", value_name = "KEY=VALUE")]
+        env: Vec<String>,
+        /// HTTP header for an http server (repeatable), KEY=VALUE
+        #[arg(long = "header", value_name = "KEY=VALUE")]
+        header: Vec<String>,
+        /// Server name
+        name: String,
+        /// Command or URL and arguments
+        #[arg(trailing_var_arg = true)]
+        args: Vec<String>,
+    },
+    /// Remove an MCP server
+    Remove {
+        /// Configuration scope: local, project, user
+        #[arg(short = 's', long = "scope", default_value = "local")]
+        scope: String,
+        /// Server name
+        name: String,
+    },
+    /// Print one server's configuration as JSON
+    Get {
+        /// Configuration scope: local, project, user (empty = search all)
+        #[arg(short = 's', long = "scope", default_value = "")]
+        scope: String,
+        /// Server name
+        name: String,
+    },
+    /// Add a server from a JSON object (same shape as the config file entry)
+    AddJson {
+        /// Configuration scope: local, project, user
+        #[arg(short = 's', long = "scope", default_value = "local")]
+        scope: String,
+        /// Server name
+        name: String,
+        /// JSON object describing the server
+        json: String,
+    },
+}
+
+// ─── Tests ─────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    fn parse(args: &[&str]) -> Cli {
+        let mut base = vec!["zen"];
+        base.extend_from_slice(args);
+        Cli::parse_from(base)
+    }
+
+    #[test]
+    fn parse_print_and_prompt() {
+        let cli = parse(&["-p", "hello", "world"]);
+        assert!(cli.print);
+        assert_eq!(cli.prompt, vec!["hello", "world"]);
+    }
+
+    #[test]
+    fn parse_output_format() {
+        let cli = parse(&["-p", "--output-format", "json", "hi"]);
+        assert_eq!(cli.output_format, OutputFormat::Json);
+    }
+
+    #[test]
+    fn parse_output_format_stream_json() {
+        let cli = parse(&["-p", "--output-format", "stream-json", "hi"]);
+        assert_eq!(cli.output_format, OutputFormat::StreamJson);
+    }
+
+    #[test]
+    fn parse_permission_mode() {
+        let cli = parse(&["--permission-mode", "plan"]);
+        assert_eq!(cli.permission_mode, Some(PermissionMode::Plan));
+    }
+
+    #[test]
+    fn c2_11_permission_mode_aliases() {
+        assert_eq!(parse(&["--permission-mode", "manual"]).permission_mode, Some(PermissionMode::Default));
+        assert_eq!(parse(&["--permission-mode", "auto"]).permission_mode, Some(PermissionMode::Default));
+        assert_eq!(
+            parse(&["--permission-mode", "dontAsk"]).permission_mode,
+            Some(PermissionMode::DontAsk)
+        );
+        let err = Cli::try_parse_from(["zen", "--permission-mode", "yolo"]).unwrap_err();
+        assert!(err.to_string().contains("invalid permission mode 'yolo'"), "{}", err);
+    }
+
+    #[test]
+    fn parse_tools_empty() {
+        let cli = parse(&["--tools", ""]);
+        assert_eq!(cli.tools.as_deref(), Some(""));
+    }
+
+    #[test]
+    fn parse_tools_default() {
+        let cli = parse(&["--tools", "default"]);
+        assert_eq!(cli.tools.as_deref(), Some("default"));
+    }
+
+    #[test]
+    fn parse_tools_list() {
+        let cli = parse(&["--tools", "Read,Bash"]);
+        assert_eq!(cli.tools.as_deref(), Some("Read,Bash"));
+        let cli = parse(&["--tools", "-Bash,-Write", "-p", "hi"]);
+        assert_eq!(cli.tools.as_deref(), Some("-Bash,-Write"));
+        assert!(cli.print);
+        assert_eq!(cli.prompt, vec!["hi".to_string()]);
+    }
+
+    #[test]
+    fn parse_mcp_subcommand_list() {
+        let cli = parse(&["mcp", "list"]);
+        assert!(matches!(cli.subcommand, Some(Commands::Mcp(_))));
+    }
+
+    #[test]
+    fn parse_mcp_subcommand_remove() {
+        let cli = parse(&["mcp", "remove", "-s", "user", "foo"]);
+        match &cli.subcommand {
+            Some(Commands::Mcp(m)) => {
+                assert!(matches!(m.command, McpSubcommand::Remove{..}));
+            }
+            _ => panic!("expected Mcp Remove"),
+        }
+    }
+
+    #[test]
+    fn parse_mcp_subcommand_add_http() {
+        let cli = parse(&["mcp", "add", "--transport", "http", "-s", "project", "myserver", "http://localhost:3000"]);
+        match &cli.subcommand {
+            Some(Commands::Mcp(m)) => {
+                assert!(matches!(&m.command, McpSubcommand::Add{transport,..} if transport == "http"));
+            }
+            _ => panic!("expected Mcp Add"),
+        }
+    }
+
+    #[test]
+    fn parse_doctor_subcommand() {
+        let cli = parse(&["doctor"]);
+        assert!(matches!(cli.subcommand, Some(Commands::Doctor)));
+    }
+
+    #[test]
+    fn parse_flag_bare() {
+        let cli = parse(&["--bare"]);
+        assert!(cli.bare);
+    }
+
+    #[test]
+    fn parse_no_args() {
+        let cli = parse(&[]);
+        assert!(!cli.print);
+        assert!(cli.prompt.is_empty());
+        assert!(cli.subcommand.is_none());
+    }
+
+    #[test]
+    fn parse_setting_sources() {
+        let cli = parse(&["--setting-sources", "user,project"]);
+        assert_eq!(cli.setting_sources.as_deref(), Some("user,project"));
+    }
+
+    #[test]
+    fn parse_resume_with_value() {
+        let cli = parse(&["--resume", "abc"]);
+        assert_eq!(cli.resume.as_deref(), Some("abc"));
+    }
+
+    #[test]
+    fn parse_resume_no_value() {
+        let cli = parse(&["--resume"]);
+        assert_eq!(cli.resume.as_deref(), Some(""));
+    }
+
+    #[test]
+    fn parse_fork_session() {
+        let cli = parse(&["--fork-session"]);
+        assert!(cli.fork_session);
+    }
+
+    #[test]
+    fn parse_session_id() {
+        let id = "123e4567-e89b-12d3-a456-426614174000";
+        let cli = parse(&["--session-id", id]);
+        assert_eq!(cli.session_id.as_deref(), Some(id));
+    }
+
+    #[test]
+    fn c9_2_session_id_must_be_uuid() {
+        for bad in ["sess-1", "", "123e4567-e89b-12d3-a456", "not a uuid"] {
+            let r = Cli::try_parse_from(["zen", "--session-id", bad]);
+            assert!(r.is_err(), "{:?} should be rejected", bad);
+        }
+        // Normalised to the canonical lowercase hyphenated form.
+        let cli = parse(&["--session-id", "123E4567E89B12D3A456426614174000"]);
+        assert_eq!(cli.session_id.as_deref(), Some("123e4567-e89b-12d3-a456-426614174000"));
+    }
+
+    #[test]
+    fn parse_max_turns() {
+        let cli = parse(&["--max-turns", "10"]);
+        assert_eq!(cli.max_turns, Some(10));
+    }
+
+    #[test]
+    fn flags_after_prompt_are_parsed() {
+        let cli = parse(&["-p", "list files", "--output-format", "json", "--model", "m:free"]);
+        assert!(cli.print);
+        assert_eq!(cli.prompt, vec!["list files".to_string()]);
+        assert!(matches!(cli.output_format, OutputFormat::Json));
+        assert_eq!(cli.model.as_deref(), Some("m:free"));
+    }
+
+    #[test]
+    fn parse_model_flag() {
+        let cli = parse(&["--model", "gpt-4"]);
+        assert_eq!(cli.model.as_deref(), Some("gpt-4"));
+    }
+
+    #[test]
+    fn parse_base_url_flag() {
+        let cli = parse(&["--base-url", "https://x.com/v1"]);
+        assert_eq!(cli.base_url.as_deref(), Some("https://x.com/v1"));
+    }
+
+    #[test]
+    fn parse_add_dir() {
+        let cli = parse(&["--add-dir", "/a", "/b"]);
+        assert_eq!(cli.add_dir.len(), 2);
+    }
+
+    #[test]
+    fn parse_allowed_disallowed() {
+        let cli = parse(&["--allowedTools", "Read", "Bash(git status)", "--disallowedTools", "Write"]);
+        assert_eq!(cli.allowed_tools, vec!["Read", "Bash(git status)"]);
+        assert_eq!(cli.disallowed_tools, vec!["Write"]);
+    }
+
+    #[test]
+    fn parse_bare_skips_settings_flag() {
+        let cli = parse(&["--bare", "-p", "hi"]);
+        assert!(cli.bare);
+        assert!(cli.print);
+    }
+
+    #[test]
+    fn parse_agent_flag() {
+        let cli = parse(&["-p", "--agent", "researcher", "go"]);
+        assert_eq!(cli.agent.as_deref(), Some("researcher"));
+    }
+
+    #[test]
+    fn parse_mcp_get_with_scope() {
+        let cli = parse(&["mcp", "get", "-s", "user", "srv"]);
+        match &cli.subcommand {
+            Some(Commands::Mcp(m)) => match &m.command {
+                McpSubcommand::Get { scope, name } => {
+                    assert_eq!(scope, "user");
+                    assert_eq!(name, "srv");
+                }
+                other => panic!("expected Get, got {:?}", other),
+            },
+            other => panic!("expected Mcp, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parse_mcp_add_json() {
+        let cli = parse(&["mcp", "add-json", "srv", r#"{"command":"x"}"#]);
+        match &cli.subcommand {
+            Some(Commands::Mcp(m)) => match &m.command {
+                McpSubcommand::AddJson { name, json, .. } => {
+                    assert_eq!(name, "srv");
+                    assert!(json.contains("command"));
+                }
+                other => panic!("expected AddJson, got {:?}", other),
+            },
+            other => panic!("expected Mcp, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parse_mcp_add_env_and_header() {
+        let cli = parse(&[
+            "mcp",
+            "add",
+            "--transport",
+            "http",
+            "-e",
+            "K=V",
+            "--header",
+            "Authorization=Bearer x",
+            "srv",
+            "http://localhost:1",
+        ]);
+        match &cli.subcommand {
+            Some(Commands::Mcp(m)) => match &m.command {
+                McpSubcommand::Add {
+                    env, header, name, ..
+                } => {
+                    assert_eq!(env, &vec!["K=V".to_string()]);
+                    assert_eq!(header, &vec!["Authorization=Bearer x".to_string()]);
+                    assert_eq!(name, "srv");
+                }
+                other => panic!("expected Add, got {:?}", other),
+            },
+            other => panic!("expected Mcp, got {:?}", other),
+        }
+    }
+}

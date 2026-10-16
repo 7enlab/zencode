@@ -1,0 +1,69 @@
+name: CI
+on:
+  push:
+    branches: [main, "feat/**"]
+  pull_request:
+  workflow_dispatch:
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+env:
+  CARGO_TERM_COLOR: always
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with: { components: "rustfmt, clippy" }
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all -- --check
+        continue-on-error: true
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace
+  build:
+    needs: check
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, target: x86_64-unknown-linux-musl, zig: true, test: false }
+          - { os: ubuntu-latest, target: aarch64-unknown-linux-musl, zig: true, test: false }
+          - { os: windows-latest, target: x86_64-pc-windows-msvc, zig: false, test: true }
+          - { os: macos-latest, target: aarch64-apple-darwin, zig: false, test: true }
+          - { os: macos-latest, target: x86_64-apple-darwin, zig: false, test: false }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with: { targets: "${{ matrix.target }}" }
+      - uses: Swatinem/rust-cache@v2
+        with: { key: "${{ matrix.target }}" }
+      - if: matrix.zig
+        uses: mlugg/setup-zig@v1
+        with: { version: 0.14.1 }
+      - if: matrix.zig
+        run: cargo install cargo-zigbuild --locked
+      - name: Build
+        shell: bash
+        run: |
+          if [ "${{ matrix.zig }}" = "true" ]; then
+            cargo zigbuild --release -p zen-cli --target ${{ matrix.target }}
+          else
+            cargo build --release -p zen-cli --target ${{ matrix.target }}
+          fi
+      - name: Smoke
+        if: matrix.target != 'aarch64-unknown-linux-musl'
+        shell: bash
+        run: ./target/${{ matrix.target }}/release/zen${{ runner.os == 'Windows' && '.exe' || '' }} --version
+      - name: Test (native runtime)
+        if: matrix.test
+        continue-on-error: true
+        shell: bash
+        run: cargo test --workspace --target ${{ matrix.target }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zen-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/zen${{ runner.os == 'Windows' && '.exe' || '' }}

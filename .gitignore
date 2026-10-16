@@ -1,0 +1,14 @@
+/target
+.pi-logs/
+.seed-step2/
+*.bak*
+SPEC-rea.md
+claude-help.txt
+/PLAN.md
+NOTES*.md
+docs/e2e-runs/
+tools/run-worker*.sh
+tools/pi-models-patch.py*
+proxylog*
+.zen/
+.env*
