@@ -106,6 +106,8 @@ impl zen_core::EventSink for TextSink {
             AgentEvent::SystemMessage { event, text } => {
                 eprintln!("[{} hook] {}", event, text);
             }
+            // AgentEvent is #[non_exhaustive]: a new event kind is not printed in text mode.
+            _ => {}
         }
     }
 }
@@ -139,6 +141,7 @@ impl zen_core::EventSink for CapturingSink {
             AgentEvent::ApiRetry { .. } => {}
             AgentEvent::CompactBoundary { .. } => {}
             AgentEvent::SystemMessage { .. } => {}
+            _ => {}
         }
     }
 }
@@ -361,6 +364,9 @@ impl zen_core::EventSink for StreamJsonSink {
                     "message": text,
                 }));
             }
+            // AgentEvent is #[non_exhaustive]: a variant without a stream-json mapping yet emits
+            // nothing rather than an undocumented record (docs/stream-json-v1.md).
+            _ => {}
         }
     }
 }

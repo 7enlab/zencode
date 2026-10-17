@@ -595,8 +595,9 @@ fn build_repl_config(
 }
 
 fn run_shell(cmd: &str, cwd: &Path, cfg: &crate::settings::ResolvedConfig) {
-    let mut command = std::process::Command::new("bash");
-    command.arg("-c").arg(cmd).current_dir(cwd);
+    let sh = zen_core::resolve_shell("bash");
+    let mut command = std::process::Command::new(&sh.program);
+    command.args(sh.args(cmd)).current_dir(cwd);
     for (k, v) in &cfg.env {
         command.env(k, v);
     }

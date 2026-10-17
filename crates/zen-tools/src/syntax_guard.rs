@@ -49,7 +49,15 @@ pub async fn syntax_error(path: &Path, text: &str) -> Option<String> {
             text,
         )
         .await,
-        Lang::Shell => run_checker("bash", &["-n"], text).await.map(|m| m.replace("bash: ", "")),
+        Lang::Shell => {
+            // Resolved bash (on Windows: Git Bash by full path, never the WSL launcher); no
+            // check when only a non-POSIX fallback shell exists.
+            let sh = zen_core::resolve_shell("bash");
+            if sh.kind != zen_core::ShellKind::Posix {
+                return None;
+            }
+            run_checker(&sh.program, &["-n"], text).await.map(|m| m.replace("bash: ", ""))
+        }
         Lang::JavaScript => {
             // `node --check` needs a file; check a sibling-named temp copy so the module type
             // (.mjs/.cjs) is the same.
