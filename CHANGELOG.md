@@ -28,7 +28,7 @@ First tagged release, so downstream crates (zencode-desktop) can pin a tag inste
   then be added in a minor release without breaking your build.
 
 ### Fixed
-- Windows: the Bash tool, background jobs, hooks and the REPL `!cmd` no longer start the WSL
+- Windows: the Bash tool, background jobs, hooks, the REPL `!cmd` and the shell syntax guard no longer start the WSL
   launcher (`C:\Windows\System32\bash.exe`, "Windows Subsystem for Linux has no installed
   distributions") instead of Git Bash. The shell is now resolved to the full path of the first
   `bash` on PATH outside `%SystemRoot%`, falling back to `%ProgramFiles%\Git\bin\bash.exe`.

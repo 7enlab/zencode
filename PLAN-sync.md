@@ -43,6 +43,13 @@ Same step fails twice → stop, note here, report.
 - Fix (small): resolve the shell to the **full path** found on PATH, skipping the WSL launcher in
   `%SystemRoot%`, with a fallback to Git for Windows' `%ProgramFiles%\Git\bin\bash.exe`; hooks and
   REPL `!cmd` use `resolve_shell` instead of a hard-coded `bash`. Unix unchanged.
+- Verified on PR #4 CI (run 39009809675, Windows job 117329875688): WSL message gone, Windows
+  native tests 416 passed/53 failed → 448/22. `syntax_guard` still spawned bare `bash` (same
+  root cause) → now uses `resolve_shell` too.
+- Remaining Windows failures are test-side, not the WSL root cause: hook unit tests interpolate
+  `C:\...` paths into bash commands (backslashes eaten → file not found), `bash_cd_persists`
+  compares an 8.3 short path with a `\\?\` canonical path, session lookup/resume, MCP e2e, ZEN.md
+  loading. Tracked in a `desktop` issue.
 - Other Windows failures in that job (session path parsing in `session.rs:535`, `lib.rs:242`,
   MCP e2e) are separate and not in scope; left for a follow-up issue if they persist.
 
