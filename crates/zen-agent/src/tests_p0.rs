@@ -274,3 +274,67 @@ async fn p0_4_other_5xx_still_stop_after_four_attempts() {
     assert!(err.contains("HTTP 500"), "{}", err);
     assert_eq!(served.load(Ordering::SeqCst), 4);
 }
+
+// ───────────── p0-6: verify after a successful edit ─────────────
+
+#[cfg(unix)]
+fn verify_cfg(cmd: &str, timeout_secs: u64) -> crate::AgentConfig {
+    crate::AgentConfig {
+        verify_after_edit: Some(cmd.to_string()),
+        verify_after_edit_timeout_secs: timeout_secs,
+        ..base_cfg()
+    }
+}
+
+#[cfg(unix)]
+async fn run_one(tool: &'static str, is_error: bool, cfg: crate::AgentConfig) -> (String, std::path::PathBuf) {
+    let out = if is_error { ToolOutput::err("edit failed") } else { ToolOutput::ok("edited") };
+    let tools = registry_with(vec![Arc::new(FakeTool { name: tool, read_only: false, output: out })]);
+    let llm = MockLlm::new(vec![resp_tool(tool, "{}", "e1"), resp("done")]);
+    let (mut agent, _s, _h) = build_agent(llm, tools, FakePerms::new(PermissionDecision::Allow), cfg);
+    let cwd = agent.ctx.cwd();
+    agent.run_turn("go").await;
+    (tool_results(&agent)[0].1.clone(), cwd)
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn p0_6_failing_verify_after_edit_is_appended_with_a_40_line_tail() {
+    let (content, _) = run_one("Edit", false, verify_cfg("seq 1 100; exit 3", 60)).await;
+    assert!(content.starts_with("edited"), "{}", content);
+    assert!(content.contains("verify `seq 1 100; exit 3` failed (exit 3)"), "{}", content);
+    let tail: Vec<&str> = content
+        .lines()
+        .map(|l| l.trim_end_matches(']'))
+        .filter(|l| !l.is_empty() && l.chars().all(|c| c.is_ascii_digit()))
+        .collect();
+    assert_eq!(tail.len(), 40, "{}", content);
+    assert_eq!(tail.first(), Some(&"61"));
+    assert_eq!(tail.last(), Some(&"100"));
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn p0_6_verify_runs_only_after_successful_file_changes() {
+    // Passing check: no note.
+    let (content, _) = run_one("Write", false, verify_cfg("true", 60)).await;
+    assert_eq!(content, "edited");
+    // Failed edit or a non-edit tool: the command never runs (it would create a marker).
+    for (tool, is_error) in [("Edit", true), ("Bash", false)] {
+        let (content, cwd) = run_one(tool, is_error, verify_cfg("touch verify-ran", 60)).await;
+        assert!(!cwd.join("verify-ran").exists(), "{} ran verify: {}", tool, content);
+    }
+    // Default config: off.
+    let (content, cwd) = run_one("Edit", false, base_cfg()).await;
+    assert_eq!(content, "edited");
+    assert!(!cwd.join("verify-ran").exists());
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn p0_6_verify_after_edit_times_out() {
+    let t0 = Instant::now();
+    let (content, _) = run_one("Edit", false, verify_cfg("sleep 5", 1)).await;
+    assert!(content.contains("timed out after 1s"), "{}", content);
+    assert!(t0.elapsed() < Duration::from_secs(4));
+}

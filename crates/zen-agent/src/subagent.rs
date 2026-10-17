@@ -192,6 +192,9 @@ impl SubAgentRunner for SubAgentExecutor {
             verify_reminder: false,
             verify_command: None,
             verify_timeout_secs: self.base_config.verify_timeout_secs,
+            // Per-edit checks are cheap feedback on the sub-agent's own edits: inherit them.
+            verify_after_edit: self.base_config.verify_after_edit.clone(),
+            verify_after_edit_timeout_secs: self.base_config.verify_after_edit_timeout_secs,
         };
 
         let mut agent = Agent::new(

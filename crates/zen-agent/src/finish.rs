@@ -107,8 +107,8 @@ impl FinishGate {
     }
 }
 
-/// Run `cmd` through `sh -c`; returns (passed, status text, output tail).
-async fn run_command(
+/// Run `cmd` through `sh -c`; returns (passed, status text, output tail of at most 40 lines).
+pub(crate) async fn run_command(
     cmd: &str,
     cwd: &Path,
     env: &std::collections::HashMap<String, String>,

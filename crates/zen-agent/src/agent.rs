@@ -83,6 +83,11 @@ pub struct AgentConfig {
     pub verify_command: Option<String>,
     /// Timeout for `verify_command`.
     pub verify_timeout_secs: u64,
+    /// Command run after every successful Edit/MultiEdit/Write (settings `verify.afterEdit`,
+    /// off by default); a failure's output tail is appended to that tool result (perf p0).
+    pub verify_after_edit: Option<String>,
+    /// Timeout for `verify_after_edit` (default 60 s).
+    pub verify_after_edit_timeout_secs: u64,
 }
 
 impl Default for AgentConfig {
@@ -100,6 +105,8 @@ impl Default for AgentConfig {
             verify_reminder: false,
             verify_command: None,
             verify_timeout_secs: 300,
+            verify_after_edit: None,
+            verify_after_edit_timeout_secs: 60,
         }
     }
 }
@@ -874,7 +881,16 @@ impl Agent {
                 out.content.push_str(&fb);
             }
         }
+        let verify = self.verify_after_edit(&tool_name, out.is_error).await;
+        if let Some(Some(note)) = &verify {
+            out.content.push_str("\n\n");
+            out.content.push_str(note);
+        }
         finish_gate.observe(&tool_name, args.get("file_path").and_then(|v| v.as_str()), out.is_error);
+        if verify.is_some() {
+            // The harness just checked this change; no "run your checks" reminder for it.
+            finish_gate.observe("Bash", None, false);
+        }
         if let Some(note) = turn_guard.observe(&tool_name, &args, &out) {
             out.content.push_str("\n\n");
             out.content.push_str(&note);
@@ -895,6 +911,24 @@ impl Agent {
         } else {
             None
         }
+    }
+
+    /// Run `verify_after_edit` after a successful file change. `None` when it did not run,
+    /// `Some(None)` when it passed, `Some(Some(note))` when it failed.
+    async fn verify_after_edit(&self, tool_name: &str, is_error: bool) -> Option<Option<String>> {
+        let cmd = self.config.verify_after_edit.as_deref()?;
+        if is_error || !matches!(tool_name, "Edit" | "MultiEdit" | "Write") {
+            return None;
+        }
+        let timeout = std::time::Duration::from_secs(self.config.verify_after_edit_timeout_secs.max(1));
+        let (passed, status, tail) = finish::run_command(cmd, &self.ctx.cwd(), &self.ctx.env, timeout).await;
+        if passed {
+            return Some(None);
+        }
+        Some(Some(format!(
+            "[zen: verify `{}` failed ({}) after this change. Last lines of output:\n{}]",
+            cmd, status, tail
+        )))
     }
 
     /// Every [`guard::TODO_REINJECT_EVERY`] model calls, append the non-empty todo list to the

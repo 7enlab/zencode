@@ -414,7 +414,8 @@ fn base_agent_config(cfg: &ResolvedConfig, cli: &Cli, system_prompt: &str) -> ze
 
 /// Settings `verify` → the agent's check-before-finish gate (r7).
 ///
-/// `{"verify": {"enabled": true|false, "command": "cargo test -q", "timeoutSecs": 300}}`.
+/// `{"verify": {"enabled": true|false, "command": "cargo test -q", "timeoutSecs": 300,
+///   "afterEdit": true | "cargo check -q", "afterEditTimeoutSecs": 60}}`.
 /// The one-time reminder is on by default in the REPL; in headless `-p` runs it is on only when
 /// a `verify` object is configured, so scripted runs stay exactly as they were. `enabled: false`
 /// turns both the reminder and the command off.
@@ -424,7 +425,20 @@ pub fn apply_verify_settings(config: &mut zen_agent::AgentConfig, cfg: &Resolved
     if enabled == Some(false) {
         config.verify_reminder = false;
         config.verify_command = None;
+        config.verify_after_edit = None;
         return;
+    }
+    // `afterEdit`: `true` reuses `command`, a string is its own command; off when absent (p0).
+    config.verify_after_edit = match v.and_then(|v| v.get("afterEdit")) {
+        Some(serde_json::Value::Bool(true)) => v.and_then(|v| v.get("command")).and_then(|c| c.as_str()),
+        Some(serde_json::Value::String(c)) => Some(c.as_str()),
+        _ => None,
+    }
+    .map(str::trim)
+    .filter(|c| !c.is_empty())
+    .map(String::from);
+    if let Some(t) = v.and_then(|v| v.get("afterEditTimeoutSecs")).and_then(|t| t.as_u64()) {
+        config.verify_after_edit_timeout_secs = t.max(1);
     }
     config.verify_reminder = interactive || v.is_some();
     config.verify_command = v
