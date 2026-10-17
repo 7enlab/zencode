@@ -7,9 +7,12 @@
 mod common;
 
 use common::*;
+#[cfg(unix)]
 use std::path::Path;
+#[cfg(unix)]
 use std::time::{Duration, Instant};
 
+#[cfg(unix)]
 fn wait_for_file(p: &Path, limit: Duration) -> String {
     let start = Instant::now();
     loop {
@@ -23,6 +26,7 @@ fn wait_for_file(p: &Path, limit: Duration) -> String {
     }
 }
 
+#[cfg(unix)]
 fn wait_exit(child: &mut std::process::Child, limit: Duration) -> std::process::ExitStatus {
     let start = Instant::now();
     loop {
@@ -37,17 +41,21 @@ fn wait_exit(child: &mut std::process::Child, limit: Duration) -> std::process::
     }
 }
 
-/// Alive = /proc entry exists and is not a zombie (a reparented child may linger as Z).
-fn alive(pid: &str) -> bool {
-    match std::fs::read_to_string(format!("/proc/{}/stat", pid)) {
-        Ok(stat) => {
-            let after = &stat[stat.rfind(')').unwrap() + 1..];
-            after.split_whitespace().next() != Some("Z")
-        }
-        Err(_) => false,
-    }
+/// `ps` state of a pid (Linux and macOS; macOS has no /proc). None = no such process.
+#[cfg(unix)]
+fn ps_stat(pid: &str) -> Option<String> {
+    let o = std::process::Command::new("ps").args(["-o", "stat=", "-p", pid]).output().ok()?;
+    let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
+    (o.status.success() && !s.is_empty()).then_some(s)
 }
 
+/// Alive = the process exists and is not a zombie (a reparented child may linger as Z).
+#[cfg(unix)]
+fn alive(pid: &str) -> bool {
+    ps_stat(pid).is_some_and(|s| !s.starts_with('Z'))
+}
+
+#[cfg(unix)]
 async fn start_sleeping_run(tag: &str, signal: &str) -> (std::process::ExitStatus, String, TempDir) {
     let home = TempDir::new(&format!("{}_home", tag));
     let cwd = TempDir::new(&format!("{}_cwd", tag));
@@ -114,7 +122,7 @@ async fn start_sleeping_run(tag: &str, signal: &str) -> (std::process::ExitStatu
         signal,
         status,
         stdout,
-        std::fs::read_to_string(format!("/proc/{}/stat", sleep_pid))
+        ps_stat(&sleep_pid)
     );
     let end = wait_for_file(&end_file, Duration::from_secs(5));
     let end: serde_json::Value = serde_json::from_str(&end).unwrap();
@@ -122,6 +130,7 @@ async fn start_sleeping_run(tag: &str, signal: &str) -> (std::process::ExitStatu
     (status, stdout, cwd)
 }
 
+#[cfg(unix)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn c8_9_sigterm_exits_143_kills_bash_and_runs_session_end() {
     let (status, stdout, _cwd) = start_sleeping_run("sigterm", "-TERM").await;
@@ -129,6 +138,7 @@ async fn c8_9_sigterm_exits_143_kills_bash_and_runs_session_end() {
     assert!(stdout.trim().is_empty(), "SIGTERM prints no result: {}", stdout);
 }
 
+#[cfg(unix)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn c8_9_sigint_ends_turn_with_error_result() {
     let (status, stdout, _cwd) = start_sleeping_run("sigint", "-INT").await;

@@ -496,7 +496,9 @@ mod tests {
         assert!(all.iter().all(|c| c.name != "bg"), "user-invocable:false skill hides /bg (and shadows the command)");
         let c = ctx(&proj);
         let (_, text) = expand_slash_prompt("/deploy prod", &proj, Some(&home), &c).unwrap();
-        assert_eq!(text.trim(), format!("SKILL deploy prod from {}", proj.join(".zen/skills/deploy").display()));
+        // Separator-independent (Windows renders the joined path with `\`).
+        let want = format!("SKILL deploy prod from {}", proj.join(".zen/skills/deploy").display());
+        assert_eq!(text.trim().replace('\\', "/"), want.replace('\\', "/"));
         // Hidden-from-model skills are still /-invocable.
         write(
             &proj.join(".zen/skills/manual/SKILL.md"),

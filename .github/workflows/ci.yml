@@ -1,7 +1,7 @@
 name: CI
 on:
   push:
-    branches: [main, "feat/**"]
+    branches: [main, "feat/**", "fix/**"]
   pull_request:
   workflow_dispatch:
 concurrency:
@@ -41,11 +41,11 @@ jobs:
         with: { targets: "${{ matrix.target }}" }
       - uses: Swatinem/rust-cache@v2
         with: { key: "${{ matrix.target }}" }
+      # Zig from PyPI (setup-zig mirrors were 404/timeout); cargo-zigbuild finds `python3 -m ziglang`.
       - if: matrix.zig
-        uses: mlugg/setup-zig@v1
-        with: { version: 0.14.1 }
-      - if: matrix.zig
-        run: cargo install cargo-zigbuild --locked
+        run: |
+          pip3 install --user --break-system-packages ziglang
+          cargo install cargo-zigbuild --locked
       - name: Build
         shell: bash
         run: |
@@ -62,7 +62,7 @@ jobs:
         if: matrix.test
         continue-on-error: true
         shell: bash
-        run: cargo test --workspace --target ${{ matrix.target }}
+        run: cargo test --workspace --no-fail-fast --target ${{ matrix.target }}
       - uses: actions/upload-artifact@v4
         with:
           name: zen-${{ matrix.target }}

@@ -432,7 +432,8 @@ mod tests {
         let ctx = ToolContext::new(proj.clone(), "s1");
         let out = tool.call(serde_json::json!({"name": "s"}), &ctx).await;
         let dir = proj.join(".zen/skills/s").display().to_string();
-        assert!(out.content.contains(&format!("run {}/x.sh", dir)), "{}", out.content);
+        let norm = |s: &str| s.replace('\\', "/");
+        assert!(norm(&out.content).contains(&norm(&format!("run {}/x.sh", dir))), "{}", out.content);
     }
 
     #[tokio::test]

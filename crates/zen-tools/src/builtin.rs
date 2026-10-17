@@ -1698,15 +1698,15 @@ mod tests {
             0,
             Some("*.rs"),
             100,
-        );
+        ).replace('\\', "/");
         assert!(files.contains("src/a.rs"), "{}", files);
         assert!(!files.contains("src/c.txt"), "{}", files);
         assert!(!files.contains("src/b.rs"), "{}", files);
 
-        let content = search_builtin(&dir, &dir, &re, "content", true, 0, 0, None, 100);
+        let content = search_builtin(&dir, &dir, &re, "content", true, 0, 0, None, 100).replace('\\', "/");
         assert!(content.contains("src/a.rs:1:fn alpha() {}"), "{}", content);
 
-        let counts = search_builtin(&dir, &dir, &re, "count", false, 0, 0, None, 100);
+        let counts = search_builtin(&dir, &dir, &re, "count", false, 0, 0, None, 100).replace('\\', "/");
         assert!(counts.contains("src/a.rs:1"), "{}", counts);
         assert!(counts.contains("src/c.txt:1"), "{}", counts);
 
