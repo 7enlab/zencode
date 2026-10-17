@@ -70,6 +70,7 @@ pub async fn run_repl(cli: &Cli, cwd: &Path, home: Option<&Path>) -> Result<()> 
         },
         config,
     );
+    agent.journal = assembly.recorder.clone().map(|r| r as Arc<dyn zen_core::ToolJournal>);
 
     // SessionStart hooks (C3.2/C3.11): their context goes in ahead of the first prompt.
     repl_session_start(&mut agent, &session_id, cwd, &cfg, "startup").await;
@@ -496,13 +497,18 @@ async fn handle_slash(
                             .and_then(|s| s.to_str())
                             .unwrap_or_default()
                             .to_string();
-                        let history = crate::session::load_history(&path)?;
-                        agent.set_messages(history);
+                        let (committed, history) = crate::eventlog::resume_history(&path)?;
                         agent.ctx.session_dir = Some(crate::session::session_scratch_dir(&path));
                         if let Some(r) = &repl.recorder {
                             r.set_path(path.clone());
                         }
                         *repl.writer = crate::session::TranscriptWriter::new(path, &id, cwd);
+                        if history != committed {
+                            if let Err(e) = repl.writer.persist_turn(&committed, &history) {
+                                eprintln!("warning: could not write transcript: {}", e);
+                            }
+                        }
+                        agent.set_messages(history);
                         *repl.session_id = id.clone();
                         agent.ctx.session_id = id.clone();
                         println!("resumed session {} ({} messages)", id, agent.messages().len());

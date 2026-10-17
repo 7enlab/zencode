@@ -591,6 +591,7 @@ pub async fn run_agent_headless(
         ctx,
         config,
     );
+    agent.journal = assembly.recorder.clone().map(|r| r as Arc<dyn zen_core::ToolJournal>);
 
     // Resuming / forking: replay the source transcript so the model sees prior context
     // (SPEC C9.2/C9.3). For `--fork-session` the source differs from `transcript_path`; the
@@ -599,11 +600,14 @@ pub async fn run_agent_headless(
     let mut writer = transcript_path
         .map(|p| crate::session::TranscriptWriter::new(p.to_path_buf(), session_id, cwd));
     if let Some(src) = history_from {
-        let history = crate::session::load_history(src)?;
+        // A turn that died mid-tool comes back with the tool results it already had.
+        let (committed, history) = crate::eventlog::resume_history(src)?;
         if !history.is_empty() {
-            if transcript_path != Some(src) {
-                if let Some(w) = writer.as_mut() {
+            if let Some(w) = writer.as_mut() {
+                if transcript_path != Some(src) {
                     w.persist_turn(&[], &history)?;
+                } else if history != committed {
+                    w.persist_turn(&committed, &history)?;
                 }
             }
             agent.set_messages(history);

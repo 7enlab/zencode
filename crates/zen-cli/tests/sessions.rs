@@ -378,3 +378,77 @@ fn walk_find(root: &std::path::Path, name: &str) -> Option<std::path::PathBuf> {
     }
     None
 }
+
+/// Durable tool results: a run is SIGKILLed while the second of two tool calls runs. The first
+/// result was already in the session file, so `--resume` sends it to the model (and marks the
+/// second call interrupted) instead of losing the whole turn.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn dtr_killed_mid_turn_resume_keeps_finished_tool_result() {
+    let home = TempDir::new("dtr_home");
+    let cwd = TempDir::new("dtr_cwd");
+    let id = "00000000-0000-4000-8000-0000000000d7";
+    let pid_file = cwd.path().join("sleep.pid");
+    let call = |id: &str, cmd: &str| {
+        serde_json::json!({
+            "id": id,
+            "type": "function",
+            "function": {"name": "Bash", "arguments": serde_json::json!({"command": cmd}).to_string()}
+        })
+    };
+    let slow = format!("sleep 20 & echo $! > '{}'; wait", pid_file.display());
+    let server = MockServer::start(vec![Reply::with_tool_calls(
+        "",
+        Some(serde_json::json!([call("call_1", "echo first-done-d7"), call("call_2", &slow)])),
+    )])
+    .await;
+    let flags = ["-p", "--output-format", "json", "--bare", "--setting-sources", "", "--permission-mode", "bypassPermissions"];
+    let mut child = ZenRun::new("dtr_1", &home, &cwd)
+        .args(flags)
+        .args(["--session-id", id])
+        .mock("mock-model", &server)
+        .arg("run both")
+        .spawn();
+    let start = std::time::Instant::now();
+    let sleep_pid = loop {
+        if let Ok(s) = fs::read_to_string(&pid_file) {
+            if !s.trim().is_empty() {
+                break s.trim().to_string();
+            }
+        }
+        assert!(start.elapsed() < std::time::Duration::from_secs(20), "second tool never started");
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    };
+    child.kill().unwrap(); // SIGKILL: no handler runs, nothing is persisted at turn end
+    let _ = child.wait();
+    let _ = std::process::Command::new("kill").args(["-9", &sleep_pid]).status();
+
+    let file = walk_find(&home.path().join(".zen"), &format!("{id}.jsonl")).expect("session file");
+    assert!(zen_cli::session::load_messages(&file).unwrap().is_empty(), "the turn itself was never persisted");
+
+    let server2 = MockServer::start(vec![Reply::text("resumed")]).await;
+    let (_, stderr, code) = tokio::time::timeout(TEST_TIMEOUT, async {
+        ZenRun::new("dtr_2", &home, &cwd)
+            .args(flags)
+            .args(["--resume", id])
+            .mock("mock-model", &server2)
+            .arg("go on")
+            .run_output()
+    })
+    .await
+    .expect("timed out");
+    assert_eq!(code, 0, "{stderr}");
+    let requests = server2.requests().await;
+    let msgs = request_messages(&requests[0]);
+    let tool_msgs: Vec<&serde_json::Value> = msgs.iter().filter(|m| m["role"] == "tool").collect();
+    assert_eq!(tool_msgs.len(), 2, "{msgs:#?}");
+    assert_eq!(tool_msgs[0]["tool_call_id"], "call_1");
+    assert!(tool_msgs[0]["content"].as_str().unwrap().contains("first-done-d7"), "{msgs:#?}");
+    assert!(tool_msgs[1]["content"].as_str().unwrap().contains("interrupted"), "{msgs:#?}");
+    // The recovered turn is now ordinary history: prompt, tool calls, 2 results, then this turn.
+    assert_eq!(zen_cli::session::load_messages(&file).unwrap().len(), 6);
+    // Both runs' requests still rebuild byte-identically from the session file.
+    let rebuilt = zen_cli::eventlog::rebuild_requests(&file).unwrap();
+    assert_eq!(rebuilt.len(), 2);
+    assert_eq!(rebuilt[1].1.as_bytes(), requests[0].split("\r\n\r\n").nth(1).unwrap().as_bytes());
+}

@@ -188,6 +188,10 @@ pub struct Agent {
     /// Model calls since the todo list was last in front of the model (TodoWrite, a
     /// re-injection, or compaction reset it).
     pub model_calls_since_todo: usize,
+    /// Durable per-turn log (assistant message, each tool result as soon as it exists) so an
+    /// interrupted turn can be resumed with its finished tool results. None = not journaled
+    /// (sub-agents, tests, unsaved sessions).
+    pub journal: Option<Arc<dyn ToolJournal>>,
 }
 
 impl Agent {
@@ -219,6 +223,7 @@ impl Agent {
             last_prompt_tokens: 0,
             stop_hook_max_continues: DEFAULT_STOP_HOOK_CONTINUES,
             model_calls_since_todo: 0,
+            journal: None,
         }
     }
 
@@ -335,6 +340,13 @@ impl Agent {
             is_error,
             parent_tool_use_id: self.parent_tool_use_id.clone(),
         });
+    }
+
+    /// Record a tool result in the turn journal (no-op without one).
+    fn journal_result(&self, tool_use_id: &str, content: &str, is_error: bool, final_result: bool) {
+        if let Some(j) = &self.journal {
+            j.tool_result(tool_use_id, content, is_error, final_result);
+        }
     }
 
     /// In plan mode, the turn's result is the model's plan text: the assistant content since the
@@ -516,6 +528,9 @@ impl Agent {
                 self.messages.pop();
                 self.messages.push(ChatMessage::user(EMPTY_REPLY_NUDGE));
                 continue;
+            }
+            if let Some(j) = &self.journal {
+                j.assistant(assistant);
             }
 
             if tool_calls.is_empty() {
@@ -840,7 +855,16 @@ impl Agent {
                         let args = p.args.clone();
                         let ctx = self.call_ctx(&p.tool_use_id, &p.tool_name);
                         let timeout = self.config.tool_timeout_ms(&p.tool_name);
-                        Some(tokio::spawn(run_tool(tool, args, ctx, timeout)))
+                        let journal = self.journal.clone();
+                        let id = p.tool_use_id.clone();
+                        Some(tokio::spawn(async move {
+                            let out = run_tool(tool, args, ctx, timeout).await;
+                            // Durable the moment this call finishes, not when the batch does.
+                            if let Some(j) = journal {
+                                j.tool_result(&id, &out.content, out.is_error, false);
+                            }
+                            out
+                        }))
                     }
                     _ => None,
                 });
@@ -859,16 +883,19 @@ impl Agent {
         for (i, slot) in slots.into_iter().enumerate() {
             match slot {
                 Slot::Done(id, content, is_error) => {
+                    self.journal_result(&id, &content, is_error, true);
                     self.emit_tool_result(&id, &content, is_error);
                     self.messages.push(ChatMessage::tool(id, content));
                 }
                 Slot::Stop(id, content, _) => {
+                    self.journal_result(&id, &content, true, true);
                     self.emit_tool_result(&id, &content, true);
                     self.messages.push(ChatMessage::tool(id, content));
                 }
                 Slot::Run(p) => {
                     if skip {
                         let content = "[tool call skipped: run stopping]".to_string();
+                        self.journal_result(&p.tool_use_id, &content, false, true);
                         self.emit_tool_result(&p.tool_use_id, &content, false);
                         self.messages.push(ChatMessage::tool(p.tool_use_id, content));
                         continue;
@@ -878,7 +905,9 @@ impl Agent {
                         None => {
                             let ctx = self.call_ctx(&p.tool_use_id, &p.tool_name);
                             let timeout = self.config.tool_timeout_ms(&p.tool_name);
-                            run_tool(p.tool.clone(), p.args.clone(), ctx, timeout).await
+                            let out = run_tool(p.tool.clone(), p.args.clone(), ctx, timeout).await;
+                            self.journal_result(&p.tool_use_id, &out.content, out.is_error, false);
+                            out
                         }
                     };
                     if let Some(reason) = self.finish_call(p, out, finish_gate, turn_guard, final_text).await {
@@ -901,6 +930,8 @@ impl Agent {
         final_text: &str,
     ) -> Option<String> {
         let PendingCall { tool_use_id, tool_name, args, repair_notes, .. } = p;
+        // The raw output is already journaled; journal again only if the model will see more.
+        let raw = (self.journal.is_some()).then(|| out.content.clone());
         // 4. PostToolUse (or PostToolUseFailure when the tool reported an error).
         let post_event = if out.is_error {
             HookEvent::PostToolUseFailure
@@ -950,6 +981,9 @@ impl Agent {
                 "\n[zen: your tool call was repaired before running: {}. Send well-formed calls next time.]",
                 repair_notes.join("; ")
             ));
+        }
+        if raw.as_deref() != Some(out.content.as_str()) {
+            self.journal_result(&tool_use_id, &out.content, out.is_error, true);
         }
         self.emit_tool_result(&tool_use_id, &out.content, out.is_error);
         self.messages.push(ChatMessage::tool(tool_use_id, out.content));
