@@ -43,6 +43,9 @@ pub struct AgentAssembly {
     /// run's real sink is created after assembly; [`ForwardSink::set`] points it there so
     /// sub-agent messages reach stream-json with their `parent_tool_use_id` (SPEC C6.4).
     pub subagent_sink: Arc<ForwardSink>,
+    /// Records every model request/response into the session file (p0b); None when the session
+    /// is not persisted.
+    pub recorder: Option<Arc<crate::eventlog::Recorder>>,
 }
 
 /// An [`EventSink`] whose target can be set after construction (no-op until then).
@@ -150,6 +153,9 @@ pub async fn assemble(
     session_id: &str,
     transcript_path: Option<&Path>,
 ) -> Result<AgentAssembly> {
+    // ── session event log (p0b): shared by the main agent and sub-agents ──
+    let recorder = transcript_path.map(|p| crate::eventlog::Recorder::new(p.to_path_buf()));
+
     // ── tools ────────────────────────────────────────────────────────────
     let mut registry = ToolRegistry::new();
     let all_builtins = zen_tools::builtin_tools();
@@ -280,7 +286,7 @@ pub async fn assemble(
         // Forwarding sink: the run's real sink is attached once it exists (C6.4).
         let fwd: Arc<dyn EventSink> = subagent_sink.clone();
         let executor = zen_agent::SubAgentExecutor::new(
-            Arc::new(cfg.llm_client(fwd.clone())),
+            crate::eventlog::wrap(Arc::new(cfg.llm_client(fwd.clone())), recorder.as_ref()),
             registry.clone(),
             assembly_permissions.clone(),
             hooks.clone(),
@@ -310,6 +316,7 @@ pub async fn assemble(
         skills,
         agent_system_prompt,
         subagent_sink,
+        recorder,
     })
 }
 
@@ -554,7 +561,7 @@ pub async fn run_agent_headless(
     };
     assembly.subagent_sink.set(sink.clone());
 
-    let llm = Arc::new(cfg.llm_client(sink.clone()));
+    let llm = crate::eventlog::wrap(Arc::new(cfg.llm_client(sink.clone())), assembly.recorder.as_ref());
 
     let mut config = base_agent_config(cfg, cli, system_prompt);
     config.model = effective_model.clone();

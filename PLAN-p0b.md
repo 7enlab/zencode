@@ -43,7 +43,7 @@ Gate after every item: `cargo test --workspace --no-fail-fast` and
   file and compares bytes; an old-format session (no request records) still loads the same history.
 
 ## Status
-- [x] 1 (452 pass, clippy clean)  - [x] 2 (461 pass, clippy clean)  - [ ] 3  - [ ] CI green on feat/p0b
+- [x] 1 (452 pass, clippy clean)  - [x] 2 (461 pass, clippy clean)  - [x] 3 (465 pass, clippy clean)  - [ ] CI green on feat/p0b
 
 ## Failures log
 (none yet)

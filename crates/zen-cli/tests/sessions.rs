@@ -328,3 +328,53 @@ async fn c9_3_usage_accumulates_across_resume() {
     assert_eq!(c2, 0, "{}", e2);
     assert_eq!(last_result(&o2)["usage"], serde_json::json!({"input_tokens": 14, "output_tokens": 6}));
 }
+
+/// p0b 3: the session file is a complete event log. Two real runs (the second resumes the
+/// first) against the mock server; the last request is rebuilt from the session file alone and
+/// must equal, byte for byte, the body the server received.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn p0b_3_session_file_rebuilds_last_request_byte_identical() {
+    let home = TempDir::new("p0b3_home");
+    let cwd = TempDir::new("p0b3_cwd");
+    let id = "00000000-0000-4000-8000-0000000000b3";
+    let server = MockServer::start(vec![Reply::text("reply one"), Reply::text("reply two")]).await;
+    for (i, (flag, prompt)) in [("--session-id", "first prompt"), ("--resume", "second prompt")].iter().enumerate() {
+        let (_, stderr, code) = tokio::time::timeout(TEST_TIMEOUT, async {
+            ZenRun::new(&format!("p0b3_{i}"), &home, &cwd)
+                .args(["-p", "--output-format", "json", "--bare", "--setting-sources", "", flag, id])
+                .mock("mock-model", &server)
+                .arg(*prompt)
+                .run_output()
+        })
+        .await
+        .expect("timed out");
+        assert_eq!(code, 0, "{stderr}");
+    }
+    let requests = server.requests().await;
+    assert_eq!(requests.len(), 2);
+    let sent_body = requests[1].split("\r\n\r\n").nth(1).unwrap().to_string();
+
+    let file = walk_find(&home.path().join(".zen"), &format!("{id}.jsonl")).expect("session file");
+    let rebuilt = zen_cli::eventlog::rebuild_requests(&file).unwrap();
+    assert_eq!(rebuilt.len(), 2, "one request record per model call");
+    assert_eq!(rebuilt[0].1, requests[0].split("\r\n\r\n").nth(1).unwrap());
+    assert_eq!(rebuilt[1].1.as_bytes(), sent_body.as_bytes());
+    assert_eq!(rebuilt[1].0, 1, "resumed run continues the seq");
+    // Reading the history back (resume) is unaffected by the new records.
+    let history = zen_cli::session::load_messages(&file).unwrap();
+    assert_eq!(history.len(), 4);
+}
+
+fn walk_find(root: &std::path::Path, name: &str) -> Option<std::path::PathBuf> {
+    for e in fs::read_dir(root).ok()?.flatten() {
+        let p = e.path();
+        if p.is_dir() {
+            if let Some(f) = walk_find(&p, name) {
+                return Some(f);
+            }
+        } else if p.file_name().map(|n| n == name).unwrap_or(false) {
+            return Some(p);
+        }
+    }
+    None
+}

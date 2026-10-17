@@ -6,6 +6,7 @@ pub mod agent_run;
 pub mod cli;
 pub mod commands;
 pub mod envsnap;
+pub mod eventlog;
 pub mod git;
 pub mod output;
 pub mod repl;

@@ -51,7 +51,7 @@ pub async fn run_repl(cli: &Cli, cwd: &Path, home: Option<&Path>) -> Result<()> 
     )
     .await?;
 
-    let llm = Arc::new(cfg.llm_client(Arc::new(zen_core::NullSink)));
+    let llm = crate::eventlog::wrap(Arc::new(cfg.llm_client(Arc::new(zen_core::NullSink))), assembly.recorder.as_ref());
 
     let mut config = build_repl_config(cli, &cfg, cwd);
     let _ = &mut config;
@@ -81,6 +81,7 @@ pub async fn run_repl(cli: &Cli, cwd: &Path, home: Option<&Path>) -> Result<()> 
         writer: &mut writer,
         mcp_status: assembly.mcp_status.clone(),
         interrupts: interrupts.as_mut(),
+        recorder: assembly.recorder.clone(),
     };
 
     loop {
@@ -136,6 +137,8 @@ struct ReplState<'a> {
     writer: &'a mut crate::session::TranscriptWriter,
     mcp_status: Vec<(String, String)>,
     interrupts: Option<&'a mut ReplInterrupts>,
+    /// Session event log (p0b); re-pointed when /clear or /resume switches the transcript.
+    recorder: Option<Arc<crate::eventlog::Recorder>>,
 }
 
 /// SIGINT handling for the REPL. A background task owns the signal stream: during a turn it
@@ -301,6 +304,9 @@ async fn handle_slash(
             let new_id = crate::session::new_session_id();
             let path = repl.writer.path.with_file_name(format!("{}.jsonl", new_id));
             agent.ctx.session_dir = Some(crate::session::session_scratch_dir(&path));
+            if let Some(r) = &repl.recorder {
+                r.set_path(path.clone());
+            }
             *repl.writer = crate::session::TranscriptWriter::new(path, &new_id, cwd);
             *repl.session_id = new_id.clone();
             agent.ctx.session_id = new_id.clone();
@@ -493,6 +499,9 @@ async fn handle_slash(
                         let history = crate::session::load_history(&path)?;
                         agent.set_messages(history);
                         agent.ctx.session_dir = Some(crate::session::session_scratch_dir(&path));
+                        if let Some(r) = &repl.recorder {
+                            r.set_path(path.clone());
+                        }
                         *repl.writer = crate::session::TranscriptWriter::new(path, &id, cwd);
                         *repl.session_id = id.clone();
                         agent.ctx.session_id = id.clone();
