@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 // ───────────────────────────── chat wire types (OpenAI-compatible) ─────────────────────────────
@@ -405,7 +405,11 @@ impl HookRunner for NoHooks {
 // ───────────────────────────── events (stream-json / REPL rendering) ─────────────────────────────
 
 /// Everything the agent loop reports. zen-cli turns these into stream-json lines or REPL output.
+///
+/// `#[non_exhaustive]`: new variants can be added in a minor release, so code outside zen-core
+/// that matches on it needs a wildcard (`_ =>`) arm.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum AgentEvent {
     /// Assistant message (text and/or tool calls). parent = Task tool_call id for sub-agents.
     Assistant { message: ChatMessage, parent_tool_use_id: Option<String> },
@@ -640,10 +644,46 @@ pub fn pick_shell(
 
 /// True when `name` (plus `.exe` on Windows) is a file in some PATH directory.
 pub fn program_on_path(name: &str) -> bool {
-    let Some(path) = std::env::var_os("PATH") else { return false };
-    std::env::split_paths(&path).any(|dir| {
-        dir.join(name).is_file() || (cfg!(windows) && dir.join(format!("{}.exe", name)).is_file())
-    })
+    find_program(name).is_some()
+}
+
+/// Full path of `name` (plus `.exe` on Windows) in the first PATH directory that has it.
+///
+/// On Windows a POSIX shell (`bash`/`sh`) inside `%SystemRoot%` is skipped: that is the WSL
+/// launcher, which fails with "no installed distributions" on machines without WSL. When no other
+/// one is on PATH, Git for Windows' `%ProgramFiles%\Git\bin\<name>.exe` is used if it exists.
+pub fn find_program(name: &str) -> Option<PathBuf> {
+    let system_root = std::env::var("SystemRoot").or_else(|_| std::env::var("WINDIR")).ok();
+    let found = std::env::var_os("PATH").and_then(|path| {
+        std::env::split_paths(&path).find_map(|dir| {
+            let mut cands = vec![dir.join(name)];
+            if cfg!(windows) {
+                cands.insert(0, dir.join(format!("{}.exe", name)));
+            }
+            cands.into_iter().find(|p| {
+                p.is_file() && !(cfg!(windows) && is_wsl_launcher(p, system_root.as_deref()))
+            })
+        })
+    });
+    if found.is_some() || !cfg!(windows) || !matches!(name, "bash" | "sh") {
+        return found;
+    }
+    ["ProgramFiles", "ProgramW6432"]
+        .iter()
+        .filter_map(|k| std::env::var(k).ok())
+        .map(|pf| PathBuf::from(pf).join("Git").join("bin").join(format!("{}.exe", name)))
+        .find(|p| p.is_file())
+}
+
+/// True for a `bash`/`sh` executable under the Windows directory (the WSL launcher shim).
+/// Compared case-insensitively on both separators so the check is testable on any host.
+pub fn is_wsl_launcher(path: &Path, system_root: Option<&str>) -> bool {
+    let Some(root) = system_root.map(str::trim).filter(|r| !r.is_empty()) else { return false };
+    let norm = |s: &str| s.replace('/', "\\").trim_end_matches('\\').to_ascii_lowercase();
+    let p = norm(&path.to_string_lossy());
+    let file = p.rsplit('\\').next().unwrap_or(&p);
+    let base = file.strip_suffix(".exe").unwrap_or(file);
+    matches!(base, "bash" | "sh") && p.starts_with(&format!("{}\\", norm(root)))
 }
 
 /// The shell to use for `preferred` scripts on this machine (cached per name).
@@ -656,7 +696,14 @@ pub fn resolve_shell(preferred: &str) -> ShellSpec {
         return s.clone();
     }
     let zen_shell = std::env::var("ZEN_SHELL").ok();
-    let spec = pick_shell(preferred, cfg!(windows), zen_shell.as_deref(), &program_on_path);
+    let mut spec = pick_shell(preferred, cfg!(windows), zen_shell.as_deref(), &program_on_path);
+    // Spawn by full path on Windows: process creation searches System32 before PATH, so a bare
+    // `bash` would start the WSL launcher even when Git Bash is on PATH.
+    if cfg!(windows) && zen_shell.as_deref().map(str::trim).is_none_or(str::is_empty) {
+        if let Some(p) = find_program(&spec.program) {
+            spec.program = p.to_string_lossy().into_owned();
+        }
+    }
     cache.lock().unwrap().insert(preferred.to_string(), spec.clone());
     spec
 }
@@ -703,5 +750,16 @@ mod tests {
         assert_eq!(s.kind, ShellKind::PowerShell);
         assert_eq!(ShellSpec { program: "cmd".into(), kind: ShellKind::Cmd }.args("dir"), vec!["/C", "dir"]);
         assert_eq!(ShellSpec { program: "bash".into(), kind: ShellKind::Posix }.args("ls"), vec!["-c", "ls"]);
+    }
+    #[test]
+    fn windows_bash_skips_wsl_launcher() {
+        let root = Some(r"C:\Windows");
+        assert!(is_wsl_launcher(Path::new(r"C:\Windows\System32\bash.exe"), root));
+        assert!(is_wsl_launcher(Path::new(r"c:/windows/system32/BASH.EXE"), root));
+        assert!(is_wsl_launcher(Path::new(r"C:\WINDOWS\system32\sh.exe"), Some(r"C:\Windows\")));
+        assert!(!is_wsl_launcher(Path::new(r"C:\Program Files\Git\bin\bash.exe"), root));
+        assert!(!is_wsl_launcher(Path::new(r"C:\Windows\System32\cmd.exe"), root));
+        assert!(!is_wsl_launcher(Path::new(r"C:\WindowsApps\bash.exe"), root));
+        assert!(!is_wsl_launcher(Path::new(r"C:\Windows\System32\bash.exe"), None));
     }
 }

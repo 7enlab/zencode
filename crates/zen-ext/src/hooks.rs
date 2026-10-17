@@ -342,8 +342,10 @@ async fn run_one(
             c
         }
         None => {
-            let mut c = Command::new("bash");
-            c.arg("-c").arg(&spec.command);
+            // `bash` on Unix; on Windows the resolved Git Bash path (never the WSL launcher).
+            let sh = zen_core::resolve_shell("bash");
+            let mut c = Command::new(&sh.program);
+            c.args(sh.args(&spec.command));
             c
         }
     };
