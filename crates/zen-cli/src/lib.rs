@@ -41,6 +41,7 @@ pub async fn run_with_home(cli: Cli, cwd: &Path, home: Option<&Path>) -> Result<
     }
 
     // ── REPL ─────────────────────────────────────────────────────────────
+    ask_folder_trust(&cli, cwd, home);
     let cwd_buf = cwd.to_path_buf();
     repl::run_repl(&cli, &cwd_buf, home).await?;
     Ok(0)
@@ -67,6 +68,10 @@ async fn run_subcommand(
                 }
             );
             println!("  permission_mode: {}", cfg.permission_mode);
+            println!("  folder_trusted: {}", cfg.folder_trusted);
+            for s in &cfg.trust_skipped {
+                println!("    skipped: {}", s);
+            }
             if cfg.loaded_sources.is_empty() {
                 println!("  settings_sources: (none)");
             } else {
@@ -90,10 +95,47 @@ async fn run_subcommand(
     }
 }
 
+/// Interactive start: in an untrusted folder that has project config able to run commands, ask
+/// once whether to trust it; yes is saved to `~/.zen/trusted-folders.json` (folder trust).
+fn ask_folder_trust(cli: &Cli, cwd: &Path, home: Option<&Path>) {
+    use std::io::{BufRead, IsTerminal, Write};
+    if cli.bare || settings::folder_trusted(cli, cwd, home) {
+        return;
+    }
+    let gated = zen_ext::gated_project_config(cwd);
+    if gated.is_empty() {
+        return;
+    }
+    if std::io::stdin().is_terminal() {
+        eprintln!("This folder has project config that can run commands: {}", gated.join("; "));
+        eprint!("Trust this folder? [y/N] ");
+        let _ = std::io::stderr().flush();
+        let mut answer = String::new();
+        let _ = std::io::stdin().lock().read_line(&mut answer);
+        if matches!(answer.trim().to_ascii_lowercase().as_str(), "y" | "yes") {
+            match zen_ext::trust_folder(cwd, home) {
+                Ok(()) => return,
+                Err(e) => eprintln!("warning: could not save folder trust: {}", e),
+            }
+        }
+    }
+    eprintln!("{}", untrusted_notice(&gated));
+}
+
+fn untrusted_notice(skipped: &[String]) -> String {
+    format!(
+        "zen: folder not trusted; skipped project {} (use --trust-folder or ZEN_TRUST_FOLDER=1 to load)",
+        skipped.join("; ")
+    )
+}
+
 async fn run_headless(cli: &Cli, cwd: &Path, home: Option<&Path>) -> Result<i32> {
     use std::io::IsTerminal;
 
     let cfg = settings::resolve_config_with_home(cli, cwd, home)?;
+    if !cfg.trust_skipped.is_empty() {
+        eprintln!("{}", untrusted_notice(&cfg.trust_skipped));
+    }
     let system_prompt = build_system_prompt(cli, cwd, home)?;
 
     // stdin (only for -p with text input format)

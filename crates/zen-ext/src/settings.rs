@@ -14,6 +14,8 @@ pub struct LoadedSettings {
     pub warnings: Vec<String>,
     /// True if any layer has disableBypassPermissionsMode = "disable".
     pub bypass_forbidden: bool,
+    /// Project/local keys dropped because the folder is not trusted, e.g. `project: hooks`.
+    pub skipped: Vec<String>,
 }
 
 /// Deep merge: objects merge recursively, arrays concatenate+dedupe, scalars: `over` wins.
@@ -179,8 +181,17 @@ fn load_file_layer_bypass(
     merged: &mut Value,
     sources: &mut Vec<String>,
     warnings: &mut Vec<String>,
+    trusted: bool,
+    skipped: &mut Vec<String>,
 ) {
     if let Some(mut layer) = read_json_file(path, label, warnings) {
+        // Untrusted folder: drop keys that run commands or widen permissions (folder trust).
+        if !trusted {
+            let removed = crate::trust::strip_gated(&mut layer);
+            if !removed.is_empty() {
+                skipped.push(format!("{}: {}", label, removed.join(", ")));
+            }
+        }
         // For project and local layers, ignore permissions.defaultMode = "bypassPermissions" (C1.5)
         if let Some(Value::Object(permissions)) = layer.get_mut("permissions") {
             if let Some(Value::String(default_mode)) = permissions.get_mut("defaultMode") {
@@ -281,7 +292,22 @@ pub fn load_settings(
 ) -> LoadedSettings {
     let home_dir = home.map(|p| p.to_path_buf()).or_else(dirs::home_dir);
     let managed_path = std::env::var_os("ZEN_MANAGED_SETTINGS").map(PathBuf::from);
-    load_settings_impl(cwd, home_dir.as_deref(), cli_settings, sources, managed_path.as_deref())
+    load_settings_impl(cwd, home_dir.as_deref(), cli_settings, sources, managed_path.as_deref(), true)
+}
+
+/// Like [`load_settings`], but with `trusted == false` the project and local layers lose the keys
+/// that run commands or widen permissions (`hooks`, `permissions.allow`,
+/// `permissions.additionalDirectories`, `env`, `verify`); what was dropped is in `skipped`.
+pub fn load_settings_trust(
+    cwd: &Path,
+    home: Option<&Path>,
+    cli_settings: Option<&str>,
+    sources: Option<&[String]>,
+    trusted: bool,
+) -> LoadedSettings {
+    let home_dir = home.map(|p| p.to_path_buf()).or_else(dirs::home_dir);
+    let managed_path = std::env::var_os("ZEN_MANAGED_SETTINGS").map(PathBuf::from);
+    load_settings_impl(cwd, home_dir.as_deref(), cli_settings, sources, managed_path.as_deref(), trusted)
 }
 
 /// Variant that accepts an explicit managed settings path (for tests).
@@ -292,7 +318,7 @@ pub fn load_settings_with_managed(
     sources: Option<&[String]>,
     managed_path: Option<&Path>,
 ) -> LoadedSettings {
-    load_settings_impl(cwd, home, cli_settings, sources, managed_path)
+    load_settings_impl(cwd, home, cli_settings, sources, managed_path, true)
 }
 
 fn load_settings_impl(
@@ -301,7 +327,9 @@ fn load_settings_impl(
     cli_settings: Option<&str>,
     sources: Option<&[String]>,
     managed_path: Option<&Path>,
+    trusted: bool,
 ) -> LoadedSettings {
+    let mut skipped = Vec::new();
     let mut merged = Value::Object(Map::new());
     let mut loaded_sources = Vec::new();
     let mut warnings = Vec::new();
@@ -318,13 +346,13 @@ fn load_settings_impl(
     // 2. Project shared .zen/settings.json
     if is_enabled(sources, "project") {
         let path = cwd.join(".zen").join("settings.json");
-        load_file_layer_bypass(&path, "project", &mut merged, &mut loaded_sources, &mut warnings);
+        load_file_layer_bypass(&path, "project", &mut merged, &mut loaded_sources, &mut warnings, trusted, &mut skipped);
     }
 
     // 3. Project local .zen/settings.local.json
     if is_enabled(sources, "local") {
         let path = cwd.join(".zen").join("settings.local.json");
-        load_file_layer_bypass(&path, "local", &mut merged, &mut loaded_sources, &mut warnings);
+        load_file_layer_bypass(&path, "local", &mut merged, &mut loaded_sources, &mut warnings, trusted, &mut skipped);
     }
 
     // 4. CLI --settings <file-or-json>
@@ -351,6 +379,7 @@ fn load_settings_impl(
         sources: loaded_sources,
         warnings,
         bypass_forbidden,
+        skipped,
     }
 }
 
@@ -598,5 +627,45 @@ mod tests {
         assert_eq!(loaded.settings.model.as_deref(), Some("cli-model"));
         assert_eq!(loaded.settings.max_turns, Some(9));
         assert_eq!(loaded.sources, vec!["user", "cli", "managed"]);
+    }
+
+    #[test]
+    fn untrusted_folder_drops_project_exec_keys_keeps_user() {
+        let home_t = TempDir::new();
+        let proj_t = TempDir::new();
+        let (home, proj) = (home_t.path(), proj_t.path());
+        fs::create_dir_all(home.join(".zen")).unwrap();
+        fs::create_dir_all(proj.join(".zen")).unwrap();
+        fs::write(
+            home.join(".zen/settings.json"),
+            r#"{"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "echo user"}]}]}, "permissions": {"allow": ["Read"]}, "env": {"U": "1"}}"#,
+        )
+        .unwrap();
+        fs::write(
+            proj.join(".zen/settings.json"),
+            r#"{"model": "pm", "hooks": {"Stop": [{"hooks": [{"type": "command", "command": "echo proj"}]}]}, "permissions": {"allow": ["Bash"], "deny": ["Write"]}, "env": {"P": "1"}, "verify": {"command": "x"}}"#,
+        )
+        .unwrap();
+        fs::write(proj.join(".zen/settings.local.json"), r#"{"permissions": {"allow": ["Edit"]}}"#).unwrap();
+
+        let un = load_settings_with_trust_for_test(proj, home, false);
+        let s = &un.settings;
+        assert_eq!(s.model.as_deref(), Some("pm"), "non-exec project keys still load");
+        assert_eq!(s.permissions.allow, vec!["Read"], "only the user allow rule");
+        assert_eq!(s.permissions.deny, vec!["Write"], "project deny is never dropped");
+        assert!(s.env.contains_key("U") && !s.env.contains_key("P"));
+        assert!(!s.hooks.to_string().contains("echo proj") && s.hooks.to_string().contains("echo user"));
+        assert!(!s.extra.contains_key("verify"));
+        assert_eq!(un.skipped, vec!["project: hooks, permissions.allow, env, verify", "local: permissions.allow"]);
+
+        let tr = load_settings_with_trust_for_test(proj, home, true);
+        assert!(tr.settings.hooks.to_string().contains("echo proj"));
+        assert!(tr.settings.permissions.allow.contains(&"Bash".to_string()));
+        assert!(tr.settings.env.contains_key("P") && tr.settings.extra.contains_key("verify"));
+        assert!(tr.skipped.is_empty());
+    }
+
+    fn load_settings_with_trust_for_test(proj: &Path, home: &Path, trusted: bool) -> LoadedSettings {
+        load_settings_impl(proj, Some(home), None, None, None, trusted)
     }
 }

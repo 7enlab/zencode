@@ -11,8 +11,8 @@ mod transport;
 
 pub use agents::{load_agents, load_cli_agents};
 pub use config::{
-    load_mcp_configs, load_mcp_configs_ex, mcp_add, mcp_add_json, mcp_get, mcp_list, mcp_remove,
-    parse_env_kv, parse_headers, scope_path, McpServerConfig,
+    load_mcp_configs, load_mcp_configs_ex, load_mcp_configs_scoped, mcp_add, mcp_add_json, mcp_get,
+    mcp_list, mcp_remove, parse_env_kv, parse_headers, scope_path, McpServerConfig,
 };
 pub use manager::{McpManager, SkipReason};
 pub use task::TaskTool;

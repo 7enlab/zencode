@@ -32,6 +32,11 @@ pub struct ResolvedConfig {
     pub warnings: Vec<String>,
     pub setting_sources: Vec<String>,
     pub bypass_forbidden: bool,
+    /// Folder trust: project hooks, MCP servers, allow rules, env and verify load only when true
+    /// (`--trust-folder`, `ZEN_TRUST_FOLDER=1`, or the folder is in `~/.zen/trusted-folders.json`).
+    pub folder_trusted: bool,
+    /// What the untrusted run skipped, e.g. `.zen/settings.json: hooks` or `.mcp.json`.
+    pub trust_skipped: Vec<String>,
 }
 
 impl ResolvedConfig {
@@ -267,7 +272,15 @@ pub fn resolve_config_with_home(
         ],
     };
     let sources_opt = sources_filter(&cli.setting_sources);
-    let loaded = zen_ext::load_settings(cwd, home, cli.settings.as_deref(), sources_opt.as_deref());
+    let folder_trusted = folder_trusted(cli, cwd, home);
+    let loaded = zen_ext::load_settings_trust(
+        cwd,
+        home,
+        cli.settings.as_deref(),
+        sources_opt.as_deref(),
+        folder_trusted,
+    );
+    let trust_skipped = if folder_trusted { Vec::new() } else { zen_ext::gated_project_config(cwd) };
     let merged = loaded.settings;
     let loaded_sources = loaded.sources;
     let mut warnings = loaded.warnings;
@@ -337,7 +350,14 @@ pub fn resolve_config_with_home(
         warnings,
         setting_sources: enabled_sources.clone(),
         bypass_forbidden: loaded.bypass_forbidden,
+        folder_trusted,
+        trust_skipped,
     })
+}
+
+/// Folder trust for this run: `--trust-folder`, `ZEN_TRUST_FOLDER=1`, or a saved trust entry.
+pub fn folder_trusted(cli: &Cli, cwd: &std::path::Path, home: Option<&std::path::Path>) -> bool {
+    cli.trust_folder || zen_ext::trust_env_set() || zen_ext::is_folder_trusted(cwd, home)
 }
 
 // ─── Tests ─────────────────────────────────────────────────────────────────
@@ -432,7 +452,7 @@ mod tests {
         )
         .unwrap();
 
-        let cli = Cli::parse_from(["zen", "--setting-sources", "project"]);
+        let cli = Cli::parse_from(["zen", "--setting-sources", "project", "--trust-folder"]);
         let cfg = resolve_config(&cli, &dir).unwrap();
         assert_eq!(cfg.model, "from-file");
         assert_eq!(cfg.base_url, "https://file.example.com/v1");
@@ -547,6 +567,55 @@ mod tests {
     }
 
     #[test]
+    fn folder_trust_gates_project_hooks_and_allow_rules() {
+        let _env = env_lock();
+        let dir = std::env::temp_dir().join(format!("zen_cfg_trust_{}", std::process::id()));
+        let home = dir.join("home");
+        let proj = dir.join("proj");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(proj.join(".zen")).unwrap();
+        fs::create_dir_all(&home).unwrap();
+        fs::write(
+            proj.join(".zen/settings.json"),
+            r#"{"model":"pm","hooks":{"Stop":[{"hooks":[{"type":"command","command":"true"}]}]},"permissions":{"allow":["Bash"]}}"#,
+        )
+        .unwrap();
+        let old = std::env::var(zen_ext::TRUST_ENV).ok();
+        std::env::remove_var(zen_ext::TRUST_ENV);
+
+        // Untrusted by default: non-exec keys load, hooks and allow rules do not.
+        let cfg = resolve_config_with_home(&base_cli(), &proj, Some(&home)).unwrap();
+        assert!(!cfg.folder_trusted);
+        assert_eq!(cfg.model, "pm");
+        assert!(cfg.hooks.get("Stop").is_none());
+        assert!(cfg.permissions.allow.is_empty());
+        assert_eq!(cfg.trust_skipped, vec![".zen/settings.json: hooks, permissions.allow"]);
+
+        // --trust-folder (one run, not saved).
+        let cli = Cli::parse_from(["zen", "--trust-folder"]);
+        let cfg = resolve_config_with_home(&cli, &proj, Some(&home)).unwrap();
+        assert!(cfg.folder_trusted && cfg.hooks.get("Stop").is_some());
+        assert!(!zen_ext::is_folder_trusted(&proj, Some(&home)));
+
+        // ZEN_TRUST_FOLDER=1.
+        std::env::set_var(zen_ext::TRUST_ENV, "1");
+        let cfg = resolve_config_with_home(&base_cli(), &proj, Some(&home)).unwrap();
+        std::env::remove_var(zen_ext::TRUST_ENV);
+        assert!(cfg.folder_trusted && cfg.permissions.allow == vec!["Bash"]);
+
+        // Saved trust in the user config.
+        zen_ext::trust_folder(&proj, Some(&home)).unwrap();
+        assert!(home.join(".zen/trusted-folders.json").is_file());
+        let cfg = resolve_config_with_home(&base_cli(), &proj, Some(&home)).unwrap();
+        assert!(cfg.folder_trusted && cfg.hooks.get("Stop").is_some() && cfg.trust_skipped.is_empty());
+
+        if let Some(o) = old {
+            std::env::set_var(zen_ext::TRUST_ENV, o);
+        }
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn c3_1_disable_all_hooks_clears_hooks() {
         let _env = env_lock();
         let dir = std::env::temp_dir().join(format!("zen_cfg_nohooks_{}", std::process::id()));
@@ -557,7 +626,7 @@ mod tests {
             r#"{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"true"}]}]}}"#,
         )
         .unwrap();
-        let cli = Cli::parse_from(["zen", "--setting-sources", "project,local"]);
+        let cli = Cli::parse_from(["zen", "--setting-sources", "project,local", "--trust-folder"]);
         let cfg = resolve_config(&cli, &dir).unwrap();
         assert!(cfg.hooks.get("Stop").is_some());
 

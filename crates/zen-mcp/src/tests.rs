@@ -21,6 +21,26 @@ fn tmpdir(tag: &str) -> PathBuf {
 // ───────────────────────────── config loading ─────────────────────────────
 
 #[test]
+fn untrusted_folder_skips_project_mcp_files() {
+    let cwd = tmpdir("trust_cwd");
+    let home = tmpdir("trust_home");
+    std::fs::write(cwd.join(".mcp.json"), r#"{"mcpServers":{"proj":{"command":"echo"}}}"#).unwrap();
+    std::fs::create_dir_all(cwd.join(".zen")).unwrap();
+    std::fs::write(cwd.join(".zen/mcp.json"), r#"{"mcpServers":{"local":{"command":"echo"}}}"#).unwrap();
+    std::fs::create_dir_all(home.join(".zen")).unwrap();
+    std::fs::write(home.join(".zen/mcp.json"), r#"{"mcpServers":{"user":{"command":"cat"}}}"#).unwrap();
+    let cli = vec![r#"{"mcpServers":{"cli":{"command":"cat"}}}"#.to_string()];
+
+    let un = crate::load_mcp_configs_scoped(&cwd, Some(&home), &cli, false, false).unwrap();
+    assert_eq!(un.keys().cloned().collect::<Vec<_>>(), vec!["cli", "user"]);
+    let tr = crate::load_mcp_configs_scoped(&cwd, Some(&home), &cli, false, true).unwrap();
+    assert_eq!(tr.keys().cloned().collect::<Vec<_>>(), vec!["cli", "local", "proj", "user"]);
+
+    let _ = std::fs::remove_dir_all(&cwd);
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+#[test]
 fn load_configs_project_user_and_cli() {
     let cwd = tmpdir("cfg_cwd");
     let home = tmpdir("cfg_home");

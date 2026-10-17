@@ -184,11 +184,13 @@ pub async fn assemble(
     // ── MCP: --bare skips auto-discovery (project/user files) but still honours explicit
     // --mcp-config entries, i.e. it behaves like --strict-mcp-config (SPEC §1). ──────────
     if !cli.bare || !cli.mcp_config.is_empty() {
-        let mcp_configs = match zen_mcp::load_mcp_configs(
+        // Untrusted folder: project MCP files are not read (folder trust).
+        let mcp_configs = match zen_mcp::load_mcp_configs_scoped(
             cwd,
             home,
             &cli.mcp_config,
             cli.strict_mcp_config || cli.bare,
+            cfg.folder_trusted,
         ) {
             Ok(c) => c,
             Err(e) => {
@@ -554,6 +556,7 @@ pub async fn run_agent_headless(
                 cli.include_partial_messages,
             ));
             s.set_mcp_errors(assembly.mcp_errors.clone());
+            s.set_folder_trusted(cfg.folder_trusted);
             s.init_now();
             stream_sink = Some(s.clone());
             s
@@ -1022,7 +1025,13 @@ pub fn expand_slash_prompt_cmd(
         allow_shell: Some(&gate),
     };
     Ok(match zen_ext::expand_slash_prompt(prompt, cwd, home, &ectx) {
-        Some((cmd, text)) => (text, Some(cmd)),
+        Some((mut cmd, text)) => {
+            // Untrusted folder: a project command/skill cannot pre-allow tools (folder trust).
+            if !cfg.folder_trusted && cmd.path.starts_with(cwd.join(".zen")) {
+                cmd.allowed_tools.clear();
+            }
+            (text, Some(cmd))
+        }
         None => (prompt.to_string(), None),
     })
 }

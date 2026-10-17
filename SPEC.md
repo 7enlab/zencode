@@ -221,7 +221,7 @@ Status column is maintained in PLAN.md ("Parity status").
 - C1.4 P2 Keys honoured: model, env (exported to tools/hooks), permissions{allow,ask,deny,defaultMode,additionalDirectories,disableBypassPermissionsMode}, hooks, disableAllHooks, autoCompact, cleanupPeriodDays, includeCoAuthoredBy, zenMdExcludes (glob list of memory files to skip), fallbackModel(s).
 - C1.5 P2 `permissions.defaultMode` of bypassPermissions is ignored when it comes from project/local settings (only user/managed/--settings/flag may enable it).
 - C1.6 P2 `disableBypassPermissionsMode: "disable"` in any layer forbids bypassPermissions (flag rejected with an error).
-- C1.7 P3 managed-only keys (allowManagedPermissionRulesOnly, allowManagedHooksOnly, strictKnownMarketplaces), sandbox block, workspace trust dialog.
+- C1.7 P3 managed-only keys (allowManagedPermissionRulesOnly, allowManagedHooksOnly, strictKnownMarketplaces), sandbox block. Workspace trust: done as folder trust (README "Folder trust").
 
 ### C2 Permissions
 - C2.1 P1 Order deny → ask → allow → mode default; first match wins; specificity does not matter.

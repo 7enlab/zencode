@@ -130,6 +130,7 @@ async fn stream_json_line_shapes_and_order() {
     assert_eq!(init["permissionMode"], "default");
     assert!(init["tools"].as_array().is_some());
     assert!(init["slash_commands"].as_array().is_some());
+    assert_eq!(init["folder_trusted"], true); // the harness trusts the temp project
     assert_fields(
         init,
         &[
@@ -142,6 +143,7 @@ async fn stream_json_line_shapes_and_order() {
             "mcp_servers",
             "permissionMode",
             "slash_commands",
+            "folder_trusted",
         ],
         "init",
     );

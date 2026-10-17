@@ -160,6 +160,8 @@ pub struct StreamJsonSink {
     prompt_input: Mutex<Option<String>>,
     /// MCP entries skipped by validation (name, reason) → init `mcp_server_errors` (C7.3).
     mcp_errors: Mutex<Vec<(String, String)>>,
+    /// Folder trust of this run → init `folder_trusted` (omitted until set).
+    folder_trusted: Mutex<Option<bool>>,
 }
 
 impl StreamJsonSink {
@@ -204,6 +206,7 @@ impl StreamJsonSink {
             include_partial,
             prompt_input: Mutex::new(None),
             mcp_errors: Mutex::new(Vec::new()),
+            folder_trusted: Mutex::new(None),
         }
     }
 
@@ -217,6 +220,11 @@ impl StreamJsonSink {
     /// `mcp_server_errors: [{name, reason}]` (the key is omitted when there are none).
     pub fn set_mcp_errors(&self, errors: Vec<(String, String)>) {
         *self.mcp_errors.lock().unwrap() = errors;
+    }
+
+    /// Folder trust of this run, listed in the init line as `folder_trusted: bool`.
+    pub fn set_folder_trusted(&self, trusted: bool) {
+        *self.folder_trusted.lock().unwrap() = Some(trusted);
     }
 
     /// Emit the init line immediately (idempotent). Called before the first turn.
@@ -238,6 +246,9 @@ impl StreamJsonSink {
             "permissionMode": self.permission_mode,
             "slash_commands": self.slash_commands,
         });
+        if let Some(t) = *self.folder_trusted.lock().unwrap() {
+            line["folder_trusted"] = t.into();
+        }
         let errors = self.mcp_errors.lock().unwrap();
         if !errors.is_empty() {
             line["mcp_server_errors"] = errors
