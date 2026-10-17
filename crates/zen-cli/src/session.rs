@@ -219,6 +219,10 @@ pub struct TranscriptWriter {
     pub session_id: String,
     pub cwd: String,
     last_uuid: Option<String>,
+    /// Kept open after the first record (perf p0): one open per writer instead of one
+    /// mkdir+open+close per record. Flushed after every record, so readers and a crash see
+    /// whole lines exactly as before.
+    file: Option<std::io::BufWriter<std::fs::File>>,
 }
 
 impl TranscriptWriter {
@@ -229,21 +233,44 @@ impl TranscriptWriter {
             session_id: session_id.to_string(),
             cwd: cwd.display().to_string(),
             last_uuid: None,
+            file: None,
         }
+    }
+
+    /// Append one JSON line through the kept-open handle and flush it.
+    fn append_line(&mut self, record: &Value) -> Result<()> {
+        use std::io::Write;
+        if self.file.is_none() {
+            if let Some(parent) = self.path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            let f = std::fs::OpenOptions::new().create(true).append(true).open(&self.path)?;
+            self.file = Some(std::io::BufWriter::new(f));
+        }
+        let line = serde_json::to_string(record)?;
+        let w = self.file.as_mut().expect("opened above");
+        let res = writeln!(w, "{}", line).and_then(|_| w.flush());
+        if let Err(e) = res {
+            // Drop the handle so the next record reopens the file instead of reusing a bad one.
+            self.file = None;
+            return Err(e.into());
+        }
+        Ok(())
     }
 
     fn write(&mut self, kind: &str, message: Option<Value>, summary: Option<Value>) -> Result<()> {
         let id = Uuid::new_v4().to_string();
-        append_typed(
-            &self.path,
-            kind,
-            &self.session_id,
-            &self.cwd,
-            &id,
-            self.last_uuid.as_deref(),
+        let rec = TranscriptRecord {
+            r#type: kind,
+            uuid: id.clone(),
+            parent_uuid: self.last_uuid.clone(),
+            session_id: self.session_id.clone(),
+            timestamp: now_iso(),
+            cwd: self.cwd.clone(),
             message,
             summary,
-        )?;
+        };
+        self.append_line(&serde_json::to_value(rec)?)?;
         self.last_uuid = Some(id);
         Ok(())
     }
@@ -529,5 +556,45 @@ mod tests {
         assert_eq!(sessions.len(), 2);
         assert_eq!(sessions[0].0, "sess-b"); // newest first
         assert_eq!(sessions[1].0, "sess-a");
+    }
+
+    #[test]
+    fn p0_2_transcript_writer_keeps_file_open_and_flushes_each_record() {
+        use zen_core::ChatMessage;
+        let dir = std::env::temp_dir().join(format!("zen_tw_open_{}", Uuid::new_v4()));
+        let path = dir.join("nested").join("s.jsonl");
+        let mut w = TranscriptWriter::new(path.clone(), "s", &dir);
+        assert!(w.file.is_none(), "nothing opened before the first record");
+        let mut hist = vec![];
+        for i in 0..5 {
+            let before = hist.clone();
+            hist.push(ChatMessage::user(format!("q{}", i)));
+            w.persist_turn(&before, &hist).unwrap();
+            assert!(w.file.is_some(), "handle stays open between records");
+            // Flushed: the record is on disk while the writer is still alive.
+            let users = std::fs::read_to_string(&path)
+                .unwrap()
+                .lines()
+                .filter(|l| l.contains("\"type\":\"user\""))
+                .count();
+            assert_eq!(users, i + 1);
+            // Another appender on the same file (usage records) interleaves whole lines.
+            if i == 2 {
+                append_usage(&path, "s", &zen_core::UsageStats::default()).unwrap();
+            }
+        }
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(content.lines().count(), 6);
+        for l in content.lines() {
+            serde_json::from_str::<Value>(l).expect("every line is whole JSON");
+        }
+        let msgs = load_messages(&path).unwrap();
+        assert_eq!(msgs.len(), 5);
+        // Parent chain is intact across the kept-open writes.
+        let recs: Vec<Value> = content.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+        let users: Vec<&Value> = recs.iter().filter(|r| r["type"] == "user").collect();
+        for pair in users.windows(2) {
+            assert_eq!(pair[1]["parentUuid"], pair[0]["uuid"]);
+        }
     }
 }
