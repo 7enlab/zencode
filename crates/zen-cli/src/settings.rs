@@ -22,6 +22,8 @@ pub struct ResolvedConfig {
     pub verify: Option<serde_json::Value>,
     /// Settings `retry.maxWaitSecs`: total backoff budget per model request (default 300 s).
     pub retry_max_wait_secs: u64,
+    /// Settings `toolTimeouts`: ms per tool name (`"default"` for the rest, 0 = none) (p0b).
+    pub tool_timeouts: std::collections::HashMap<String, u64>,
     pub max_turns: usize,
     pub context_window: Option<u64>,
     pub loaded_sources: Vec<String>,
@@ -41,6 +43,15 @@ impl ResolvedConfig {
         c.max_total_wait_ms = self.retry_max_wait_secs.saturating_mul(1000);
         c
     }
+}
+
+/// Settings `toolTimeouts` (p0b): `{"Bash": 180000, "WebFetch": 30000, "default": 300000}`, values in
+/// milliseconds, 0 = no timeout. Entries that are not non-negative integers are ignored (defaults
+/// apply: Bash 120 s, other tools 300 s, Task/JobOutput none).
+pub fn tool_timeouts(v: Option<&serde_json::Value>) -> std::collections::HashMap<String, u64> {
+    v.and_then(|v| v.as_object())
+        .map(|o| o.iter().filter_map(|(k, v)| v.as_u64().map(|n| (k.clone(), n))).collect())
+        .unwrap_or_default()
 }
 
 /// Default for settings `retry.maxWaitSecs`.
@@ -310,6 +321,7 @@ pub fn resolve_config_with_home(
         auto_compact: merged.auto_compact.clone(),
         verify: merged.extra.get("verify").cloned(),
         retry_max_wait_secs: retry_max_wait_secs(merged.extra.get("retry")),
+        tool_timeouts: tool_timeouts(merged.extra.get("toolTimeouts")),
         max_turns,
         context_window: merged.context_window,
         loaded_sources,
@@ -544,6 +556,16 @@ mod tests {
         let cfg = resolve_config(&cli, &dir).unwrap();
         assert_eq!(cfg.hooks, serde_json::json!({}));
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn p0b_2_tool_timeouts_parse() {
+        let t = tool_timeouts(Some(&serde_json::json!({"Bash": 180000, "default": 0, "Bad": "x", "Neg": -1})));
+        assert_eq!(t.get("Bash"), Some(&180000));
+        assert_eq!(t.get("default"), Some(&0));
+        assert_eq!(t.len(), 2);
+        assert!(tool_timeouts(None).is_empty());
+        assert!(tool_timeouts(Some(&serde_json::json!([1]))).is_empty());
     }
 
     #[test]

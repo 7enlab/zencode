@@ -157,6 +157,12 @@ pub async fn assemble(
     for t in selected {
         registry.register(t);
     }
+    // Background-job tools come with Bash (p0b).
+    if registry.get("Bash").is_some() {
+        for t in zen_tools::job_tools() {
+            registry.register(t);
+        }
+    }
 
     // ── skills (skipped in --bare) ────────────────────────────────────────
     let mut mcp_status: Vec<(String, String)> = vec![];
@@ -406,6 +412,7 @@ fn base_agent_config(cfg: &ResolvedConfig, cli: &Cli, system_prompt: &str) -> ze
         auto_compact_threshold,
         keep_after_compact: 4,
         depth: 0,
+        tool_timeouts: cfg.tool_timeouts.clone(),
         ..Default::default()
     };
     apply_verify_settings(&mut config, cfg, false);

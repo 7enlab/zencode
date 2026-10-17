@@ -38,6 +38,8 @@ const PLAN_MODE_DENIED_TOOLS: &[&str] = &[
     "Bash",
     "BashOutput",
     "KillShell",
+    "JobOutput",
+    "JobKill",
     "WebFetch",
     "Task",
 ];

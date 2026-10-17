@@ -568,6 +568,7 @@ fn build_repl_config(
         system_prompt: crate::build_system_prompt(cli, cwd, None).unwrap_or_default(),
         max_turns: cfg.max_turns.max(1),
         permission_mode: crate::agent_run::core_mode(cfg.permission_mode),
+        tool_timeouts: cfg.tool_timeouts.clone(),
         ..Default::default()
     };
     if let Some(w) = cfg.context_window {

@@ -41,6 +41,8 @@ use zen_core::{Tool, ToolContext, ToolOutput, TodoItem};
 
 /// Bash output cap (SPEC §4).
 pub const BASH_MAX_CHARS: usize = 30_000;
+/// Bash timeout when neither the call nor settings `toolTimeouts.Bash` gives one.
+pub const BASH_DEFAULT_TIMEOUT_MS: u64 = 120_000;
 /// Read default / maximum lines.
 pub const READ_DEFAULT_LIMIT: usize = 2000;
 /// Longest single line returned by Read.
@@ -617,16 +619,18 @@ impl Tool for BashTool {
         "Run a shell command with bash -c in the session working directory. The directory is \
          persistent: a cd inside one command is still in effect for the next one. Long output is \
          cut to its head and tail with the full text saved to a file (path given) and the exit code \
-         is reported."
+         is reported. With background: true the command runs as a job and the call returns its \
+         job id at once; read it with JobOutput, stop it with JobKill."
     }
     fn parameters_schema(&self) -> Value {
         json!({
             "type": "object",
             "properties": {
                 "command": {"type": "string", "description": "Shell command to run with bash -c."},
-                "timeout_ms": {"type": "integer", "description": "Kill the command after this many milliseconds (default 120000, max 600000)."},
+                "timeout_ms": {"type": "integer", "description": "Kill the command after this many milliseconds (default 120000 or settings toolTimeouts.Bash, max 600000). Not applied to background jobs."},
                 "description": {"type": "string", "description": "Short human-readable note about what the command does."},
-                "run_in_background": {"type": "boolean", "description": "Start the command without waiting for it to finish."}
+                "background": {"type": "boolean", "description": "Run as a background job: returns a job id immediately; use JobOutput to read its output and JobKill to stop it. Use for servers, watchers and long builds/tests."},
+                "run_in_background": {"type": "boolean", "description": "Same as background."}
             },
             "required": ["command"],
             "additionalProperties": false
@@ -640,29 +644,27 @@ impl Tool for BashTool {
         let timeout_ms = args
             .get("timeout_ms")
             .and_then(|v| v.as_u64())
-            .unwrap_or(120_000)
+            .or(ctx.tool_timeout_ms.filter(|t| *t > 0))
+            .unwrap_or(BASH_DEFAULT_TIMEOUT_MS)
             .clamp(1, 600_000);
-        let background = args.get("run_in_background").and_then(|v| v.as_bool()).unwrap_or(false);
+        let flag = |k: &str| args.get(k).and_then(|v| v.as_bool()).unwrap_or(false);
+        let background = flag("background") || flag("run_in_background");
         let cwd = ctx.cwd();
 
         // bash everywhere it exists; on Windows without bash, pwsh/powershell/cmd (perf p0).
         let shell = zen_core::resolve_shell("bash");
         if background {
-            let mut command = tokio::process::Command::new(&shell.program);
-            command
-                .args(shell.args(cmd_str))
-                .current_dir(&cwd)
-                .envs(ctx.env.iter())
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .kill_on_drop(false);
-            return match command.spawn() {
-                Ok(child) => ToolOutput::ok(format!(
-                    "Started command in the background (pid {}).",
-                    child.id().unwrap_or(0)
+            // Tracked job (p0b): output to a log in the session dir, read with JobOutput.
+            return match crate::jobs::start_job(cmd_str, &cwd, &ctx.env, &ctx.scratch_dir()) {
+                Ok(j) => ToolOutput::ok(format!(
+                    "Started background job {} (pid {}). Output is logged to {}. Read new output with \
+                     JobOutput {{\"job_id\":\"{}\"}} (add wait_ms to wait for it to finish); stop it with JobKill.",
+                    j.id,
+                    j.pid.unwrap_or(0),
+                    j.log.display(),
+                    j.id
                 )),
-                Err(e) => ToolOutput::err(format!("Error: failed to start bash: {}", e)),
+                Err(e) => ToolOutput::err(format!("Error: {}", e)),
             };
         }
 

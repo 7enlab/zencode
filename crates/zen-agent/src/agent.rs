@@ -88,6 +88,46 @@ pub struct AgentConfig {
     pub verify_after_edit: Option<String>,
     /// Timeout for `verify_after_edit` (default 60 s).
     pub verify_after_edit_timeout_secs: u64,
+    /// Settings `toolTimeouts` (p0b): milliseconds per tool name, `"default"` for tools without
+    /// their own entry, 0 = no timeout. See [`AgentConfig::tool_timeout_ms`].
+    pub tool_timeouts: std::collections::HashMap<String, u64>,
+}
+
+/// Timeout for a tool call when settings `toolTimeouts` has no entry for it (p0b).
+pub const DEFAULT_TOOL_TIMEOUT_MS: u64 = 300_000;
+
+impl AgentConfig {
+    /// The timeout the agent enforces around one call of `tool` (None = none).
+    ///
+    /// Bash enforces its own timeout (it kills the process and keeps partial semantics), so the
+    /// agent hands Bash its configured default through `ToolContext::tool_timeout_ms` instead.
+    /// `Task` (a whole sub-agent run) and `JobOutput` (bounded by its own `wait_ms`) have no
+    /// timeout unless configured by name.
+    pub fn tool_timeout_ms(&self, tool: &str) -> Option<u64> {
+        if tool == "Bash" {
+            return None;
+        }
+        let t = match self.tool_timeouts.get(tool) {
+            Some(t) => *t,
+            None if matches!(tool, "Task" | "JobOutput") => 0,
+            None => self.tool_timeouts.get("default").copied().unwrap_or(DEFAULT_TOOL_TIMEOUT_MS),
+        };
+        (t > 0).then_some(t)
+    }
+}
+
+/// Run one tool call under its timeout (p0b).
+async fn run_tool(tool: Arc<dyn Tool>, args: Value, ctx: ToolContext, timeout_ms: Option<u64>) -> ToolOutput {
+    let Some(ms) = timeout_ms else { return tool.call(args, &ctx).await };
+    match tokio::time::timeout(std::time::Duration::from_millis(ms), tool.call(args, &ctx)).await {
+        Ok(out) => out,
+        Err(_) => ToolOutput::err(format!(
+            "Error: {} timed out after {} ms and was stopped (settings toolTimeouts.{} or toolTimeouts.default)",
+            tool.name(),
+            ms,
+            tool.name()
+        )),
+    }
 }
 
 impl Default for AgentConfig {
@@ -107,6 +147,7 @@ impl Default for AgentConfig {
             verify_timeout_secs: 300,
             verify_after_edit: None,
             verify_after_edit_timeout_secs: 60,
+            tool_timeouts: Default::default(),
         }
     }
 }
@@ -605,9 +646,13 @@ impl Agent {
     }
 
     /// Per-call ctx clone carrying the tool_use_id.
-    fn call_ctx(&self, tool_use_id: &str) -> ToolContext {
+    fn call_ctx(&self, tool_use_id: &str, tool_name: &str) -> ToolContext {
         let mut call_ctx = self.ctx.clone();
         call_ctx.current_tool_use_id = Some(tool_use_id.to_string());
+        // Bash's default timeout from settings `toolTimeouts.Bash` (p0b).
+        if tool_name == "Bash" {
+            call_ctx.tool_timeout_ms = self.config.tool_timeouts.get("Bash").copied().filter(|t| *t > 0);
+        }
         call_ctx
     }
 
@@ -793,8 +838,9 @@ impl Agent {
                     Slot::Run(p) => {
                         let tool = p.tool.clone();
                         let args = p.args.clone();
-                        let ctx = self.call_ctx(&p.tool_use_id);
-                        Some(tokio::spawn(async move { tool.call(args, &ctx).await }))
+                        let ctx = self.call_ctx(&p.tool_use_id, &p.tool_name);
+                        let timeout = self.config.tool_timeout_ms(&p.tool_name);
+                        Some(tokio::spawn(run_tool(tool, args, ctx, timeout)))
                     }
                     _ => None,
                 });
@@ -830,8 +876,9 @@ impl Agent {
                     let out = match outs.get_mut(i).and_then(Option::take) {
                         Some(o) => o,
                         None => {
-                            let ctx = self.call_ctx(&p.tool_use_id);
-                            p.tool.call(p.args.clone(), &ctx).await
+                            let ctx = self.call_ctx(&p.tool_use_id, &p.tool_name);
+                            let timeout = self.config.tool_timeout_ms(&p.tool_name);
+                            run_tool(p.tool.clone(), p.args.clone(), ctx, timeout).await
                         }
                     };
                     if let Some(reason) = self.finish_call(p, out, finish_gate, turn_guard, final_text).await {

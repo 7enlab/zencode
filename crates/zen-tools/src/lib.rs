@@ -27,6 +27,7 @@
 pub mod builtin;
 pub mod edit_match;
 pub mod gitignore;
+pub mod jobs;
 pub mod permissions;
 pub mod syntax_guard;
 
@@ -40,6 +41,13 @@ pub use builtin::{
     search_builtin, spill_output, truncate_middle, BashTool, EditTool, GlobTool, GrepTool, MultiEditTool, ReadTool,
     TodoWriteTool, WebFetchTool, WriteTool,
 };
+pub use jobs::{JobKillTool, JobOutputTool};
+
+/// The background-job tools, registered next to Bash (p0b).
+pub fn job_tools() -> Vec<std::sync::Arc<dyn zen_core::Tool>> {
+    vec![std::sync::Arc::new(JobOutputTool), std::sync::Arc::new(JobKillTool)]
+}
+
 pub use permissions::{
     dedup, persist_allow_rule, rule_matches, rule_removes_tool, split_compound, suggested_rule,
     suggested_rules, tool_is_read_only, RulePermissions,

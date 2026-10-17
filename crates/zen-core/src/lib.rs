@@ -185,6 +185,9 @@ pub struct ToolContext {
     /// Per-session scratch directory for spilled tool output and background-job logs (p0b).
     /// The CLI sets it to the transcript path without `.jsonl`; `None` uses a temp dir.
     pub session_dir: Option<PathBuf>,
+    /// Default timeout for this call from settings `toolTimeouts` (ms). The agent sets it on the
+    /// per-call clone; Bash uses it when the call gives no `timeout_ms` (p0b).
+    pub tool_timeout_ms: Option<u64>,
 }
 
 impl ToolContext {
@@ -198,6 +201,7 @@ impl ToolContext {
             session_id: session_id.into(),
             current_tool_use_id: None,
             session_dir: None,
+            tool_timeout_ms: None,
         }
     }
     pub fn cwd(&self) -> PathBuf {
