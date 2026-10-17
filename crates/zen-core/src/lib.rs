@@ -429,6 +429,17 @@ impl EventSink for NullSink {
     fn emit(&self, _: AgentEvent) {}
 }
 
+/// Durable log of a turn in progress (durable tool results): each record is written the moment it
+/// exists, not when the turn ends, so a turn that dies mid-tool can be resumed with the results it
+/// already had. Implementations must not fail the turn; they warn instead.
+pub trait ToolJournal: Send + Sync {
+    /// The assistant message exactly as it was added to the history.
+    fn assistant(&self, message: &ChatMessage);
+    /// A tool result. `final_result` is false for the raw output recorded when the tool returned,
+    /// true for the content the model sees (after hooks/verify notes, or a denial/skip).
+    fn tool_result(&self, tool_use_id: &str, content: &str, is_error: bool, final_result: bool);
+}
+
 // ───────────────────────────── results ─────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
