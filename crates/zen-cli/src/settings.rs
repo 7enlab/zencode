@@ -24,6 +24,8 @@ pub struct ResolvedConfig {
     pub retry_max_wait_secs: u64,
     /// Settings `toolTimeouts`: ms per tool name (`"default"` for the rest, 0 = none) (p0b).
     pub tool_timeouts: std::collections::HashMap<String, u64>,
+    /// Settings `maxContinuations`: cut-off replies continued in a row (default 3, 0 = off).
+    pub max_continuations: usize,
     pub max_turns: usize,
     pub context_window: Option<u64>,
     pub loaded_sources: Vec<String>,
@@ -52,6 +54,12 @@ pub fn tool_timeouts(v: Option<&serde_json::Value>) -> std::collections::HashMap
     v.and_then(|v| v.as_object())
         .map(|o| o.iter().filter_map(|(k, v)| v.as_u64().map(|n| (k.clone(), n))).collect())
         .unwrap_or_default()
+}
+
+/// Settings `maxContinuations` (continue on truncation): a non-negative integer, anything else →
+/// the default ([`zen_agent::DEFAULT_MAX_CONTINUATIONS`]).
+pub fn max_continuations(v: Option<&serde_json::Value>) -> usize {
+    v.and_then(|v| v.as_u64()).map_or(zen_agent::DEFAULT_MAX_CONTINUATIONS, |n| n as usize)
 }
 
 /// Default for settings `retry.maxWaitSecs`.
@@ -322,6 +330,7 @@ pub fn resolve_config_with_home(
         verify: merged.extra.get("verify").cloned(),
         retry_max_wait_secs: retry_max_wait_secs(merged.extra.get("retry")),
         tool_timeouts: tool_timeouts(merged.extra.get("toolTimeouts")),
+        max_continuations: max_continuations(merged.extra.get("maxContinuations")),
         max_turns,
         context_window: merged.context_window,
         loaded_sources,
@@ -556,6 +565,15 @@ mod tests {
         let cfg = resolve_config(&cli, &dir).unwrap();
         assert_eq!(cfg.hooks, serde_json::json!({}));
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn trunc_max_continuations_parse() {
+        assert_eq!(max_continuations(None), zen_agent::DEFAULT_MAX_CONTINUATIONS);
+        assert_eq!(max_continuations(Some(&serde_json::json!(0))), 0);
+        assert_eq!(max_continuations(Some(&serde_json::json!(5))), 5);
+        assert_eq!(max_continuations(Some(&serde_json::json!(-1))), zen_agent::DEFAULT_MAX_CONTINUATIONS);
+        assert_eq!(max_continuations(Some(&serde_json::json!("x"))), zen_agent::DEFAULT_MAX_CONTINUATIONS);
     }
 
     #[test]

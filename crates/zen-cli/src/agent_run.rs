@@ -420,6 +420,7 @@ fn base_agent_config(cfg: &ResolvedConfig, cli: &Cli, system_prompt: &str) -> ze
         keep_after_compact: 4,
         depth: 0,
         tool_timeouts: cfg.tool_timeouts.clone(),
+        max_continuations: cfg.max_continuations,
         ..Default::default()
     };
     apply_verify_settings(&mut config, cfg, false);

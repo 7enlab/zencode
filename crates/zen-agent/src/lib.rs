@@ -50,7 +50,7 @@ pub mod repair;
 mod subagent;
 
 pub mod agent;
-pub use agent::{Agent, AgentConfig, DEFAULT_STOP_HOOK_CONTINUES, DEFAULT_TOOL_TIMEOUT_MS};
+pub use agent::{Agent, AgentConfig, DEFAULT_MAX_CONTINUATIONS, DEFAULT_STOP_HOOK_CONTINUES, DEFAULT_TOOL_TIMEOUT_MS};
 pub use client::OpenAiClient;
 pub use subagent::SubAgentExecutor;
 
@@ -64,3 +64,5 @@ mod tests;
 mod tests_p0;
 #[cfg(test)]
 mod tests_p0b;
+#[cfg(test)]
+mod tests_trunc;

@@ -43,6 +43,22 @@ fn is_unparsed_sample(err: &str) -> bool {
     err.contains("model returned no choices") || err.contains("gateway error in 200 response")
 }
 
+/// The request sent after a text reply cut off by the output token limit (continue on truncation).
+pub const TRUNCATION_CONTINUE_NUDGE: &str = "[zen: your last reply was cut off by the output token limit. Continue exactly where you stopped, without repeating anything you already wrote.]";
+/// The request sent after a tool call cut off by the output token limit; no tool was run.
+pub const TRUNCATED_CALL_NUDGE: &str = "[zen: your last reply was cut off by the output token limit in the middle of a tool call, so no tool was run. Re-emit the tool call(s) in full. If the arguments are large, split the work into several smaller calls (e.g. write a big file in parts).]";
+/// Default for [`AgentConfig::max_continuations`].
+pub const DEFAULT_MAX_CONTINUATIONS: usize = 3;
+
+/// True when a reply stopped because it hit the output token limit: `length` (OpenAI /
+/// OpenRouter normalized) or a native reason a gateway passed through.
+pub fn is_truncated(finish_reason: Option<&str>) -> bool {
+    finish_reason.is_some_and(|r| {
+        let r = r.to_ascii_lowercase();
+        r == "length" || r == "max_tokens" || r == "max_output_tokens"
+    })
+}
+
 /// The correction sent after an empty reply (r7 C5).
 const EMPTY_REPLY_NUDGE: &str =
     "[zen: your last reply was empty. Continue the task: call a tool, or give your final answer.]";
@@ -91,6 +107,9 @@ pub struct AgentConfig {
     /// Settings `toolTimeouts` (p0b): milliseconds per tool name, `"default"` for tools without
     /// their own entry, 0 = no timeout. See [`AgentConfig::tool_timeout_ms`].
     pub tool_timeouts: std::collections::HashMap<String, u64>,
+    /// Consecutive replies cut off by the output token limit that the loop continues / asks to
+    /// re-emit before giving up (settings `maxContinuations`, 0 = never continue).
+    pub max_continuations: usize,
 }
 
 /// Timeout for a tool call when settings `toolTimeouts` has no entry for it (p0b).
@@ -148,6 +167,7 @@ impl Default for AgentConfig {
             verify_after_edit: None,
             verify_after_edit_timeout_secs: 60,
             tool_timeouts: Default::default(),
+            max_continuations: DEFAULT_MAX_CONTINUATIONS,
         }
     }
 }
@@ -353,15 +373,25 @@ impl Agent {
     /// last user turn. Falls back to the last text if history shape is unexpected.
     fn plan_text(&self) -> Option<String> {
         let mut parts: Vec<String> = Vec::new();
+        // A continuation after a cut-off reply is glued to the piece before it, no separator.
+        let mut glue = false;
         for m in self.messages.iter().rev() {
             if m.role == "user" {
+                if m.content.as_deref() == Some(TRUNCATION_CONTINUE_NUDGE) {
+                    glue = true;
+                    continue;
+                }
                 break;
             }
             if m.role == "assistant" {
                 if let Some(c) = &m.content {
-                    if !c.trim().is_empty() {
+                    if glue && !parts.is_empty() {
+                        let last = parts.last_mut().unwrap();
+                        last.insert_str(0, c);
+                    } else if !c.trim().is_empty() {
                         parts.push(c.clone());
                     }
+                    glue = false;
                 }
             }
         }
@@ -430,6 +460,9 @@ impl Agent {
         let mut turn_guard = guard::TurnGuard::default();
         let mut finish_gate = finish::FinishGate::default();
         let mut empty_requeries = 0usize;
+        // Continue on truncation: consecutive cut-off replies, and the text stitched so far.
+        let mut continuations = 0usize;
+        let mut stitched = String::new();
 
         loop {
             if num_turns >= self.config.max_turns {
@@ -494,6 +527,58 @@ impl Agent {
             self.last_prompt_tokens = resp.usage.prompt_tokens;
 
             let mut resp = resp;
+            if is_truncated(resp.finish_reason.as_deref()) {
+                let calls = resp.message.tool_calls.clone().unwrap_or_default();
+                let broken = calls
+                    .iter()
+                    .any(|c| serde_json::from_str::<Value>(&c.function.arguments).map_or(true, |v| !v.is_object()));
+                if calls.is_empty() || broken {
+                    let mut msg = resp.message.clone();
+                    msg.tool_calls = None;
+                    let text = msg.content.clone().unwrap_or_default();
+                    // Keep the cut-off text in history (what the model wrote), never the half call.
+                    if !text.is_empty() {
+                        self.messages.push(msg.clone());
+                        self.sink.emit(AgentEvent::Assistant {
+                            message: msg.clone(),
+                            parent_tool_use_id: self.parent_tool_use_id.clone(),
+                        });
+                        if let Some(j) = &self.journal {
+                            j.assistant(&msg);
+                        }
+                    }
+                    stitched.push_str(&text);
+                    if continuations >= self.config.max_continuations {
+                        let elapsed = started.elapsed().as_millis() as u64;
+                        if broken {
+                            return self.run_result(
+                                "error_during_execution",
+                                true,
+                                format!(
+                                    "The model's tool call was cut off by the output token limit {} time(s) in a row; no tool was run. Ask for smaller steps or use a model with a larger output limit.",
+                                    continuations + 1
+                                ),
+                                elapsed,
+                                duration_api_ms,
+                                num_turns,
+                            );
+                        }
+                        self.sink.emit(AgentEvent::SystemMessage {
+                            event: "Truncation".into(),
+                            text: format!(
+                                "The reply was cut off by the output token limit {} time(s) in a row; the answer may be incomplete.",
+                                continuations + 1
+                            ),
+                        });
+                        return self.run_result("success", false, stitched, elapsed, duration_api_ms, num_turns);
+                    }
+                    continuations += 1;
+                    let nudge = if broken { TRUNCATED_CALL_NUDGE } else { TRUNCATION_CONTINUE_NUDGE };
+                    self.messages.push(ChatMessage::user(nudge));
+                    continue;
+                }
+            }
+            continuations = 0;
             // Repair (r7): a tool call written as the message text becomes a real call.
             let mut text_call_id: Option<String> = None;
             if resp.message.tool_calls.as_ref().is_none_or(|c| c.is_empty()) {
@@ -531,6 +616,13 @@ impl Agent {
             }
             if let Some(j) = &self.journal {
                 j.assistant(assistant);
+            }
+            // Continue on truncation: the answer is every cut-off piece plus this reply.
+            if !stitched.is_empty() {
+                let pieces = std::mem::take(&mut stitched);
+                if tool_calls.is_empty() {
+                    final_text.insert_str(0, &pieces);
+                }
             }
 
             if tool_calls.is_empty() {
