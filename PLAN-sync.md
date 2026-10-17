@@ -59,5 +59,7 @@ Same step fails twice → stop, note here, report.
 - [x] 3 #13 Windows Bash fix + `windows_bash_skips_wsl_launcher` unit test (real proof = Windows CI job).
 - [x] 4 `cargo test --workspace` 492 passed / 0 failed (baseline 484 + 7 contract + 1 shell);
       `cargo clippy --all-targets -- -D warnings` clean (local, aarch64 Linux).
-- [ ] 5 PR, CI, backup tag, merge
+- [x] Rebased on main 0d37ffa (PR #5 folder trust): fixtures regenerated (init gains
+      `folder_trusted`), doc + CHANGELOG updated; 504 passed / 0 failed, clippy clean.
+- [ ] 5 PR #4, CI, backup tag at main-at-merge-time, merge
 - [ ] 6 tag v0.1.0 + release; label `desktop` created (done).

@@ -22,6 +22,11 @@ First tagged release, so downstream crates (zencode-desktop) can pin a tag inste
   mid-tool resumes with the results it already had (PR #2).
 - MCP output cap: oversized MCP tool results are capped and spilled to a file, like Bash output (PR #1).
 
+- Folder trust: in an untrusted folder, project hooks, MCP servers, allow rules,
+  `additionalDirectories`, env and verify do not load. The REPL asks once and saves the answer in
+  `~/.zen/trusted-folders.json`; `-p` is untrusted unless `--trust-folder` / `ZEN_TRUST_FOLDER=1`.
+  stream-json `system/init` gains `folder_trusted` (bool, add-only) (PR #5).
+
 ### Changed
 - **Breaking for exhaustive matches:** `zen_core::AgentEvent` is now `#[non_exhaustive]`.
   Downstream code that matches on it must add a wildcard arm (`_ => {}`). New event kinds can
