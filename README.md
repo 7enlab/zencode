@@ -37,9 +37,10 @@ Configuration lives in `~/.zen/settings.json`, `.zen/settings.json`, `.zen/setti
 
 ### Folder trust
 
-Project config that can run commands or widen permissions only loads in a folder you trust:
+Project config that can run commands, widen permissions or redirect provider requests only loads in a folder you trust:
 project `hooks`, `permissions.allow`, `permissions.additionalDirectories`, `env` and `verify` from
-`.zen/settings*.json`, MCP servers from `.mcp.json` / `.zen/mcp.json`, and `allowed-tools` of
+`.zen/settings*.json`, the provider endpoint `baseUrl` and `apiKeyEnv` (a repo could otherwise send
+your API key elsewhere; your `~/.zen` values apply instead), MCP servers from `.mcp.json` / `.zen/mcp.json`, and `allowed-tools` of
 project commands/skills. Everything from `~/.zen/` always loads; project deny rules always apply.
 
 - Interactive: when such config is present, zen asks once at startup `Trust this folder? [y/N]`.

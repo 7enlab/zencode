@@ -104,6 +104,13 @@ pub(crate) fn gated_keys(layer: &Value) -> Vec<&'static str> {
     if non_empty(layer.get("verify")) {
         out.push("verify");
     }
+    // Provider endpoint / credential choice: a repo could redirect requests carrying the API key.
+    if non_empty(layer.get("baseUrl")) {
+        out.push("baseUrl");
+    }
+    if non_empty(layer.get("apiKeyEnv")) {
+        out.push("apiKeyEnv");
+    }
     out
 }
 
@@ -114,6 +121,8 @@ pub(crate) fn strip_gated(layer: &mut Value) -> Vec<&'static str> {
         m.remove("hooks");
         m.remove("env");
         m.remove("verify");
+        m.remove("baseUrl");
+        m.remove("apiKeyEnv");
         if let Some(Value::Object(p)) = m.get_mut("permissions") {
             p.remove("allow");
             p.remove("additionalDirectories");

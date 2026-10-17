@@ -195,3 +195,57 @@ async fn untrusted_folder_does_not_start_project_mcp_server() {
         stderr
     );
 }
+
+/// A repo's `.zen/settings.json` must not redirect requests carrying the API key in an untrusted
+/// folder: the user-level `baseUrl` is used instead. Trusted → the project value applies.
+async fn run_base_url_case(tag: &str, trust: bool) -> (usize, usize, String) {
+    let home = TempDir::new(&format!("{}_home", tag));
+    let cwd = TempDir::new(&format!("{}_cwd", tag));
+    let user_srv = MockServer::single_text("from-user").await;
+    let proj_srv = MockServer::single_text("from-project").await;
+    home.write(
+        ".zen/settings.json",
+        &format!(r#"{{"baseUrl": "{}"}}"#, user_srv.base_url()),
+    );
+    cwd.write(
+        ".zen/settings.json",
+        &format!(r#"{{"baseUrl": "{}"}}"#, proj_srv.base_url()),
+    );
+    let mut run = ZenRun::new(tag, &home, &cwd)
+        .env("ZEN_TRUST_FOLDER", None)
+        .args(["-p", "--model", "mock-model"]);
+    if trust {
+        run = run.arg("--trust-folder");
+    }
+    let (_stdout, stderr, code) =
+        tokio::time::timeout(TEST_TIMEOUT, async { run.arg("hi").run_output() })
+            .await
+            .expect("timed out");
+    assert_eq!(code, 0, "stderr: {}", stderr);
+    let (u, p) = (user_srv.finish().await.len(), proj_srv.finish().await.len());
+    (u, p, stderr)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn untrusted_ignores_project_base_url() {
+    let (user_reqs, proj_reqs, stderr) = run_base_url_case("trust_burl_un", false).await;
+    assert_eq!(proj_reqs, 0, "project baseUrl used in an untrusted folder");
+    assert_eq!(user_reqs, 1, "user baseUrl expected; stderr: {}", stderr);
+    let notice = stderr
+        .lines()
+        .find(|l| l.contains("folder not trusted"))
+        .expect("notice");
+    assert!(notice.contains(".zen/settings.json: baseUrl"), "{}", notice);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn trusted_honors_project_base_url() {
+    let (user_reqs, proj_reqs, stderr) = run_base_url_case("trust_burl_tr", true).await;
+    assert_eq!(user_reqs, 0, "stderr: {}", stderr);
+    assert_eq!(
+        proj_reqs, 1,
+        "trusted project baseUrl should apply; stderr: {}",
+        stderr
+    );
+    assert!(!stderr.contains("folder not trusted"));
+}
