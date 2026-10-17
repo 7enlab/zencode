@@ -702,3 +702,69 @@ async fn task_tool_unknown_type_and_errors() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+// ───────── MCP output cap: long results spill to a file like Bash (feat/mcp-output-cap) ─────────
+
+fn mcpcap_ctx(tag: &str) -> ToolContext {
+    let dir = tmpdir(tag);
+    let mut c = ToolContext::new(dir.clone(), format!("mcpcap-{}", tag));
+    c.session_dir = Some(dir.join("session"));
+    c.current_tool_use_id = Some(format!("toolu_{}", tag));
+    c
+}
+
+fn mcpcap_spill_path(reply: &str) -> PathBuf {
+    let start = reply.find("Full output saved to ").expect(reply) + "Full output saved to ".len();
+    let rest = &reply[start..];
+    let end = rest.find(" (lines 1-").expect(reply);
+    PathBuf::from(&rest[..end])
+}
+
+#[test]
+fn mcpcap_small_text_result_unchanged() {
+    let c = mcpcap_ctx("small");
+    let out = crate::manager::render_result(
+        json!({"content":[{"type":"text","text":"hello"},{"type":"text","text":"world"}]}),
+        &c,
+    );
+    assert!(!out.is_error);
+    assert_eq!(out.content, "hello\nworld");
+    assert!(!c.session_dir.as_ref().unwrap().join("tool-output").exists(), "no spill file for small output");
+}
+
+#[test]
+fn mcpcap_huge_text_result_truncated_and_spilled_in_full() {
+    let c = mcpcap_ctx("huge");
+    let text: String = (1..=20_000).map(|i| format!("row {i}\n")).collect();
+    assert!(text.chars().count() > crate::manager::MCP_MAX_CHARS);
+    let out = crate::manager::render_result(json!({"content":[{"type":"text","text":text}]}), &c);
+    assert!(!out.is_error);
+    assert!(out.content.chars().count() < crate::manager::MCP_MAX_CHARS + 400, "preview stays near the cap");
+    assert!(out.content.starts_with("row 1\nrow 2\n"), "head kept");
+    assert!(out.content.ends_with("row 20000\n"), "tail kept");
+    assert!(!out.content.contains("row 10000\n"), "middle only in the file");
+    let path = mcpcap_spill_path(&out.content);
+    assert!(path.starts_with(c.session_dir.as_ref().unwrap().join("tool-output")), "{}", path.display());
+    assert_eq!(path.file_name().unwrap(), "toolu_huge.txt");
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), text, "spill file holds the full text");
+}
+
+#[test]
+fn mcpcap_non_text_content_untouched_and_error_flag_kept() {
+    let c = mcpcap_ctx("image");
+    let img = json!({"content":[
+        {"type":"image","data":"iVBORw0KGgo=","mimeType":"image/png"},
+        {"type":"text","text":"caption"}
+    ]});
+    let out = crate::manager::render_result(img, &c);
+    assert!(!out.is_error);
+    assert_eq!(out.content, "[image content]\ncaption");
+    assert!(!c.session_dir.as_ref().unwrap().join("tool-output").exists());
+
+    // A huge error result is capped too and stays an error.
+    let c2 = mcpcap_ctx("err");
+    let big = "e".repeat(crate::manager::MCP_MAX_CHARS * 3);
+    let out = crate::manager::render_result(json!({"isError":true,"content":[{"type":"text","text":big}]}), &c2);
+    assert!(out.is_error);
+    assert_eq!(std::fs::read_to_string(mcpcap_spill_path(&out.content)).unwrap(), big);
+}

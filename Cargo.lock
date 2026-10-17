@@ -1926,6 +1926,7 @@ dependencies = [
  "uuid",
  "walkdir",
  "zen-core",
+ "zen-tools",
 ]
 
 [[package]]

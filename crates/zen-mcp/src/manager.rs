@@ -10,6 +10,9 @@ use zen_core::{Tool, ToolContext, ToolOutput};
 use crate::config::McpServerConfig;
 use crate::transport::{handshake, RemoteTool, Transport};
 
+/// MCP result cap: same as Bash. Longer text is spilled to a file and the model gets a preview.
+pub const MCP_MAX_CHARS: usize = zen_tools::builtin::BASH_MAX_CHARS;
+
 /// One Tool per remote tool, named `mcp__<server>__<tool>`; call → tools/call.
 pub(crate) struct McpTool {
     #[allow(dead_code)]
@@ -45,17 +48,18 @@ impl Tool for McpTool {
     fn is_read_only(&self) -> bool {
         false
     }
-    async fn call(&self, args: Value, _ctx: &ToolContext) -> ToolOutput {
+    async fn call(&self, args: Value, ctx: &ToolContext) -> ToolOutput {
         let params = json!({"name": self.remote_name, "arguments": args});
         match self.transport.request("tools/call", params).await {
-            Ok(result) => render_result(result),
+            Ok(result) => render_result(result, ctx),
             Err(e) => ToolOutput::err(format!("MCP call '{}' failed: {}", self.remote_name, e)),
         }
     }
 }
 
 /// Join text content parts; respect isError; render other content types as "[<type> content]".
-pub(crate) fn render_result(result: Value) -> ToolOutput {
+/// Text longer than `MCP_MAX_CHARS` is spilled to the session scratch dir (`spill_output`).
+pub(crate) fn render_result(result: Value, ctx: &ToolContext) -> ToolOutput {
     let is_error = result
         .get("isError")
         .and_then(|v| v.as_bool())
@@ -81,7 +85,7 @@ pub(crate) fn render_result(result: Value) -> ToolOutput {
             parts.push(v.to_string());
         }
     }
-    let content = parts.join("\n");
+    let content = zen_tools::spill_output(&parts.join("\n"), MCP_MAX_CHARS, ctx);
     if is_error {
         ToolOutput::err(content)
     } else {
