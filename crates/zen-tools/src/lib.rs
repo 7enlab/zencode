@@ -32,10 +32,12 @@ pub mod syntax_guard;
 
 #[cfg(test)]
 mod tests_p0;
+#[cfg(test)]
+mod tests_p0b;
 
 pub use builtin::{
     builtin_tools, canonicalize_lenient, expand_tilde, html_to_text, render_todos, resolve_path,
-    search_builtin, truncate_middle, BashTool, EditTool, GlobTool, GrepTool, MultiEditTool, ReadTool,
+    search_builtin, spill_output, truncate_middle, BashTool, EditTool, GlobTool, GrepTool, MultiEditTool, ReadTool,
     TodoWriteTool, WebFetchTool, WriteTool,
 };
 pub use permissions::{

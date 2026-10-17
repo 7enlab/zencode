@@ -32,6 +32,12 @@ pub fn session_path(proj_dir: &Path, session_id: &str) -> PathBuf {
     proj_dir.join(format!("{}.jsonl", session_id))
 }
 
+/// Scratch directory of a session (spilled tool output, background-job logs): the transcript
+/// path without `.jsonl`, i.e. `<project-dir>/<session-id>/` (p0b).
+pub fn session_scratch_dir(transcript: &Path) -> PathBuf {
+    transcript.with_extension("")
+}
+
 /// Find a session file by id (search name) or path across all project dirs.
 pub fn find_session_path(home: &Path, id_or_path: &str) -> Option<PathBuf> {
     let p = PathBuf::from(id_or_path);
@@ -417,6 +423,12 @@ pub fn append_summary(path: &Path, session_id: &str, cwd: &str, uuid_val: &str, 
 mod tests {
     use super::*;
     use std::fs;
+
+    #[test]
+    fn p0b_1_session_scratch_dir_sits_next_to_the_transcript() {
+        let t = Path::new("/h/.zen/projects/-p/abc-123.jsonl");
+        assert_eq!(session_scratch_dir(t), PathBuf::from("/h/.zen/projects/-p/abc-123"));
+    }
 
     #[test]
     fn encode_cwd_replaces_slashes_and_dots() {

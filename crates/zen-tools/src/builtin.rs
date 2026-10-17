@@ -14,7 +14,7 @@
 //! - `WebFetch` — Fetch a URL over HTTP(S), return readable text (HTML→markdown-ish).
 //! - `TodoWrite` — Manage the session task list with status tracking.
 //!
-//! Cross-tool helpers (`resolve_path`, `expand_tilde`, `truncate_middle`,
+//! Cross-tool helpers (`resolve_path`, `expand_tilde`, `truncate_middle`, `spill_output`,
 //! `canonicalize_lenient`, `html_to_text`, `render_todos`, `search_builtin`) live here
 //! so both the tools and the tests can use them directly.
 //!
@@ -143,6 +143,76 @@ pub fn truncate_middle(s: &str, max_chars: usize) -> String {
         "{}\n... [truncated {} chars] ...\n{}",
         head,
         count - max_chars,
+        tail
+    )
+}
+
+/// File-name-safe form of an id (tool_use_id, job id).
+fn safe_file_stem(id: &str) -> String {
+    let s: String = id
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .take(80)
+        .collect();
+    if s.is_empty() {
+        "output".into()
+    } else {
+        s
+    }
+}
+
+/// A unique stem for a spill file when the call has no tool_use_id.
+fn fresh_stem() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static N: AtomicU64 = AtomicU64::new(0);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    format!("out-{}-{}-{}", std::process::id(), nanos, N.fetch_add(1, Ordering::Relaxed))
+}
+
+/// Spill long tool output to a file instead of losing its middle (p0b, dsh `spill`).
+///
+/// Text within `max_chars` comes back unchanged. Longer text is written in full to
+/// `<scratch>/tool-output/<tool-use-id>.txt` and the model gets the head, the tail, the file path
+/// and the total byte/line counts, so it can Read (offset/limit) or Grep the part it needs. If the
+/// file cannot be written the old middle truncation is used and the reply says why.
+pub fn spill_output(text: &str, max_chars: usize, ctx: &ToolContext) -> String {
+    let count = text.chars().count();
+    if count <= max_chars {
+        return text.to_string();
+    }
+    let dir = ctx.scratch_dir().join("tool-output");
+    let mut stem = ctx.current_tool_use_id.as_deref().map(safe_file_stem).unwrap_or_else(fresh_stem);
+    if dir.join(format!("{}.txt", stem)).exists() {
+        stem = format!("{}-{}", stem, fresh_stem());
+    }
+    let path = dir.join(format!("{}.txt", stem));
+    let written = std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(&path, text));
+    if let Err(e) = written {
+        return format!(
+            "{}\n[zen: could not save the full output to {}: {}]",
+            truncate_middle(text, max_chars),
+            path.display(),
+            e
+        );
+    }
+    let lines = text.lines().count();
+    let head_len = max_chars / 2;
+    let tail_len = max_chars - head_len;
+    let head: String = text.chars().take(head_len).collect();
+    let tail: String = text.chars().skip(count - tail_len).collect();
+    let head_lines = head.lines().count();
+    format!(
+        "{}\n... [output too long: {} bytes, {} lines in total; {} chars omitted here. Full output saved to {} \
+         (lines 1-{} shown above, the end below). Use Read with offset/limit or Grep on that file to see the rest.] ...\n{}",
+        head,
+        text.len(),
+        lines,
+        count - max_chars,
+        path.display(),
+        head_lines,
         tail
     )
 }
@@ -546,7 +616,8 @@ impl Tool for BashTool {
     fn description(&self) -> &str {
         "Run a shell command with bash -c in the session working directory. The directory is \
          persistent: a cd inside one command is still in effect for the next one. Long output is \
-         truncated in the middle and the exit code is reported."
+         cut to its head and tail with the full text saved to a file (path given) and the exit code \
+         is reported."
     }
     fn parameters_schema(&self) -> Value {
         json!({
@@ -668,7 +739,7 @@ impl Tool for BashTool {
 
                 let combined = combined.trim_end_matches('\n').to_string();
                 let code = status.code().unwrap_or(-1);
-                let body = truncate_middle(&combined, BASH_MAX_CHARS);
+                let body = spill_output(&combined, BASH_MAX_CHARS, ctx);
                 if status.success() {
                     ToolOutput::ok(body)
                 } else {
@@ -1667,8 +1738,9 @@ mod tests {
         let out = BashTool
             .call(json!({"command": "seq 1 40000"}), &ctx)
             .await;
-        assert!(out.content.contains("truncated"), "no truncation marker");
-        assert!(out.content.chars().count() <= BASH_MAX_CHARS + 100);
+        // p0b: the middle is spilled to a file (path in the notice), not dropped.
+        assert!(out.content.contains("output too long") && out.content.contains("Full output saved to"), "no spill notice");
+        assert!(out.content.chars().count() <= BASH_MAX_CHARS + 400);
         // head and tail survive
         assert!(out.content.starts_with('1'), "{}", &out.content[..20.min(out.content.len())]);
         assert!(out.content.trim_end().ends_with("40000"));

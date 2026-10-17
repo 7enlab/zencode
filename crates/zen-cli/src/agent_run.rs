@@ -558,7 +558,8 @@ pub async fn run_agent_headless(
         None => system_prompt.to_string(),
     };
 
-    let ctx = tool_context(cwd, cfg, cli, session_id);
+    let mut ctx = tool_context(cwd, cfg, cli, session_id);
+    ctx.session_dir = transcript_path.map(crate::session::session_scratch_dir);
 
     // A custom command's `allowed-tools` are allowed without asking for this turn (C5.2).
     let permissions = match slash_cmd.as_ref().filter(|c| !c.allowed_tools.is_empty()) {

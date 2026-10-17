@@ -182,6 +182,9 @@ pub struct ToolContext {
     /// Id of the tool call being executed. The agent sets it on a per-call clone (Task tool uses it
     /// as parent_tool_use_id for sub-agent events).
     pub current_tool_use_id: Option<String>,
+    /// Per-session scratch directory for spilled tool output and background-job logs (p0b).
+    /// The CLI sets it to the transcript path without `.jsonl`; `None` uses a temp dir.
+    pub session_dir: Option<PathBuf>,
 }
 
 impl ToolContext {
@@ -194,10 +197,25 @@ impl ToolContext {
             todos: Default::default(),
             session_id: session_id.into(),
             current_tool_use_id: None,
+            session_dir: None,
         }
     }
     pub fn cwd(&self) -> PathBuf {
         self.cwd.lock().unwrap().clone()
+    }
+    /// The session scratch directory: `session_dir`, or `<tmp>/zen-<session_id>` when unset.
+    pub fn scratch_dir(&self) -> PathBuf {
+        match &self.session_dir {
+            Some(d) => d.clone(),
+            None => {
+                let id: String = self
+                    .session_id
+                    .chars()
+                    .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+                    .collect();
+                std::env::temp_dir().join(format!("zen-{}", if id.is_empty() { "session".into() } else { id }))
+            }
+        }
     }
 }
 

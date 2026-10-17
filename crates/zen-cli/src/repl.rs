@@ -63,7 +63,11 @@ pub async fn run_repl(cli: &Cli, cwd: &Path, home: Option<&Path>) -> Result<()> 
         Some(Arc::new(crate::agent_run::ReplPrompter)),
         assembly.hooks.clone(),
         Arc::new(zen_core::NullSink),
-        crate::agent_run::tool_context_public(cwd, &cfg, cli, &session_id),
+        {
+            let mut ctx = crate::agent_run::tool_context_public(cwd, &cfg, cli, &session_id);
+            ctx.session_dir = Some(crate::session::session_scratch_dir(&transcript_path));
+            ctx
+        },
         config,
     );
 
@@ -296,6 +300,7 @@ async fn handle_slash(
             // A new session with its own transcript (SPEC §6: /clear starts a new session).
             let new_id = crate::session::new_session_id();
             let path = repl.writer.path.with_file_name(format!("{}.jsonl", new_id));
+            agent.ctx.session_dir = Some(crate::session::session_scratch_dir(&path));
             *repl.writer = crate::session::TranscriptWriter::new(path, &new_id, cwd);
             *repl.session_id = new_id.clone();
             agent.ctx.session_id = new_id.clone();
@@ -487,6 +492,7 @@ async fn handle_slash(
                             .to_string();
                         let history = crate::session::load_history(&path)?;
                         agent.set_messages(history);
+                        agent.ctx.session_dir = Some(crate::session::session_scratch_dir(&path));
                         *repl.writer = crate::session::TranscriptWriter::new(path, &id, cwd);
                         *repl.session_id = id.clone();
                         agent.ctx.session_id = id.clone();
