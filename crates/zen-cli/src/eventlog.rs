@@ -531,6 +531,68 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn trunc_continuations_are_logged_and_replay_byte_identical() {
+        let dir = tmp("trunc");
+        std::fs::write(dir.join("notes.txt"), "alpha\n").unwrap();
+        let transcript = dir.join("sess.jsonl");
+        let cut = |mut r: ChatResponse| {
+            r.finish_reason = Some("length".into());
+            r
+        };
+        let scripted = Arc::new(Scripted {
+            replies: Mutex::new(vec![
+                cut(reply(Some("Let me look at the fi"), None)),
+                cut(reply(Some("le first. "), Some(("c0", "Read", r#"{"file_path":"no"#)))),
+                reply(None, Some(("c1", "Read", r#"{"file_path":"notes.txt"}"#))),
+                cut(reply(Some("It says al"), None)),
+                reply(Some("pha."), None),
+            ]),
+            bodies: Mutex::new(vec![]),
+        });
+        let recorder = Recorder::new(transcript.clone());
+        let llm = wrap(scripted.clone(), Some(&recorder));
+        let mut tools = ToolRegistry::new();
+        tools.register(Arc::new(zen_tools::ReadTool));
+        let ctx = ToolContext::new(dir.clone(), "sess");
+        let config = zen_agent::AgentConfig { system_prompt: "SYSTEM".into(), auto_compact_threshold: None, ..Default::default() };
+        let mut agent =
+            zen_agent::Agent::new(llm, tools, Arc::new(AllowAll), None, Arc::new(NoHooks), Arc::new(NullSink), ctx, config);
+        agent.journal = Some(recorder.clone());
+        let mut writer = crate::session::TranscriptWriter::new(transcript.clone(), "sess", &dir);
+        let res = agent.run_turn("what is in notes.txt?").await;
+        assert!(!res.is_error, "{}", res.result);
+        assert_eq!(res.result, "It says alpha.");
+        writer.persist_turn(&[], agent.messages()).unwrap();
+
+        // Every continuation is a recorded request; replay rebuilds each one byte-identically.
+        let sent = scripted.bodies.lock().unwrap().clone();
+        assert_eq!(sent.len(), 5);
+        let rebuilt = rebuild_requests(&transcript).unwrap();
+        assert_eq!(rebuilt.len(), 5);
+        for (i, body) in sent.iter().enumerate() {
+            assert_eq!(&rebuilt[i].1, body, "request {} differs", i);
+        }
+        assert!(sent[1].contains("cut off by the output token limit. Continue exactly"));
+        assert!(sent[2].contains("in the middle of a tool call, so no tool was run"));
+        // The raw cut-off responses (half call included) are in the log with their finish_reason;
+        // the half call never reaches a request.
+        let text = std::fs::read_to_string(&transcript).unwrap();
+        let recs: Vec<Value> = text.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+        let reasons: Vec<&str> = recs
+            .iter()
+            .filter(|r| r["type"] == "response")
+            .map(|r| r["response"]["finish_reason"].as_str().unwrap_or(""))
+            .collect();
+        assert_eq!(reasons, ["length", "length", "stop", "length", "stop"]);
+        assert!(!sent.iter().any(|b| b.contains("\"c0\"")));
+        // Resume sees exactly the committed history.
+        let history = crate::session::load_history(&transcript).unwrap();
+        assert_eq!(history, agent.messages());
+        assert_eq!(resume_history(&transcript).unwrap(), (history.clone(), history));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
     async fn p0b_3_resumed_session_continues_seq_and_old_sessions_still_load() {
         let dir = tmp("old");
         let path = dir.join("old.jsonl");

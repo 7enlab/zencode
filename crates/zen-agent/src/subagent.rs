@@ -196,6 +196,7 @@ impl SubAgentRunner for SubAgentExecutor {
             verify_after_edit: self.base_config.verify_after_edit.clone(),
             verify_after_edit_timeout_secs: self.base_config.verify_after_edit_timeout_secs,
             tool_timeouts: self.base_config.tool_timeouts.clone(),
+            max_continuations: self.base_config.max_continuations,
         };
 
         let mut agent = Agent::new(
