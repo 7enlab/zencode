@@ -436,11 +436,27 @@ pub fn load_mcp_configs(
     cli_configs: &[String],
     strict: bool,
 ) -> anyhow::Result<BTreeMap<String, McpServerConfig>> {
+    load_mcp_configs_scoped(cwd, home, cli_configs, strict, true)
+}
+
+/// Like [`load_mcp_configs`]; with `include_project == false` (an untrusted folder) the project
+/// files `<cwd>/.mcp.json` and `<cwd>/.zen/mcp.json` are not read. User files and `--mcp-config`
+/// entries always load.
+pub fn load_mcp_configs_scoped(
+    cwd: &Path,
+    home: Option<&Path>,
+    cli_configs: &[String],
+    strict: bool,
+    include_project: bool,
+) -> anyhow::Result<BTreeMap<String, McpServerConfig>> {
     let mut out = BTreeMap::new();
     if !strict {
         // user < project < local (Bad JSON is an error here).
+        let project = [cwd.join(".mcp.json"), cwd.join(".zen").join("mcp.json")];
         for f in config_files(cwd, home) {
-            merge_file(&mut out, &f)?;
+            if include_project || !project.contains(&f) {
+                merge_file(&mut out, &f)?;
+            }
         }
     }
     for entry in cli_configs {

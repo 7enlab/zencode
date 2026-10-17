@@ -374,7 +374,7 @@ pub fn request_tool_names(raw: &str) -> Vec<String> {
 /// Builder for one `zen` subprocess invocation.
 ///
 /// Produces a hermetic environment: unique `HOME`, the given `cwd`, no inherited `ZEN_*`
-/// variables, and `ZEN_API_KEY=dummy` unless the test overrides it.
+/// variables, `ZEN_API_KEY=dummy` and `ZEN_TRUST_FOLDER=1` unless the test overrides them.
 pub struct ZenRun {
     args: Vec<String>,
     cwd: PathBuf,
@@ -443,6 +443,9 @@ impl ZenRun {
             .env_remove("ZEN_BASE_URL")
             .env_remove("OPENAI_API_KEY")
             .env_remove("ZEN_SETTINGS")
+            // Fixtures put hooks/MCP/allow rules in the temp project, so runs trust it by
+            // default; folder-trust tests remove this with `.env("ZEN_TRUST_FOLDER", None)`.
+            .env("ZEN_TRUST_FOLDER", "1")
             .stdin(if self.stdin.is_some() { Stdio::piped() } else { Stdio::null() })
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());

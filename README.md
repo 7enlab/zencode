@@ -35,6 +35,21 @@ Configuration lives in `~/.zen/settings.json`, `.zen/settings.json`, `.zen/setti
 (see SPEC §12), project memory in `ZEN.md`, custom commands in `.zen/commands/`, skills in
 `.zen/skills/<name>/SKILL.md`, sub-agents in `.zen/agents/*.md`, MCP servers in `.mcp.json`.
 
+### Folder trust
+
+Project config that can run commands or widen permissions only loads in a folder you trust:
+project `hooks`, `permissions.allow`, `permissions.additionalDirectories`, `env` and `verify` from
+`.zen/settings*.json`, MCP servers from `.mcp.json` / `.zen/mcp.json`, and `allowed-tools` of
+project commands/skills. Everything from `~/.zen/` always loads; project deny rules always apply.
+
+- Interactive: when such config is present, zen asks once at startup `Trust this folder? [y/N]`.
+  Yes is saved to `~/.zen/trusted-folders.json` (covers subfolders; never written to the repo).
+- Headless `-p`: never asks; untrusted unless `--trust-folder` or `ZEN_TRUST_FOLDER=1` is given
+  (or the folder is already saved). Skipped config is named in one line on stderr; stream-json
+  `system/init` carries `folder_trusted: bool`. `zen doctor` shows the state.
+- CI/scripts that rely on a repo's own hooks or MCP servers: add `--trust-folder` (or set
+  `ZEN_TRUST_FOLDER=1`).
+
 ## Layout
 
 | Crate | What it owns |

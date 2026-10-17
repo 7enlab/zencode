@@ -224,6 +224,11 @@ pub struct Cli {
     #[arg(long = "bare")]
     pub bare: bool,
 
+    /// Trust this folder for this run: load project hooks, MCP servers, allow rules, env and
+    /// verify from `.zen/` and `.mcp.json` (same as `ZEN_TRUST_FOLDER=1`; never saved)
+    #[arg(long = "trust-folder")]
+    pub trust_folder: bool,
+
     #[command(subcommand)]
     pub subcommand: Option<Commands>,
 
