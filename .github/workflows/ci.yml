@@ -22,6 +22,15 @@ jobs:
         continue-on-error: true
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
+  security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@v2
+        with: { tool: cargo-audit }
+      - name: RustSec advisory audit
+        run: cargo audit
   build:
     needs: check
     strategy:
