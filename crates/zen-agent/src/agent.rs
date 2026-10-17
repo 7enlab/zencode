@@ -557,233 +557,28 @@ impl Agent {
             }
 
             // Iterate the tool calls; a stop_run signal mid-iteration finalizes remaining calls.
+            // Consecutive parallel-safe read-only calls (Read/Glob/Grep/LS) are prepared in order,
+            // executed concurrently, then finished in the original order (perf p0). Any other
+            // tool flushes the batch first and runs alone, so writes and Bash stay sequential.
             let mut stop_run: Option<String> = None;
+            let mut batch: Vec<Slot> = Vec::new();
             for tc in tool_calls {
-                let tool_use_id = tc.id.clone();
-
-                // Repair before rejecting (r7): near-miss tool names, fenced / malformed JSON,
-                // values of the wrong type. What cannot be repaired becomes a tool error that
-                // lists the expected fields, never a crash.
-                let mut repair_notes: Vec<String> = Vec::new();
-                if text_call_id.as_deref() == Some(tool_use_id.as_str()) {
-                    repair_notes.push("the call was written as message text; it was run as a tool call".into());
-                }
-                let mut tool_name = tc.function.name.clone();
-                if self.tools.get(&tool_name).is_none() {
-                    if let Some(mapped) = repair::resolve_tool_name(&tool_name, &self.tools.names()) {
-                        if repair::has_template_tokens(&tool_name) {
-                            // Never echo leaked template tokens back into history (r7 C4).
-                            repair_notes.push(format!("tool name had chat-template tokens; mapped to '{}'", mapped));
-                        } else {
-                            repair_notes.push(format!("tool name '{}' mapped to '{}'", tool_name, mapped));
-                        }
-                        tool_name = mapped;
-                    }
-                }
-                let schema = self.tools.get(&tool_name).map(|t| t.parameters_schema());
-                let args: Value = match repair::repair_args(&tc.function.arguments, schema.as_ref()) {
-                    Ok((v, notes)) => {
-                        repair_notes.extend(notes);
-                        v
-                    }
-                    Err(e) => {
-                        let content =
-                            format!("Invalid JSON arguments for tool '{}': {}", tool_name, e);
-                        self.emit_tool_result(&tool_use_id, &content, true);
-                        self.messages.push(ChatMessage::tool(tool_use_id.clone(), content));
-                        continue;
-                    }
-                };
-                if !repair_notes.is_empty() {
-                    // Store the repaired call so the history (and the next request) only ever
-                    // shows the model well-formed calls to imitate.
-                    self.rewrite_tool_call(&tool_use_id, &tool_name, &args);
-                }
-
-                // A prior stop signal: still record a tool result so the exchange is valid.
-                if stop_run.is_some() {
-                    let content = "[tool call skipped: run stopping]".to_string();
-                    self.emit_tool_result(&tool_use_id, &content, false);
-                    self.messages.push(ChatMessage::tool(tool_use_id, content));
-                    continue;
-                }
-
-                // 2. PreToolUse hook.
-                let pre = self
-                    .hooks
-                    .run(
-                        HookEvent::PreToolUse,
-                        &tool_name,
-                        json!({
-                            "tool_name": tool_name,
-                            "tool_input": args,
-                            "tool_use_id": tool_use_id,
-                        }),
-                    )
-                    .await;
-                self.emit_system_message(HookEvent::PreToolUse, &pre);
-                if pre.stop_run {
-                    // `continue: false` stops the run; this call still needs a tool message so the
-                    // history stays a valid OpenAI exchange.
-                    let reason = pre
-                        .stop_reason
-                        .clone()
-                        .or(pre.feedback.clone())
-                        .unwrap_or_else(|| "stopped by PreToolUse hook".into());
-                    let content = format!("[tool call skipped: {}]", reason);
-                    self.emit_tool_result(&tool_use_id, &content, true);
-                    self.messages.push(ChatMessage::tool(tool_use_id, content));
+                let slot = self.prepare_call(&tc, text_call_id.as_deref(), plan_mode, &stop_run).await;
+                if let Slot::Stop(id, content, reason) = slot {
+                    batch.push(Slot::Done(id, content, true));
                     stop_run = Some(reason);
                     continue;
                 }
-                if pre.blocked {
-                    let content = pre.feedback.unwrap_or_else(|| {
-                        format!("Tool '{}' blocked by PreToolUse hook", tool_name)
-                    });
-                    self.emit_tool_result(&tool_use_id, &content, true);
-                    self.messages.push(ChatMessage::tool(tool_use_id, content));
-                    continue;
-                }
-                // `updatedInput` replaces the arguments for the permission check and the call.
-                let args = match pre.updated_input.clone() {
-                    Some(Value::Object(o)) => Value::Object(o),
-                    _ => args,
-                };
-
-                // Unknown tool.
-                let tool = match self.tools.get(&tool_name) {
-                    Some(t) => t,
-                    None => {
-                        let content = format!(
-                            "Unknown tool '{}'. Available tools: {}",
-                            tool_name,
-                            self.tools.names().join(", ")
-                        );
-                        self.emit_tool_result(&tool_use_id, &content, true);
-                        self.messages.push(ChatMessage::tool(tool_use_id, content));
-                        continue;
-                    }
-                };
-                let read_only = tool.is_read_only();
-
-                // Plan mode: mutating tools should never reach here (they are hidden), but if a
-                // model hallucinates one, report it without recording a denial so the result stays
-                // a clean plan.
-                if plan_mode && !read_only {
-                    let content = format!("Tool '{}' is not available in plan mode", tool_name);
-                    self.emit_tool_result(&tool_use_id, &content, true);
-                    self.messages.push(ChatMessage::tool(tool_use_id, content));
-                    continue;
-                }
-
-                // 3. Permission. The checker (rules + mode) always runs; a PreToolUse decision can
-                // tighten it (deny/ask) or skip a prompt (allow), but never loosen a deny
-                // (SPEC C2.13).
-                let checked = self.permissions.check(&tool_name, &args, read_only, &self.ctx);
-                let ask_rule = matches!(checked, PermissionDecision::Ask)
-                    && self.permissions.ask_rule_matches(&tool_name, &args, &self.ctx);
-                let decision =
-                    combine_permission(checked, pre.permission_override.clone(), ask_rule);
-                let mut allowed = true;
-                let mut deny_reason = String::new();
-                match decision {
-                    PermissionDecision::Allow => {}
-                    PermissionDecision::Deny(reason) => {
-                        allowed = false;
-                        deny_reason = reason;
-                    }
-                    PermissionDecision::Ask => match self.prompter.clone() {
-                        Some(p) => {
-                            self.notify_permission_prompt(&tool_name).await;
-                            match p.ask_permission(&tool_name, &args) {
-                                PromptAnswer::Yes => {}
-                                // One rule per line: a compound Bash command yields one
-                                // rule per sub-command (SPEC C2.12).
-                                PromptAnswer::Always(rules) => {
-                                    for rule in rules.lines() {
-                                        self.permissions.add_allow_rule(rule)
-                                    }
-                                }
-                                PromptAnswer::No => {
-                                    allowed = false;
-                                    deny_reason =
-                                        format!("User denied permission for '{}'", tool_name);
-                                }
-                            }
-                        }
-                        None => {
-                            allowed = false;
-                            deny_reason = format!(
-                                "Permission required for '{}' in non-interactive mode",
-                                tool_name
-                            );
-                        }
-                    },
-                }
-                if !allowed {
-                    self.record_denial(&tool_name, &tool_use_id, &args);
-                    self.emit_tool_result(&tool_use_id, &deny_reason, true);
-                    self.messages.push(ChatMessage::tool(tool_use_id, deny_reason));
-                    continue;
-                }
-
-                // Execute with a per-call ctx clone carrying the tool_use_id.
-                let mut call_ctx = self.ctx.clone();
-                call_ctx.current_tool_use_id = Some(tool_use_id.clone());
-                let mut out = tool.call(args.clone(), &call_ctx).await;
-
-                // 4. PostToolUse (or PostToolUseFailure when the tool reported an error).
-                let post_event = if out.is_error {
-                    HookEvent::PostToolUseFailure
+                let alone = matches!(&slot, Slot::Run(p) if !p.parallel);
+                if alone {
+                    let pending = std::mem::take(&mut batch);
+                    self.flush_calls(pending, &mut stop_run, &mut finish_gate, &mut turn_guard, &final_text).await;
+                    self.flush_calls(vec![slot], &mut stop_run, &mut finish_gate, &mut turn_guard, &final_text).await;
                 } else {
-                    HookEvent::PostToolUse
-                };
-                let mut post_payload = json!({
-                    "tool_name": tool_name,
-                    "tool_input": args,
-                    "tool_use_id": tool_use_id,
-                });
-                if out.is_error {
-                    post_payload["error"] = json!(out.content);
-                } else {
-                    post_payload["tool_response"] = json!(out.content);
-                }
-                let post = self.hooks.run(post_event, &tool_name, post_payload).await;
-                self.emit_system_message(post_event, &post);
-                if let Some(replaced) = post.updated_output.clone() {
-                    out.content = replaced;
-                }
-                if let Some(fb) = post.feedback.clone() {
-                    if !fb.is_empty() {
-                        out.content.push('\n');
-                        out.content.push_str(&fb);
-                    }
-                }
-                finish_gate.observe(
-                    &tool_name,
-                    args.get("file_path").and_then(|v| v.as_str()),
-                    out.is_error,
-                );
-                if let Some(note) = turn_guard.observe(&tool_name, &args, &out) {
-                    out.content.push_str("\n\n");
-                    out.content.push_str(&note);
-                }
-                if tool_name == "TodoWrite" && !out.is_error {
-                    self.model_calls_since_todo = 0;
-                }
-                if !repair_notes.is_empty() {
-                    out.content.push_str(&format!(
-                        "\n[zen: your tool call was repaired before running: {}. Send well-formed calls next time.]",
-                        repair_notes.join("; ")
-                    ));
-                }
-                self.emit_tool_result(&tool_use_id, &out.content, out.is_error);
-                self.messages.push(ChatMessage::tool(tool_use_id, out.content));
-                if post.stop_run {
-                    stop_run = Some(post.stop_reason.unwrap_or_else(|| final_text.clone()));
+                    batch.push(slot);
                 }
             }
-
+            self.flush_calls(batch, &mut stop_run, &mut finish_gate, &mut turn_guard, &final_text).await;
             if let Some(text) = stop_run {
                 let result_text = if plan_mode {
                     self.plan_text().unwrap_or_else(|| text.clone())
@@ -799,6 +594,306 @@ impl Agent {
                     num_turns,
                 );
             }
+        }
+    }
+
+    /// Per-call ctx clone carrying the tool_use_id.
+    fn call_ctx(&self, tool_use_id: &str) -> ToolContext {
+        let mut call_ctx = self.ctx.clone();
+        call_ctx.current_tool_use_id = Some(tool_use_id.to_string());
+        call_ctx
+    }
+
+    /// Everything before execution for one tool call: repair, PreToolUse, unknown tool, plan
+    /// mode, permission. Returns the finished result (not yet recorded) or a call ready to run.
+    async fn prepare_call(
+        &mut self,
+        tc: &ToolCall,
+        text_call_id: Option<&str>,
+        plan_mode: bool,
+        stop_run: &Option<String>,
+    ) -> Slot {
+        let tool_use_id = tc.id.clone();
+
+        // Repair before rejecting (r7): near-miss tool names, fenced / malformed JSON,
+        // values of the wrong type. What cannot be repaired becomes a tool error that
+        // lists the expected fields, never a crash.
+        let mut repair_notes: Vec<String> = Vec::new();
+        if text_call_id == Some(tool_use_id.as_str()) {
+            repair_notes.push("the call was written as message text; it was run as a tool call".into());
+        }
+        let mut tool_name = tc.function.name.clone();
+        if self.tools.get(&tool_name).is_none() {
+            if let Some(mapped) = repair::resolve_tool_name(&tool_name, &self.tools.names()) {
+                if repair::has_template_tokens(&tool_name) {
+                    // Never echo leaked template tokens back into history (r7 C4).
+                    repair_notes.push(format!("tool name had chat-template tokens; mapped to '{}'", mapped));
+                } else {
+                    repair_notes.push(format!("tool name '{}' mapped to '{}'", tool_name, mapped));
+                }
+                tool_name = mapped;
+            }
+        }
+        let schema = self.tools.get(&tool_name).map(|t| t.parameters_schema());
+        let args: Value = match repair::repair_args(&tc.function.arguments, schema.as_ref()) {
+            Ok((v, notes)) => {
+                repair_notes.extend(notes);
+                v
+            }
+            Err(e) => {
+                let content = format!("Invalid JSON arguments for tool '{}': {}", tool_name, e);
+                return Slot::Done(tool_use_id, content, true);
+            }
+        };
+        if !repair_notes.is_empty() {
+            // Store the repaired call so the history (and the next request) only ever
+            // shows the model well-formed calls to imitate.
+            self.rewrite_tool_call(&tool_use_id, &tool_name, &args);
+        }
+
+        // A prior stop signal: still record a tool result so the exchange is valid.
+        if stop_run.is_some() {
+            return Slot::Done(tool_use_id, "[tool call skipped: run stopping]".to_string(), false);
+        }
+
+        // 2. PreToolUse hook.
+        let pre = self
+            .hooks
+            .run(
+                HookEvent::PreToolUse,
+                &tool_name,
+                json!({
+                    "tool_name": tool_name,
+                    "tool_input": args,
+                    "tool_use_id": tool_use_id,
+                }),
+            )
+            .await;
+        self.emit_system_message(HookEvent::PreToolUse, &pre);
+        if pre.stop_run {
+            // `continue: false` stops the run; this call still needs a tool message so the
+            // history stays a valid OpenAI exchange.
+            let reason = pre
+                .stop_reason
+                .clone()
+                .or(pre.feedback.clone())
+                .unwrap_or_else(|| "stopped by PreToolUse hook".into());
+            let content = format!("[tool call skipped: {}]", reason);
+            return Slot::Stop(tool_use_id, content, reason);
+        }
+        if pre.blocked {
+            let content = pre
+                .feedback
+                .unwrap_or_else(|| format!("Tool '{}' blocked by PreToolUse hook", tool_name));
+            return Slot::Done(tool_use_id, content, true);
+        }
+        // `updatedInput` replaces the arguments for the permission check and the call.
+        let args = match pre.updated_input.clone() {
+            Some(Value::Object(o)) => Value::Object(o),
+            _ => args,
+        };
+
+        // Unknown tool.
+        let tool = match self.tools.get(&tool_name) {
+            Some(t) => t,
+            None => {
+                let content = format!(
+                    "Unknown tool '{}'. Available tools: {}",
+                    tool_name,
+                    self.tools.names().join(", ")
+                );
+                return Slot::Done(tool_use_id, content, true);
+            }
+        };
+        let read_only = tool.is_read_only();
+
+        // Plan mode: mutating tools should never reach here (they are hidden), but if a
+        // model hallucinates one, report it without recording a denial so the result stays
+        // a clean plan.
+        if plan_mode && !read_only {
+            let content = format!("Tool '{}' is not available in plan mode", tool_name);
+            return Slot::Done(tool_use_id, content, true);
+        }
+
+        // 3. Permission. The checker (rules + mode) always runs; a PreToolUse decision can
+        // tighten it (deny/ask) or skip a prompt (allow), but never loosen a deny
+        // (SPEC C2.13).
+        let checked = self.permissions.check(&tool_name, &args, read_only, &self.ctx);
+        let ask_rule = matches!(checked, PermissionDecision::Ask)
+            && self.permissions.ask_rule_matches(&tool_name, &args, &self.ctx);
+        let decision = combine_permission(checked, pre.permission_override.clone(), ask_rule);
+        let mut allowed = true;
+        let mut deny_reason = String::new();
+        match decision {
+            PermissionDecision::Allow => {}
+            PermissionDecision::Deny(reason) => {
+                allowed = false;
+                deny_reason = reason;
+            }
+            PermissionDecision::Ask => match self.prompter.clone() {
+                Some(p) => {
+                    self.notify_permission_prompt(&tool_name).await;
+                    match p.ask_permission(&tool_name, &args) {
+                        PromptAnswer::Yes => {}
+                        // One rule per line: a compound Bash command yields one
+                        // rule per sub-command (SPEC C2.12).
+                        PromptAnswer::Always(rules) => {
+                            for rule in rules.lines() {
+                                self.permissions.add_allow_rule(rule)
+                            }
+                        }
+                        PromptAnswer::No => {
+                            allowed = false;
+                            deny_reason = format!("User denied permission for '{}'", tool_name);
+                        }
+                    }
+                }
+                None => {
+                    allowed = false;
+                    deny_reason =
+                        format!("Permission required for '{}' in non-interactive mode", tool_name);
+                }
+            },
+        }
+        if !allowed {
+            self.record_denial(&tool_name, &tool_use_id, &args);
+            return Slot::Done(tool_use_id, deny_reason, true);
+        }
+        let parallel = read_only && is_parallel_safe(&tool_name);
+        Slot::Run(PendingCall { tool_use_id, tool_name, args, repair_notes, tool, parallel })
+    }
+
+    /// Run the prepared calls of one batch and record every result in order. With more than
+    /// one runnable call they execute concurrently (only parallel-safe read-only calls are ever
+    /// batched together). A PostToolUse stop skips the results of the calls after it.
+    async fn flush_calls(
+        &mut self,
+        slots: Vec<Slot>,
+        stop_run: &mut Option<String>,
+        finish_gate: &mut finish::FinishGate,
+        turn_guard: &mut guard::TurnGuard,
+        final_text: &str,
+    ) {
+        if slots.is_empty() {
+            return;
+        }
+        let runnable = slots.iter().filter(|s| matches!(s, Slot::Run(_))).count();
+        let mut outs: Vec<Option<ToolOutput>> = Vec::with_capacity(slots.len());
+        if runnable > 1 {
+            let mut handles = Vec::with_capacity(slots.len());
+            for s in &slots {
+                handles.push(match s {
+                    Slot::Run(p) => {
+                        let tool = p.tool.clone();
+                        let args = p.args.clone();
+                        let ctx = self.call_ctx(&p.tool_use_id);
+                        Some(tokio::spawn(async move { tool.call(args, &ctx).await }))
+                    }
+                    _ => None,
+                });
+            }
+            for h in handles {
+                outs.push(match h {
+                    Some(h) => Some(
+                        h.await
+                            .unwrap_or_else(|e| ToolOutput::err(format!("tool task failed: {}", e))),
+                    ),
+                    None => None,
+                });
+            }
+        }
+        let mut skip = false;
+        for (i, slot) in slots.into_iter().enumerate() {
+            match slot {
+                Slot::Done(id, content, is_error) => {
+                    self.emit_tool_result(&id, &content, is_error);
+                    self.messages.push(ChatMessage::tool(id, content));
+                }
+                Slot::Stop(id, content, _) => {
+                    self.emit_tool_result(&id, &content, true);
+                    self.messages.push(ChatMessage::tool(id, content));
+                }
+                Slot::Run(p) => {
+                    if skip {
+                        let content = "[tool call skipped: run stopping]".to_string();
+                        self.emit_tool_result(&p.tool_use_id, &content, false);
+                        self.messages.push(ChatMessage::tool(p.tool_use_id, content));
+                        continue;
+                    }
+                    let out = match outs.get_mut(i).and_then(Option::take) {
+                        Some(o) => o,
+                        None => {
+                            let ctx = self.call_ctx(&p.tool_use_id);
+                            p.tool.call(p.args.clone(), &ctx).await
+                        }
+                    };
+                    if let Some(reason) = self.finish_call(p, out, finish_gate, turn_guard, final_text).await {
+                        *stop_run = Some(reason);
+                        skip = true;
+                    }
+                }
+            }
+        }
+    }
+
+    /// PostToolUse (or PostToolUseFailure), finish gate, loop guard, repair note; records the
+    /// result. Returns the stop reason when a PostToolUse hook stops the run.
+    async fn finish_call(
+        &mut self,
+        p: PendingCall,
+        mut out: ToolOutput,
+        finish_gate: &mut finish::FinishGate,
+        turn_guard: &mut guard::TurnGuard,
+        final_text: &str,
+    ) -> Option<String> {
+        let PendingCall { tool_use_id, tool_name, args, repair_notes, .. } = p;
+        // 4. PostToolUse (or PostToolUseFailure when the tool reported an error).
+        let post_event = if out.is_error {
+            HookEvent::PostToolUseFailure
+        } else {
+            HookEvent::PostToolUse
+        };
+        let mut post_payload = json!({
+            "tool_name": tool_name,
+            "tool_input": args,
+            "tool_use_id": tool_use_id,
+        });
+        if out.is_error {
+            post_payload["error"] = json!(out.content);
+        } else {
+            post_payload["tool_response"] = json!(out.content);
+        }
+        let post = self.hooks.run(post_event, &tool_name, post_payload).await;
+        self.emit_system_message(post_event, &post);
+        if let Some(replaced) = post.updated_output.clone() {
+            out.content = replaced;
+        }
+        if let Some(fb) = post.feedback.clone() {
+            if !fb.is_empty() {
+                out.content.push('\n');
+                out.content.push_str(&fb);
+            }
+        }
+        finish_gate.observe(&tool_name, args.get("file_path").and_then(|v| v.as_str()), out.is_error);
+        if let Some(note) = turn_guard.observe(&tool_name, &args, &out) {
+            out.content.push_str("\n\n");
+            out.content.push_str(&note);
+        }
+        if tool_name == "TodoWrite" && !out.is_error {
+            self.model_calls_since_todo = 0;
+        }
+        if !repair_notes.is_empty() {
+            out.content.push_str(&format!(
+                "\n[zen: your tool call was repaired before running: {}. Send well-formed calls next time.]",
+                repair_notes.join("; ")
+            ));
+        }
+        self.emit_tool_result(&tool_use_id, &out.content, out.is_error);
+        self.messages.push(ChatMessage::tool(tool_use_id, out.content));
+        if post.stop_run {
+            Some(post.stop_reason.unwrap_or_else(|| final_text.to_string()))
+        } else {
+            None
         }
     }
 
@@ -835,6 +930,32 @@ impl Agent {
     pub async fn compact(&mut self, focus: Option<&str>, trigger: &str) -> anyhow::Result<()> {
         compaction::compact_impl(self, focus, trigger).await
     }
+}
+
+/// Tools whose read-only calls may run concurrently within one assistant message (perf p0).
+/// Anything not listed (Bash, edits, Task, MCP, TodoWrite, Skill) runs alone, in order.
+pub(crate) fn is_parallel_safe(tool_name: &str) -> bool {
+    matches!(tool_name, "Read" | "Glob" | "Grep" | "LS")
+}
+
+/// A tool call ready to execute (repaired, hooked, permitted).
+struct PendingCall {
+    tool_use_id: String,
+    tool_name: String,
+    args: Value,
+    repair_notes: Vec<String>,
+    tool: Arc<dyn Tool>,
+    parallel: bool,
+}
+
+/// One tool call of an assistant message after [`Agent::prepare_call`].
+enum Slot {
+    /// Result known without running the tool: `(id, content, is_error)`.
+    Done(String, String, bool),
+    /// A PreToolUse hook stopped the run: `(id, content, reason)`.
+    Stop(String, String, String),
+    /// Ready to run.
+    Run(PendingCall),
 }
 
 /// Merge the rule/mode decision with a PreToolUse hook's `permissionDecision` (SPEC C2.13).
