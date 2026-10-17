@@ -195,15 +195,23 @@ async fn c5_1_repl_builtins_rename_export_resume() {
     assert!(last.contains("hello zen") && last.contains("hi there") && last.contains("and again"), "{}", last);
 }
 
+/// `ps` state of a pid (Linux and macOS; macOS has no /proc). None = no such process.
+#[cfg(unix)]
+fn ps_stat(pid: &str) -> Option<String> {
+    let o = std::process::Command::new("ps").args(["-o", "stat=", "-p", pid]).output().ok()?;
+    let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
+    (o.status.success() && !s.is_empty()).then_some(s)
+}
+
+/// Alive = the process exists and is not a zombie (a reparented child may linger as Z).
+#[cfg(unix)]
 fn alive(pid: &str) -> bool {
-    match std::fs::read_to_string(format!("/proc/{}/stat", pid)) {
-        Ok(stat) => stat[stat.rfind(')').unwrap() + 1..].split_whitespace().next() != Some("Z"),
-        Err(_) => false,
-    }
+    ps_stat(pid).is_some_and(|s| !s.starts_with('Z'))
 }
 
 /// C8.9 (REPL): Ctrl-C ends the running turn and stops its Bash child, the REPL keeps going,
 /// and the interrupted turn leaves no orphaned tool call in the history.
+#[cfg(unix)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn c8_9_repl_sigint_cancels_turn_and_continues() {
     let home = TempDir::new("replint_home");

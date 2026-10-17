@@ -630,7 +630,10 @@ async fn c6_1_preloads_skills_into_subagent_system_prompt() {
     assert_eq!(ex.run_subagent(&def, "go", "t").await.unwrap(), "done");
     let sys = llm.requests()[0].messages[0].content.clone().unwrap();
     assert!(sys.starts_with("Base."));
-    assert!(sys.contains(&format!("## Skill: style\nUse tabs. See {}/x", skill_dir.display())), "{}", sys);
+    // Compare paths independent of the separator (Windows mixes `\` and `/`).
+    let norm = |p: &str| p.replace('\\', "/");
+    let want = format!("## Skill: style\nUse tabs. See {}/x", skill_dir.display());
+    assert!(norm(&sys).contains(&norm(&want)), "{}", sys);
     assert!(!sys.contains("description: S"), "frontmatter stripped");
     assert!(sys.contains("## Skill: known\nKNOWN BODY"));
     assert!(sink.events.lock().unwrap().iter().any(|e| matches!(e,
