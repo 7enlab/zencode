@@ -168,3 +168,109 @@ async fn p0_1_denied_call_inside_a_batch_keeps_its_slot() {
     assert!(res[1].1.starts_with("Unknown tool"), "{:?}", res[1]);
     assert_eq!(res[2].1, "Read b");
 }
+
+// ───────────── p0-4: retry budget for 429 / 502 / 503 / 504 ─────────────
+
+/// Serve `replies` (status, body) one per connection; then keep repeating the last one.
+/// Returns the base URL and a counter of requests served.
+async fn status_server(replies: Vec<(u16, &'static str)>) -> (String, Arc<AtomicUsize>) {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let served = Arc::new(AtomicUsize::new(0));
+    let counter = served.clone();
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut sock, _)) = listener.accept().await else { return };
+            let i = counter.fetch_add(1, Ordering::SeqCst);
+            let (code, body) = replies[i.min(replies.len() - 1)];
+            let mut buf = vec![0u8; 65536];
+            let mut got = Vec::new();
+            loop {
+                let n = sock.read(&mut buf).await.unwrap_or(0);
+                got.extend_from_slice(&buf[..n]);
+                let txt = String::from_utf8_lossy(&got);
+                if let Some(h) = txt.find("\r\n\r\n") {
+                    let len = txt[..h]
+                        .lines()
+                        .find_map(|l| l.to_ascii_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse::<usize>().unwrap()))
+                        .unwrap_or(0);
+                    if got.len() >= h + 4 + len {
+                        break;
+                    }
+                }
+                if n == 0 {
+                    break;
+                }
+            }
+            let resp = format!(
+                "HTTP/1.1 {} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                code,
+                body.len(),
+                body
+            );
+            let _ = sock.write_all(resp.as_bytes()).await;
+        }
+    });
+    (format!("http://{addr}/v1"), served)
+}
+
+const OK_BODY: &str = r#"{"choices":[{"message":{"content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}"#;
+
+fn req() -> ChatRequest {
+    ChatRequest { model: "m".into(), messages: vec![ChatMessage::user("hi")], tools: vec![], max_tokens: None }
+}
+
+fn retries(sink: &CollectSink) -> usize {
+    sink.events.lock().unwrap().iter().filter(|e| matches!(e, AgentEvent::ApiRetry { .. })).count()
+}
+
+#[tokio::test]
+async fn p0_4_gateway_errors_retry_past_four_attempts_within_the_budget() {
+    let (url, served) = status_server(vec![(503, "busy"), (502, "bad"), (504, "slow"), (503, "busy"), (429, "rl"), (200, OK_BODY)]).await;
+    let sink = Arc::new(CollectSink::default());
+    let mut c = crate::client::OpenAiClient::new(url, None, sink.clone());
+    c.base_retry_delay_ms = 1;
+    let r = c.chat(req()).await.expect("should succeed on the 6th attempt");
+    assert_eq!(r.message.content.as_deref(), Some("ok"));
+    assert_eq!(served.load(Ordering::SeqCst), 6);
+    assert_eq!(retries(&sink), 5);
+}
+
+#[tokio::test]
+async fn p0_4_total_wait_is_capped() {
+    let (url, served) = status_server(vec![(429, r#"{"error":{"message":"rate limited"}}"#)]).await;
+    let sink = Arc::new(CollectSink::default());
+    let mut c = crate::client::OpenAiClient::new(url, None, sink.clone());
+    c.base_retry_delay_ms = 20;
+    c.max_total_wait_ms = 100;
+    let t0 = Instant::now();
+    let err = c.chat(req()).await.unwrap_err().to_string();
+    let took = t0.elapsed();
+    assert!(err.contains("HTTP 429") && err.contains("retry.maxWaitSecs"), "{}", err);
+    assert!(took < Duration::from_millis(1500), "took {:?}", took);
+    // Waits 20 + 40 + 40 (clipped to the 100 ms budget) → 4 requests.
+    assert_eq!(served.load(Ordering::SeqCst), 4);
+    let total: u64 = sink
+        .events
+        .lock()
+        .unwrap()
+        .iter()
+        .filter_map(|e| match e {
+            AgentEvent::ApiRetry { retry_delay_ms, .. } => Some(*retry_delay_ms),
+            _ => None,
+        })
+        .sum();
+    assert_eq!(total, 100);
+}
+
+#[tokio::test]
+async fn p0_4_other_5xx_still_stop_after_four_attempts() {
+    let (url, served) = status_server(vec![(500, "boom")]).await;
+    let sink = Arc::new(CollectSink::default());
+    let mut c = crate::client::OpenAiClient::new(url, None, sink.clone());
+    c.base_retry_delay_ms = 1;
+    let err = c.chat(req()).await.unwrap_err().to_string();
+    assert!(err.contains("HTTP 500"), "{}", err);
+    assert_eq!(served.load(Ordering::SeqCst), 4);
+}

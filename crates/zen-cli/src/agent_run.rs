@@ -274,11 +274,7 @@ pub async fn assemble(
         // Forwarding sink: the run's real sink is attached once it exists (C6.4).
         let fwd: Arc<dyn EventSink> = subagent_sink.clone();
         let executor = zen_agent::SubAgentExecutor::new(
-            Arc::new(zen_agent::OpenAiClient::new(
-                cfg.base_url.clone(),
-                cfg.api_key.clone(),
-                fwd.clone(),
-            )),
+            Arc::new(cfg.llm_client(fwd.clone())),
             registry.clone(),
             assembly_permissions.clone(),
             hooks.clone(),
@@ -537,11 +533,7 @@ pub async fn run_agent_headless(
     };
     assembly.subagent_sink.set(sink.clone());
 
-    let llm = Arc::new(zen_agent::OpenAiClient::new(
-        cfg.base_url.clone(),
-        cfg.api_key.clone(),
-        sink.clone(),
-    ));
+    let llm = Arc::new(cfg.llm_client(sink.clone()));
 
     let mut config = base_agent_config(cfg, cli, system_prompt);
     config.model = effective_model.clone();

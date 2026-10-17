@@ -20,6 +20,8 @@ pub struct ResolvedConfig {
     pub auto_compact: Option<serde_json::Value>,
     /// Raw `verify` object: `{ "enabled": bool, "command": "...", "timeoutSecs": n }` (r7).
     pub verify: Option<serde_json::Value>,
+    /// Settings `retry.maxWaitSecs`: total backoff budget per model request (default 300 s).
+    pub retry_max_wait_secs: u64,
     pub max_turns: usize,
     pub context_window: Option<u64>,
     pub loaded_sources: Vec<String>,
@@ -32,6 +34,24 @@ impl ResolvedConfig {
     pub fn api_key(&self) -> Option<&str> {
         self.api_key.as_deref()
     }
+
+    /// An OpenAI-compatible client for this config, with the `retry.maxWaitSecs` budget applied.
+    pub fn llm_client(&self, sink: std::sync::Arc<dyn zen_core::EventSink>) -> zen_agent::OpenAiClient {
+        let mut c = zen_agent::OpenAiClient::new(self.base_url.clone(), self.api_key.clone(), sink);
+        c.max_total_wait_ms = self.retry_max_wait_secs.saturating_mul(1000);
+        c
+    }
+}
+
+/// Default for settings `retry.maxWaitSecs`.
+pub const DEFAULT_RETRY_MAX_WAIT_SECS: u64 = 300;
+
+/// `{"retry": {"maxWaitSecs": n}}` → n (a non-negative number; anything else → the default).
+pub fn retry_max_wait_secs(retry: Option<&serde_json::Value>) -> u64 {
+    retry
+        .and_then(|r| r.get("maxWaitSecs"))
+        .and_then(|v| v.as_u64().or_else(|| v.as_f64().filter(|f| *f >= 0.0).map(|f| f as u64)))
+        .unwrap_or(DEFAULT_RETRY_MAX_WAIT_SECS)
 }
 
 /// Deep merge `over` onto `base`. Objects merge recursively; arrays concatenate+dedupe;
@@ -289,6 +309,7 @@ pub fn resolve_config_with_home(
         env: merged.env.clone(),
         auto_compact: merged.auto_compact.clone(),
         verify: merged.extra.get("verify").cloned(),
+        retry_max_wait_secs: retry_max_wait_secs(merged.extra.get("retry")),
         max_turns,
         context_window: merged.context_window,
         loaded_sources,
@@ -523,5 +544,16 @@ mod tests {
         let cfg = resolve_config(&cli, &dir).unwrap();
         assert_eq!(cfg.hooks, serde_json::json!({}));
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn p0_4_retry_max_wait_secs_parses_with_default() {
+        use serde_json::json;
+        assert_eq!(retry_max_wait_secs(None), 300);
+        assert_eq!(retry_max_wait_secs(Some(&json!({}))), 300);
+        assert_eq!(retry_max_wait_secs(Some(&json!({"maxWaitSecs": 30}))), 30);
+        assert_eq!(retry_max_wait_secs(Some(&json!({"maxWaitSecs": 0}))), 0);
+        assert_eq!(retry_max_wait_secs(Some(&json!({"maxWaitSecs": "x"}))), 300);
+        assert_eq!(retry_max_wait_secs(Some(&json!({"maxWaitSecs": -5}))), 300);
     }
 }
