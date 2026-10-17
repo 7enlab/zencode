@@ -22,14 +22,50 @@ pub fn resolve_tool_name(name: &str, known: &[String]) -> Option<String> {
         .trim_start_matches("functions.")
         .trim_start_matches("tools.");
     let key = normalize_name(trimmed);
-    if key.is_empty() {
-        return None;
+    if !key.is_empty() {
+        if let Some(hit) = known.iter().find(|k| normalize_name(k) == key) {
+            return Some(hit.clone());
+        }
+        if let Some(hit) = alias_target(&key).and_then(|t| known.iter().find(|k| k.as_str() == t)) {
+            return Some(hit.clone());
+        }
     }
-    if let Some(hit) = known.iter().find(|k| normalize_name(k) == key) {
-        return Some(hit.clone());
+    // Last resort (r8): the valid tool name is somewhere among the leaked tokens, e.g.
+    // `<|start|>assistant<|channel|>Read` or `commentary to=Bash json`. Try every word-like piece,
+    // exact names before aliases.
+    let pieces = name_pieces(name);
+    for p in &pieces {
+        if let Some(hit) = known.iter().find(|k| normalize_name(k) == normalize_name(p)) {
+            return Some(hit.clone());
+        }
     }
-    let target = alias_target(&key)?;
-    known.iter().find(|k| k.as_str() == target).cloned()
+    for p in &pieces {
+        if let Some(hit) = alias_target(&normalize_name(p)).and_then(|t| known.iter().find(|k| k.as_str() == t)) {
+            return Some(hit.clone());
+        }
+    }
+    None
+}
+
+/// Word-like pieces of a damaged tool name: template tokens (`<|...|>`) and any character that
+/// cannot be part of a tool name split it; a `functions.` / `tools.` prefix is dropped.
+fn name_pieces(name: &str) -> Vec<String> {
+    let mut s = String::with_capacity(name.len());
+    let mut rest = name;
+    while let Some(i) = rest.find("<|") {
+        s.push_str(&rest[..i]);
+        s.push(' ');
+        rest = match rest[i..].find("|>") {
+            Some(j) => &rest[i + j + 2..],
+            None => "",
+        };
+    }
+    s.push_str(rest);
+    s.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '.' || c == '-'))
+        .map(|p| p.trim_matches('.').trim_start_matches("functions.").trim_start_matches("tools."))
+        .filter(|p| !p.is_empty())
+        .map(str::to_string)
+        .collect()
 }
 
 /// Cut chat-template tokens that leaked into a tool name. gpt-oss served by vLLM sometimes
@@ -115,14 +151,30 @@ fn parse_object(raw: &str, notes: &mut Vec<String>) -> Result<Map<String, Value>
             return into_object(v, notes);
         }
     }
+    // A complete object followed by junk (`{..}<|call|>`, `{..}}`, `{..} {..}`): keep the
+    // first object (r8).
+    if let Some(v) = unfenced.find('{').and_then(|i| first_object(&unfenced[i..])) {
+        notes.push("ignored trailing text after the JSON arguments".into());
+        return into_object(v, notes);
+    }
     let body = extract_braced(unfenced).unwrap_or(unfenced);
     let fixed = normalize_json_text(body);
-    match serde_json::from_str::<Value>(&fixed) {
-        Ok(v) => {
+    let parsed = serde_json::from_str::<Value>(&fixed).ok().or_else(|| first_object(&fixed));
+    match parsed {
+        Some(v) => {
             notes.push("repaired malformed JSON".into());
             into_object(v, notes)
         }
-        Err(_) => Err(strict_err),
+        None => Err(strict_err),
+    }
+}
+
+/// The leading JSON object of `s` when `s` starts with a complete, valid one.
+fn first_object(s: &str) -> Option<Value> {
+    let mut it = serde_json::Deserializer::from_str(s).into_iter::<Value>();
+    match it.next() {
+        Some(Ok(v @ Value::Object(_))) => Some(v),
+        _ => None,
     }
 }
 
@@ -597,5 +649,40 @@ mod tests {
         for (input, want) in cases {
             assert_eq!(resolve_tool_name(input, &known).as_deref(), want, "{}", input);
         }
+    }
+
+    #[test]
+    fn p0_5_tool_name_found_among_leaked_tokens() {
+        let known: Vec<String> = ["Read", "Bash", "Grep", "Edit"].iter().map(|s| s.to_string()).collect();
+        let cases = [
+            ("<|start|>assistant<|channel|>Read", "Read"),
+            ("<|channel|>commentary to=functions.Bash<|constrain|>json", "Bash"),
+            ("Grep<\u{200B}|channel|>commentary", "Grep"),
+            ("assistant<|channel|>commentary json Edit", "Edit"),
+            ("functions.Read<|message|>", "Read"),
+            ("<|start|>shell", "Bash"),
+        ];
+        for (raw, want) in cases {
+            assert_eq!(resolve_tool_name(raw, &known).as_deref(), Some(want), "{}", raw);
+        }
+        assert_eq!(resolve_tool_name("<|channel|>commentary", &known), None);
+    }
+
+    #[test]
+    fn p0_5_trailing_garbage_after_json_is_cut() {
+        let cases = [
+            r#"{"file_path":"a.rs"}<|call|>"#,
+            r#"{"file_path":"a.rs"}}"#,
+            r#"{"file_path":"a.rs"} {"file_path":"b.rs"}"#,
+            r#"{"file_path":"a.rs"} trailing words"#,
+            r#"{'file_path':'a.rs',}}}"#,
+        ];
+        for raw in cases {
+            let (v, notes) = repair_args(raw, None).unwrap_or_else(|e| panic!("{}: {}", raw, e));
+            assert_eq!(v, serde_json::json!({"file_path": "a.rs"}), "{}", raw);
+            assert!(!notes.is_empty(), "{}", raw);
+        }
+        // Still an error when nothing object-like can be recovered.
+        assert!(repair_args("not json at all", None).is_err());
     }
 }

@@ -51,11 +51,7 @@ pub async fn run_repl(cli: &Cli, cwd: &Path, home: Option<&Path>) -> Result<()> 
     )
     .await?;
 
-    let llm = Arc::new(zen_agent::OpenAiClient::new(
-        cfg.base_url.clone(),
-        cfg.api_key.clone(),
-        Arc::new(zen_core::NullSink),
-    ));
+    let llm = Arc::new(cfg.llm_client(Arc::new(zen_core::NullSink)));
 
     let mut config = build_repl_config(cli, &cfg, cwd);
     let _ = &mut config;

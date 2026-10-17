@@ -9,8 +9,10 @@
 //! Key design decisions:
 //!
 //! - **Retry policy lives here, not in the loop.** HTTP 429, any 5xx and network errors are
-//!   retried up to 4 attempts with exponential backoff (`base_retry_delay_ms * 2^(attempt-1)`),
-//!   raised to the server's `Retry-After` / `retry_after_seconds` hint (capped at 60 s, r7).
+//!   retried with exponential backoff (`base_retry_delay_ms * 2^(attempt-1)`, each wait capped at
+//!   60 s), raised to the server's `Retry-After` / `retry_after_seconds` hint (r7). Other 5xx
+//!   and network errors stop after 4 attempts; 429/502/503/504 keep retrying until the total wait
+//!   budget `max_total_wait_ms` (settings `retry.maxWaitSecs`, default 300 s) is spent (perf p0).
 //!   Each retry emits [`AgentEvent::ApiRetry`] so stream-json users can see the retry, matching
 //!   SPEC §3.6. A 200 carrying an `error` object, no choices or an empty message is resampled the
 //!   same way (r7 C3). Everything else (4xx, malformed JSON) fails immediately.
@@ -36,6 +38,17 @@ use zen_core::*;
 const MAX_ATTEMPTS: u32 = 4;
 /// How much of an error body is quoted back in an error message.
 const ERROR_BODY_CHARS: usize = 300;
+/// Hard ceiling on attempts for rate limits / gateway errors, which otherwise retry until
+/// [`OpenAiClient::max_total_wait_ms`] is spent (perf p0).
+const MAX_LONG_ATTEMPTS: u32 = 30;
+/// Default total backoff budget for one `chat` call (settings `retry.maxWaitSecs`).
+pub const DEFAULT_MAX_TOTAL_WAIT_MS: u64 = 300_000;
+
+/// Statuses that are worth waiting out (rate limit, bad gateway, unavailable, gateway timeout):
+/// they keep retrying until the total wait budget is spent. Other 5xx keep [`MAX_ATTEMPTS`].
+fn is_long_retry_status(code: u16) -> bool {
+    matches!(code, 429 | 502 | 503 | 504)
+}
 
 /// HTTP client for any OpenAI-compatible `/chat/completions` endpoint.
 ///
@@ -55,6 +68,10 @@ pub struct OpenAiClient {
     /// Upper bound for a server-requested wait (`Retry-After` / `retry_after_seconds`). Public
     /// for tests.
     pub max_retry_delay_ms: u64,
+    /// Total time one `chat` call may spend sleeping between retries (settings
+    /// `retry.maxWaitSecs`, default 300 s). Headless runs never hang longer than this on a
+    /// rate-limited or flapping gateway. Public for tests and the CLI.
+    pub max_total_wait_ms: u64,
     http: reqwest::Client,
 }
 
@@ -88,7 +105,15 @@ impl OpenAiClient {
             builder = builder.no_proxy();
         }
         let http = builder.build().unwrap_or_else(|_| reqwest::Client::new());
-        Self { base_url, api_key, sink, base_retry_delay_ms: 1000, max_retry_delay_ms: 60_000, http }
+        Self {
+            base_url,
+            api_key,
+            sink,
+            base_retry_delay_ms: 1000,
+            max_retry_delay_ms: 60_000,
+            max_total_wait_ms: DEFAULT_MAX_TOTAL_WAIT_MS,
+            http,
+        }
     }
 
     /// The API key, if any. Kept private-ish so no code path accidentally formats it.
@@ -189,16 +214,19 @@ fn first_chars(s: &str, n: usize) -> String {
 impl LlmBackend for OpenAiClient {
     async fn chat(&self, req: ChatRequest) -> anyhow::Result<ChatResponse> {
         let url = self.endpoint();
-        let max_retries = MAX_ATTEMPTS - 1;
+        let mut waited_ms: u64 = 0;
+        let mut attempt: u32 = 0;
 
-        for attempt in 1..=MAX_ATTEMPTS {
+        loop {
+            attempt += 1;
             let rb = self.auth(self.http.post(&url).json(&req));
             let outcome = rb.send().await;
 
             // Classify the attempt: either a parsed response, a retryable failure, or a
             // fatal failure. `err_text` is what the caller would see in an error message.
+            // `long` failures (429/502/503/504) retry until the wait budget is spent.
             let mut server_hint_ms: Option<u64> = None;
-            let (retryable, status, err_text): (bool, Option<u16>, String) = match outcome {
+            let (retryable, long, status, err_text): (bool, bool, Option<u16>, String) = match outcome {
                 Ok(resp) => {
                     let code = resp.status().as_u16();
                     if resp.status().is_success() {
@@ -206,7 +234,7 @@ impl LlmBackend for OpenAiClient {
                         // A 200 that carries a gateway error, no choices, or an empty message is
                         // a sampling glitch (gpt-oss Harmony header errors): resample (r7 C3).
                         match transient_completion(&body) {
-                            Some(why) if attempt < MAX_ATTEMPTS => (true, Some(code), why),
+                            Some(why) if attempt < MAX_ATTEMPTS => (true, false, Some(code), why),
                             _ => return parse_completion(&body),
                         }
                     } else {
@@ -218,35 +246,53 @@ impl LlmBackend for OpenAiClient {
                         let body = resp.text().await.unwrap_or_default();
                         server_hint_ms = server_retry_hint_ms(header.as_deref(), &body);
                         let retryable = code == 429 || (500..600).contains(&code);
-                        (retryable, Some(code), format!("HTTP {}: {}", code, first_chars(&body, ERROR_BODY_CHARS)))
+                        (
+                            retryable,
+                            is_long_retry_status(code),
+                            Some(code),
+                            format!("HTTP {}: {}", code, first_chars(&body, ERROR_BODY_CHARS)),
+                        )
                     }
                 }
-                Err(e) => (true, None, format!("network error: {}", e)),
+                Err(e) => (true, false, None, format!("network error: {}", e)),
             };
 
             if !retryable {
                 return Err(anyhow::anyhow!(err_text));
             }
-            if attempt <= max_retries {
-                let delay_ms = retry_delay_ms(
-                    attempt,
-                    self.base_retry_delay_ms,
-                    server_hint_ms,
-                    self.max_retry_delay_ms,
-                );
-                self.sink.emit(AgentEvent::ApiRetry {
-                    attempt,
-                    max_retries,
-                    retry_delay_ms: delay_ms,
-                    error_status: status,
-                    error: err_text.clone(),
-                });
-                tokio::time::sleep(Duration::from_millis(delay_ms)).await;
-            } else {
+            let attempt_cap = if long { MAX_LONG_ATTEMPTS } else { MAX_ATTEMPTS };
+            let budget_left = self.max_total_wait_ms.saturating_sub(waited_ms);
+            if attempt >= attempt_cap {
                 return Err(anyhow::anyhow!(err_text));
             }
+            if budget_left == 0 {
+                return Err(anyhow::anyhow!(
+                    "{} (gave up after {} attempts: retry wait budget of {} s spent; settings retry.maxWaitSecs)",
+                    err_text,
+                    attempt,
+                    self.max_total_wait_ms / 1000
+                ));
+            }
+            // Backoff doubles per attempt (exponent capped so it cannot overflow), never above
+            // the per-wait cap, raised to the server's hint, and clipped to the budget left.
+            let delay_ms = retry_delay_ms(
+                attempt.min(16),
+                self.base_retry_delay_ms,
+                server_hint_ms,
+                self.max_retry_delay_ms,
+            )
+            .min(self.max_retry_delay_ms.max(self.base_retry_delay_ms))
+            .min(budget_left);
+            self.sink.emit(AgentEvent::ApiRetry {
+                attempt,
+                max_retries: attempt_cap - 1,
+                retry_delay_ms: delay_ms,
+                error_status: status,
+                error: err_text.clone(),
+            });
+            tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+            waited_ms = waited_ms.saturating_add(delay_ms);
         }
-        Err(anyhow::anyhow!("request failed"))
     }
 }
 

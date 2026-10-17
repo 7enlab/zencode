@@ -574,11 +574,12 @@ impl Tool for BashTool {
         let background = args.get("run_in_background").and_then(|v| v.as_bool()).unwrap_or(false);
         let cwd = ctx.cwd();
 
+        // bash everywhere it exists; on Windows without bash, pwsh/powershell/cmd (perf p0).
+        let shell = zen_core::resolve_shell("bash");
         if background {
-            let mut command = tokio::process::Command::new("bash");
+            let mut command = tokio::process::Command::new(&shell.program);
             command
-                .arg("-c")
-                .arg(cmd_str)
+                .args(shell.args(cmd_str))
                 .current_dir(&cwd)
                 .envs(ctx.env.iter())
                 .stdin(Stdio::null())
@@ -598,13 +599,18 @@ impl Tool for BashTool {
         // merged into stdout inside the shell (`2>&1` on the group) so the two streams keep their
         // real interleaved order instead of being concatenated after the fact.
         let marker = "__ZEN_PWD_8f3a__";
-        let wrapped = format!(
-            "{{ {cmd_str}\n}} 2>&1\n__zen_exit=$?\nprintf '\\n{marker}%s\\n' \"$PWD\"\nexit $__zen_exit"
-        );
-        let mut command = tokio::process::Command::new("bash");
+        // Non-POSIX fallback shells merge stderr the same way but do not report the final
+        // directory (no `cd` tracking there).
+        let wrapped = match shell.kind {
+            zen_core::ShellKind::Posix => format!(
+                "{{ {cmd_str}\n}} 2>&1\n__zen_exit=$?\nprintf '\\n{marker}%s\\n' \"$PWD\"\nexit $__zen_exit"
+            ),
+            zen_core::ShellKind::PowerShell => format!("& {{ {cmd_str} }} 2>&1; exit $LASTEXITCODE"),
+            zen_core::ShellKind::Cmd => format!("({cmd_str}) 2>&1"),
+        };
+        let mut command = tokio::process::Command::new(&shell.program);
         command
-            .arg("-c")
-            .arg(&wrapped)
+            .args(shell.args(&wrapped))
             .current_dir(&cwd)
             .envs(ctx.env.iter())
             .stdin(Stdio::null())
@@ -847,22 +853,39 @@ impl Tool for GrepTool {
             ));
         }
 
+        // An invalid regex (models often send `foo(` or `a[b`) is searched as literal text with
+        // a note, instead of costing a round trip on an error (r8 / perf p0).
+        let (pattern, literal_note) = match regex::Regex::new(pattern) {
+            Ok(_) => (pattern.to_string(), None),
+            Err(e) => (regex::escape(pattern), Some(literal_fallback_note(pattern, &e.to_string()))),
+        };
+        // Literal hits come back with the note; no literal hits either stays an error, so the
+        // model still learns to fix the pattern.
+        let with_note = |s: String| -> ToolOutput {
+            match &literal_note {
+                Some(n) if s.trim().is_empty() || s.trim() == "No matches found" => {
+                    ToolOutput::err(format!("Error: invalid regex, and no literal matches either. {}", n))
+                }
+                Some(n) => ToolOutput::ok(format!("{}\n{}", n, s)),
+                None => ToolOutput::ok(s),
+            }
+        };
         if rg_available() {
-            match run_rg(&target, &cwd, pattern, &mode, case_insensitive, line_numbers, before, after, glob.as_deref(), ftype.as_deref(), head_limit).await {
-                Ok(s) => return ToolOutput::ok(s),
+            match run_rg(&target, &cwd, &pattern, &mode, case_insensitive, line_numbers, before, after, glob.as_deref(), ftype.as_deref(), head_limit).await {
+                Ok(s) => return with_note(s),
                 // A malformed regex is the caller's fault: report it instead of falling back.
                 Err(RgError::BadPattern(msg)) => return ToolOutput::err(msg),
                 Err(RgError::Spawn) => {} // fall through to the built-in walker
             }
         }
-        let builtin = regex::RegexBuilder::new(pattern)
+        let builtin = regex::RegexBuilder::new(&pattern)
             .case_insensitive(case_insensitive)
             .build();
         let re = match builtin {
             Ok(r) => r,
             Err(e) => return ToolOutput::err(format!("Error: invalid regex: {}", e)),
         };
-        ToolOutput::ok(search_builtin(
+        with_note(search_builtin(
             &target,
             &cwd,
             &re,
@@ -873,6 +896,17 @@ impl Tool for GrepTool {
             glob.as_deref(),
             head_limit,
         ))
+    }
+}
+
+/// The note put above Grep results when the pattern was not a valid regex.
+fn literal_fallback_note(pattern: &str, err: &str) -> String {
+    let first = err.lines().rev().find(|l| l.trim_start().starts_with("error:")).unwrap_or("").trim();
+    let why = first.strip_prefix("error:").unwrap_or(first).trim();
+    if why.is_empty() {
+        format!("[zen: '{}' is not a valid regex; searched for it as literal text]", pattern)
+    } else {
+        format!("[zen: '{}' is not a valid regex ({}); searched for it as literal text]", pattern, why)
     }
 }
 

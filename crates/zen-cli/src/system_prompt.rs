@@ -89,10 +89,12 @@ pub fn environment_block(cwd: &Path) -> String {
     s.push_str(&format!("- working directory: {}\n", cwd.display()));
     s.push_str(&format!("- platform: {}\n", crate::git::os_info()));
     s.push_str(&format!("- date: {}\n", date));
-    if let Some(branch) = crate::git::current_branch(cwd) {
+    // Both git probes run concurrently under one 2 s budget (perf p0).
+    let (branch, status) = crate::git::git_info(cwd);
+    if let Some(branch) = branch {
         s.push_str(&format!("- git branch: {}\n", branch));
     }
-    if let Some(status) = crate::git::status_summary(cwd) {
+    if let Some(status) = status {
         s.push_str(&format!("- git status: {}\n", status));
     }
     s.trim_end().to_string()
