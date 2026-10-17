@@ -537,6 +537,97 @@ pub fn extra_root_pem() -> Option<Vec<u8>> {
     std::fs::read(p).ok()
 }
 
+// ───────────────────────────── shell resolver ─────────────────────────────
+
+/// Which syntax a resolved shell speaks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShellKind {
+    /// bash / sh: `-c <script>`.
+    Posix,
+    /// pwsh / powershell: `-NoProfile -NonInteractive -Command <script>`.
+    PowerShell,
+    /// cmd.exe: `/C <script>`.
+    Cmd,
+}
+
+/// A shell program plus its syntax (perf p0, item 7).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ShellSpec {
+    pub program: String,
+    pub kind: ShellKind,
+}
+
+impl ShellSpec {
+    /// Arguments that make this shell run `script`.
+    pub fn args(&self, script: &str) -> Vec<String> {
+        match self.kind {
+            ShellKind::Posix => vec!["-c".into(), script.into()],
+            ShellKind::PowerShell => {
+                vec!["-NoProfile".into(), "-NonInteractive".into(), "-Command".into(), script.into()]
+            }
+            ShellKind::Cmd => vec!["/C".into(), script.into()],
+        }
+    }
+}
+
+/// Pick the shell for running `preferred` (`"bash"` or `"sh"`) scripts. On Unix this is always
+/// `preferred` itself (behavior unchanged). On Windows: `ZEN_SHELL` if set, else `preferred`
+/// when it is on PATH (Git Bash, MSYS), else pwsh, powershell, and finally `cmd`.
+/// `on_path` answers whether a program name resolves on PATH (injected for tests).
+pub fn pick_shell(
+    preferred: &str,
+    windows: bool,
+    zen_shell: Option<&str>,
+    on_path: &dyn Fn(&str) -> bool,
+) -> ShellSpec {
+    let posix = |p: &str| ShellSpec { program: p.to_string(), kind: ShellKind::Posix };
+    if !windows {
+        return posix(preferred);
+    }
+    let kind_of = |p: &str| {
+        // Split on both separators so a Windows path classifies the same on any host.
+        let file = p.rsplit(['/', '\\']).next().unwrap_or(p).to_ascii_lowercase();
+        let base = file.strip_suffix(".exe").unwrap_or(&file).to_string();
+        match base.as_str() {
+            "pwsh" | "powershell" => ShellKind::PowerShell,
+            "cmd" => ShellKind::Cmd,
+            _ => ShellKind::Posix,
+        }
+    };
+    if let Some(z) = zen_shell.map(str::trim).filter(|z| !z.is_empty()) {
+        return ShellSpec { program: z.to_string(), kind: kind_of(z) };
+    }
+    for cand in [preferred, "bash", "pwsh", "powershell"] {
+        if on_path(cand) {
+            return ShellSpec { program: cand.to_string(), kind: kind_of(cand) };
+        }
+    }
+    ShellSpec { program: "cmd".into(), kind: ShellKind::Cmd }
+}
+
+/// True when `name` (plus `.exe` on Windows) is a file in some PATH directory.
+pub fn program_on_path(name: &str) -> bool {
+    let Some(path) = std::env::var_os("PATH") else { return false };
+    std::env::split_paths(&path).any(|dir| {
+        dir.join(name).is_file() || (cfg!(windows) && dir.join(format!("{}.exe", name)).is_file())
+    })
+}
+
+/// The shell to use for `preferred` scripts on this machine (cached per name).
+pub fn resolve_shell(preferred: &str) -> ShellSpec {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    static CACHE: OnceLock<Mutex<HashMap<String, ShellSpec>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Some(s) = cache.lock().unwrap().get(preferred) {
+        return s.clone();
+    }
+    let zen_shell = std::env::var("ZEN_SHELL").ok();
+    let spec = pick_shell(preferred, cfg!(windows), zen_shell.as_deref(), &program_on_path);
+    cache.lock().unwrap().insert(preferred.to_string(), spec.clone());
+    spec
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -557,5 +648,27 @@ mod tests {
         for m in ["default", "acceptEdits", "plan", "bypassPermissions", "dontAsk"] {
             assert_eq!(PermissionMode::parse(m).unwrap().as_str(), m);
         }
+    }
+
+    #[test]
+    fn p0_7_shell_unix_is_unchanged() {
+        let none = |_: &str| false;
+        assert_eq!(pick_shell("bash", false, Some("pwsh"), &none), ShellSpec { program: "bash".into(), kind: ShellKind::Posix });
+        assert_eq!(pick_shell("sh", false, None, &none).program, "sh");
+    }
+    #[test]
+    fn p0_7_shell_windows_fallback_order() {
+        let only = |names: &'static [&'static str]| move |n: &str| names.contains(&n);
+        assert_eq!(pick_shell("bash", true, None, &only(&["bash", "pwsh"])).kind, ShellKind::Posix);
+        let s = pick_shell("bash", true, None, &only(&["pwsh", "powershell"]));
+        assert_eq!((s.program.as_str(), s.kind), ("pwsh", ShellKind::PowerShell));
+        let s = pick_shell("bash", true, None, &only(&["powershell"]));
+        assert_eq!((s.program.as_str(), s.kind), ("powershell", ShellKind::PowerShell));
+        let s = pick_shell("sh", true, None, &only(&[]));
+        assert_eq!((s.program.as_str(), s.kind), ("cmd", ShellKind::Cmd));
+        let s = pick_shell("bash", true, Some(r"C:\Program Files\PowerShell\7\pwsh.exe"), &only(&["bash"]));
+        assert_eq!(s.kind, ShellKind::PowerShell);
+        assert_eq!(ShellSpec { program: "cmd".into(), kind: ShellKind::Cmd }.args("dir"), vec!["/C", "dir"]);
+        assert_eq!(ShellSpec { program: "bash".into(), kind: ShellKind::Posix }.args("ls"), vec!["-c", "ls"]);
     }
 }

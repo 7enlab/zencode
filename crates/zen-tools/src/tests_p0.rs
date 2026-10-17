@@ -14,24 +14,45 @@ fn ctx_with_file(name: &str, body: &str) -> ToolContext {
 
 fn uuid_like() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
-    let n = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+    let n = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
     format!("{}_{}", std::process::id(), n)
 }
 
 #[tokio::test]
 async fn p0_5_grep_invalid_regex_falls_back_to_literal_with_note() {
     let ctx = ctx_with_file("a.txt", "call foo(bar) here\nother line\n");
-    let out = GrepTool.call(json!({"pattern": "foo(bar", "output_mode": "content"}), &ctx).await;
+    let out = GrepTool
+        .call(
+            json!({"pattern": "foo(bar", "output_mode": "content"}),
+            &ctx,
+        )
+        .await;
     assert!(!out.is_error, "{}", out.content);
-    assert!(out.content.contains("not a valid regex") && out.content.contains("literal"), "{}", out.content);
-    assert!(out.content.contains("call foo(bar) here"), "{}", out.content);
+    assert!(
+        out.content.contains("not a valid regex") && out.content.contains("literal"),
+        "{}",
+        out.content
+    );
+    assert!(
+        out.content.contains("call foo(bar) here"),
+        "{}",
+        out.content
+    );
     assert!(!out.content.contains("other line"), "{}", out.content);
 }
 
 #[tokio::test]
 async fn p0_5_grep_valid_regex_has_no_note() {
     let ctx = ctx_with_file("a.txt", "fn alpha() {}\n");
-    let out = GrepTool.call(json!({"pattern": "fn [a-z]+", "output_mode": "content"}), &ctx).await;
+    let out = GrepTool
+        .call(
+            json!({"pattern": "fn [a-z]+", "output_mode": "content"}),
+            &ctx,
+        )
+        .await;
     assert!(!out.is_error, "{}", out.content);
     assert!(out.content.contains("fn alpha"), "{}", out.content);
     assert!(!out.content.contains("[zen:"), "{}", out.content);

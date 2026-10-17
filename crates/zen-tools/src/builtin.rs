@@ -574,11 +574,12 @@ impl Tool for BashTool {
         let background = args.get("run_in_background").and_then(|v| v.as_bool()).unwrap_or(false);
         let cwd = ctx.cwd();
 
+        // bash everywhere it exists; on Windows without bash, pwsh/powershell/cmd (perf p0).
+        let shell = zen_core::resolve_shell("bash");
         if background {
-            let mut command = tokio::process::Command::new("bash");
+            let mut command = tokio::process::Command::new(&shell.program);
             command
-                .arg("-c")
-                .arg(cmd_str)
+                .args(shell.args(cmd_str))
                 .current_dir(&cwd)
                 .envs(ctx.env.iter())
                 .stdin(Stdio::null())
@@ -598,13 +599,18 @@ impl Tool for BashTool {
         // merged into stdout inside the shell (`2>&1` on the group) so the two streams keep their
         // real interleaved order instead of being concatenated after the fact.
         let marker = "__ZEN_PWD_8f3a__";
-        let wrapped = format!(
-            "{{ {cmd_str}\n}} 2>&1\n__zen_exit=$?\nprintf '\\n{marker}%s\\n' \"$PWD\"\nexit $__zen_exit"
-        );
-        let mut command = tokio::process::Command::new("bash");
+        // Non-POSIX fallback shells merge stderr the same way but do not report the final
+        // directory (no `cd` tracking there).
+        let wrapped = match shell.kind {
+            zen_core::ShellKind::Posix => format!(
+                "{{ {cmd_str}\n}} 2>&1\n__zen_exit=$?\nprintf '\\n{marker}%s\\n' \"$PWD\"\nexit $__zen_exit"
+            ),
+            zen_core::ShellKind::PowerShell => format!("& {{ {cmd_str} }} 2>&1; exit $LASTEXITCODE"),
+            zen_core::ShellKind::Cmd => format!("({cmd_str}) 2>&1"),
+        };
+        let mut command = tokio::process::Command::new(&shell.program);
         command
-            .arg("-c")
-            .arg(&wrapped)
+            .args(shell.args(&wrapped))
             .current_dir(&cwd)
             .envs(ctx.env.iter())
             .stdin(Stdio::null())

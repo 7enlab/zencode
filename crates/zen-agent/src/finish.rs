@@ -107,15 +107,17 @@ impl FinishGate {
     }
 }
 
-/// Run `cmd` through `sh -c`; returns (passed, status text, output tail of at most 40 lines).
+/// Run `cmd` through `sh -c` (or the Windows fallback shell); returns (passed, status text, output tail of at most 40 lines).
 pub(crate) async fn run_command(
     cmd: &str,
     cwd: &Path,
     env: &std::collections::HashMap<String, String>,
     timeout: Duration,
 ) -> (bool, String, String) {
-    let mut c = tokio::process::Command::new("sh");
-    c.arg("-c").arg(cmd).current_dir(cwd).envs(env).kill_on_drop(true);
+    // `sh` on Unix; on Windows without sh, pwsh/powershell/cmd (perf p0, item 7).
+    let shell = zen_core::resolve_shell("sh");
+    let mut c = tokio::process::Command::new(&shell.program);
+    c.args(shell.args(cmd)).current_dir(cwd).envs(env).kill_on_drop(true);
     c.stdin(std::process::Stdio::null());
     match tokio::time::timeout(timeout, c.output()).await {
         Err(_) => (false, format!("timed out after {}s", timeout.as_secs()), String::new()),
