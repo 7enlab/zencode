@@ -5,6 +5,7 @@ edition.workspace = true
 
 [dependencies]
 zen-core.workspace = true
+zen-tools.workspace = true
 anyhow.workspace = true
 async-trait.workspace = true
 serde.workspace = true
