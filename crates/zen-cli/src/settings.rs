@@ -36,6 +36,10 @@ pub struct ResolvedConfig {
     /// Settings `maxContinuations`: cut-off replies continued in a row (default 3, 0 = off).
     pub max_continuations: usize,
     pub max_turns: usize,
+    /// Config `maxBudgetUsd`: session spend cap in USD (flag/env take precedence).
+    pub max_budget_usd: Option<f64>,
+    /// Config `budgetWarnAt`: warn-once fraction of the cap (default 0.8).
+    pub budget_warn_at: Option<f64>,
     pub context_window: Option<u64>,
     pub loaded_sources: Vec<String>,
     pub warnings: Vec<String>,
@@ -490,6 +494,8 @@ pub fn resolve_config_with_home(
         tool_timeouts: tool_timeouts(merged.extra.get("toolTimeouts")),
         max_continuations: max_continuations(merged.extra.get("maxContinuations")),
         max_turns,
+        max_budget_usd: merged.extra.get("maxBudgetUsd").and_then(|v| v.as_f64()),
+        budget_warn_at: merged.extra.get("budgetWarnAt").and_then(|v| v.as_f64()),
         context_window: merged.context_window,
         loaded_sources,
         warnings,

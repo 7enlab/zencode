@@ -229,6 +229,17 @@ pub struct Cli {
     #[arg(long = "max-turns")]
     pub max_turns: Option<usize>,
 
+    /// Hard spend cap in USD for this session: model calls that would breach it
+    /// are refused (`error_budget_exceeded`). Also `ZEN_MAX_BUDGET_USD` / config
+    /// `maxBudgetUsd`. A no-op for free models.
+    #[arg(long = "max-budget-usd")]
+    pub max_budget_usd: Option<f64>,
+
+    /// Warn once when spend crosses this fraction of the budget (default 0.8).
+    /// Also `ZEN_BUDGET_WARN_AT` / config `budgetWarnAt`.
+    #[arg(long = "budget-warn-at")]
+    pub budget_warn_at: Option<f64>,
+
     /// Skip ZEN.md, hooks, skills, custom commands, agents, MCP auto-discovery
     #[arg(long = "bare")]
     pub bare: bool,
@@ -528,6 +539,18 @@ mod tests {
     fn parse_max_turns() {
         let cli = parse(&["--max-turns", "10"]);
         assert_eq!(cli.max_turns, Some(10));
+    }
+
+    #[test]
+    fn parse_max_budget_usd() {
+        let cli = parse(&["--max-budget-usd", "2.50"]);
+        assert_eq!(cli.max_budget_usd, Some(2.50));
+        assert_eq!(cli.budget_warn_at, None);
+        let cli = parse(&["--max-budget-usd", "2.50", "--budget-warn-at", "0.5"]);
+        assert_eq!(cli.budget_warn_at, Some(0.5));
+        // Defaults: no cap unless configured.
+        let cli = parse(&[] as &[&str]);
+        assert_eq!(cli.max_budget_usd, None);
     }
 
     #[test]

@@ -1144,3 +1144,96 @@ async fn tool_progress_no_heartbeat_for_fast_tool() {
         "fast tool should emit no heartbeat"
     );
 }
+
+#[tokio::test]
+async fn budget_cap_blocks_before_first_call_when_tiny() {
+    use crate::budget::BudgetPolicy;
+    let llm = MockLlm::new(vec![resp("hello")]);
+    let mut cfg = base_cfg();
+    cfg.model = "gpt-4o".into();
+    cfg.budget = Some(BudgetPolicy { max_budget_usd: 0.0001, warn_at: 0.8 });
+    let (mut agent, _sink, _h) = build_agent(llm.clone(), ToolRegistry::new(), allow(), cfg);
+    let r = agent.run_turn("hi").await;
+    assert_eq!(r.subtype, "error_budget_exceeded");
+    assert!(r.is_error);
+    assert!(r.result.contains("Budget exceeded"), "got: {}", r.result);
+    assert!(r.result.contains("$0.00"), "got: {}", r.result);
+    assert!(
+        llm.requests().is_empty(),
+        "no model call should have been made"
+    );
+}
+
+#[tokio::test]
+async fn budget_warns_once_at_threshold_then_stays_quiet() {
+    use crate::budget::BudgetPolicy;
+    let llm = MockLlm::new(vec![resp("hello"), resp("world")]);
+    let mut cfg = base_cfg();
+    cfg.model = "gpt-4o".into();
+    cfg.budget = Some(BudgetPolicy { max_budget_usd: 1.0, warn_at: 0.5 });
+    let (mut agent, sink, _h) = build_agent(llm.clone(), ToolRegistry::new(), allow(), cfg);
+    // 200k input tokens of gpt-4o @ $2.50/1M = $0.50 = warn threshold.
+    agent.usage = UsageStats { input_tokens: 200_000, output_tokens: 0 };
+    let r = agent.run_turn("hi").await;
+    assert_eq!(r.subtype, "success");
+    assert!(agent.budget_warned, "warn-once flag must be set");
+    let warn_count = sink
+        .events
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|e| matches!(e, AgentEvent::SystemMessage { event, .. } if event == "budget"))
+        .count();
+    assert_eq!(warn_count, 1, "exactly one budget warning");
+    // Second turn: already warned → no repeat warning, call proceeds.
+    let r2 = agent.run_turn("again").await;
+    assert_eq!(r2.subtype, "success");
+    let warn_count2 = sink
+        .events
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|e| matches!(e, AgentEvent::SystemMessage { event, .. } if event == "budget"))
+        .count();
+    assert_eq!(warn_count2, 1, "warning must not repeat");
+}
+
+#[tokio::test]
+async fn budget_is_noop_for_free_models() {
+    use crate::budget::BudgetPolicy;
+    let llm = MockLlm::new(vec![resp("hello")]);
+    let mut cfg = base_cfg();
+    cfg.model = "qwen/qwen3-coder:free".into();
+    cfg.budget = Some(BudgetPolicy { max_budget_usd: 0.000_001, warn_at: 0.8 });
+    let (mut agent, _sink, _h) = build_agent(llm.clone(), ToolRegistry::new(), allow(), cfg);
+    let r = agent.run_turn("hi").await;
+    assert_eq!(r.subtype, "success", "free models never trip the cap");
+    assert_eq!(llm.requests().len(), 1);
+    assert!(!agent.budget_warned);
+}
+
+#[tokio::test]
+async fn budget_allows_unknown_pricing() {
+    use crate::budget::BudgetPolicy;
+    let llm = MockLlm::new(vec![resp("hello")]);
+    let mut cfg = base_cfg();
+    cfg.model = "mystery-model-9999".into(); // not in the price table
+    cfg.budget = Some(BudgetPolicy { max_budget_usd: 0.000_001, warn_at: 0.8 });
+    let (mut agent, _sink, _h) = build_agent(llm.clone(), ToolRegistry::new(), allow(), cfg);
+    let r = agent.run_turn("hi").await;
+    // Unknown pricing cannot be enforced: the call proceeds (costs never guessed).
+    assert_eq!(r.subtype, "success");
+    assert_eq!(llm.requests().len(), 1);
+}
+
+#[tokio::test]
+async fn no_budget_config_means_no_checks() {
+    let llm = MockLlm::new(vec![resp("hello")]);
+    let mut cfg = base_cfg();
+    cfg.model = "gpt-4o".into();
+    cfg.budget = None;
+    let (mut agent, _sink, _h) = build_agent(llm.clone(), ToolRegistry::new(), allow(), cfg);
+    let r = agent.run_turn("hi").await;
+    assert_eq!(r.subtype, "success");
+    assert!(!agent.budget_warned);
+}

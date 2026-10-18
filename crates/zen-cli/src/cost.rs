@@ -52,54 +52,8 @@ pub struct CostSummary {
     pub unknown_pricing: Vec<String>,
 }
 
-/// Approximate USD price per 1M tokens as `(input, output)` for one bare model
-/// name, or `None` when unknown. Prices are an informational snapshot
-/// (Oct 2026), not quotes.
-fn price_table(model: &str) -> Option<(f64, f64)> {
-    Some(match model {
-        // OpenAI
-        "gpt-4o" => (2.50, 10.00),
-        "gpt-4o-mini" => (0.15, 0.60),
-        "o1" => (15.00, 60.00),
-        "o3-mini" => (1.10, 4.40),
-        // Anthropic
-        "claude-opus-4-1" => (15.00, 75.00),
-        "claude-sonnet-4-5" => (3.00, 15.00),
-        "claude-haiku-4-5" | "claude-3-5-haiku-latest" => (0.80, 4.00),
-        // DeepSeek
-        "deepseek-chat" | "deepseek-v3" => (0.27, 1.10),
-        "deepseek-reasoner" | "deepseek-r1" => (0.55, 2.19),
-        // Google
-        "gemini-2.5-flash" => (0.30, 2.50),
-        "gemini-2.5-pro" => (1.25, 10.00),
-        // xAI
-        "grok-4" => (3.00, 15.00),
-        "grok-code-fast-1" => (0.20, 1.50),
-        // Moonshot
-        "kimi-k2" => (0.60, 2.50),
-        _ => return None,
-    })
-}
-
-/// USD price per 1M tokens as `(input, output)`; `None` = unknown pricing.
-/// Known-free models (OpenRouter `:free` suffix, local `ollama/` models)
-/// return `Some((0.0, 0.0))`.
-pub fn price_per_1m(model: &str) -> Option<(f64, f64)> {
-    let m = model.trim().to_lowercase();
-    if m.ends_with(":free") || m.starts_with("ollama/") || m == "ollama" {
-        return Some((0.0, 0.0));
-    }
-    if let Some(p) = price_table(&m) {
-        return Some(p);
-    }
-    // Try the bare name after a `provider/` prefix ("openai/gpt-4o" → "gpt-4o").
-    if let Some((_, bare)) = m.rsplit_once('/') {
-        if let Some(p) = price_table(bare) {
-            return Some(p);
-        }
-    }
-    None
-}
+/// USD price per 1M tokens; single source of truth is `zen_agent::budget`.
+pub use zen_agent::budget::price_per_1m;
 
 /// Friendly provider name from an OpenAI-compatible base URL.
 pub fn provider_from_base_url(base_url: &str) -> String {

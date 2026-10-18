@@ -43,6 +43,7 @@
 
 mod client;
 pub mod providers;
+pub mod budget;
 pub mod compaction;
 pub mod finish;
 pub mod guard;

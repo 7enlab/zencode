@@ -3,6 +3,7 @@
 //! orchestration entry point `run`.
 
 pub mod agent_run;
+pub mod budget;
 pub mod cli;
 pub mod commands;
 pub mod cost;
@@ -113,14 +114,19 @@ async fn run_subcommand(
             Ok(0)
         }
         Commands::Cost(args) => {
-            cost_subcommand(home, args)?;
+            cost_subcommand(cli, cwd, home, args)?;
             Ok(0)
         }
     }
 }
 
 /// `zen cost [--session <id>]`: render the session's cost ledger as a dashboard.
-fn cost_subcommand(home: Option<&std::path::Path>, args: &CostArgs) -> anyhow::Result<()> {
+fn cost_subcommand(
+    cli: &Cli,
+    cwd: &Path,
+    home: Option<&std::path::Path>,
+    args: &CostArgs,
+) -> anyhow::Result<()> {
     let Some(home) = home else {
         anyhow::bail!("cannot determine home directory");
     };
@@ -144,10 +150,32 @@ fn cost_subcommand(home: Option<&std::path::Path>, args: &CostArgs) -> anyhow::R
         return Ok(());
     };
     let summary = cost::summarize(&ledger.session_id, &ledger.entries);
+    // Budget comes from the same precedence chain as the agent loop
+    // (flag > env > config).
+    let cfg = settings::resolve_config_with_home(cli, cwd, Some(home)).ok();
+    let budget = crate::budget::resolve_budget(
+        cli.max_budget_usd,
+        cli.budget_warn_at,
+        cfg.as_ref().and_then(|c| c.max_budget_usd),
+        cfg.as_ref().and_then(|c| c.budget_warn_at),
+    );
     match args.output_format {
-        OutputFormat::Text => print!("{}", cost::render_text(&summary)),
+        OutputFormat::Text => {
+            print!("{}", cost::render_text(&summary));
+            if let Some(policy) = &budget {
+                println!(
+                    "{}",
+                    crate::budget::budget_line(policy, summary.total_cost_usd)
+                );
+            }
+        }
         OutputFormat::Json | OutputFormat::StreamJson => {
-            println!("{}", serde_json::to_string(&cost::to_json(&summary))?)
+            let mut v = cost::to_json(&summary);
+            if let Some(policy) = &budget {
+                v["budget_usd"] = serde_json::json!(policy.max_budget_usd);
+                v["budget_warn_at"] = serde_json::json!(policy.warn_at);
+            }
+            println!("{}", serde_json::to_string(&v)?)
         }
     }
     Ok(())

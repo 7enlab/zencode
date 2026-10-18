@@ -605,6 +605,12 @@ fn build_repl_config(
         config.context_window = w;
     }
     crate::agent_run::apply_verify_settings(&mut config, cfg, true);
+    config.budget = crate::budget::resolve_budget(
+        cli.max_budget_usd,
+        cli.budget_warn_at,
+        cfg.max_budget_usd,
+        cfg.budget_warn_at,
+    );
     config
 }
 

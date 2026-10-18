@@ -34,6 +34,13 @@ ZEN_BASE_URL=https://openrouter.ai/api/v1 ZEN_API_KEY=... \
 ./target/release/zen cost                        # latest session
 ./target/release/zen cost --session <id>         # a past session
 ./target/release/zen cost --output-format json   # machine-readable
+
+# spend cap: hard-stop the session before a model call would breach it
+./target/release/zen -p "refactor everything" --max-budget-usd 2.00
+ZEN_MAX_BUDGET_USD=5 ./target/release/zen        # same via env
+# config file: { "maxBudgetUsd": 5, "budgetWarnAt": 0.8 } in ~/.zen/settings.json
+# precedence: --max-budget-usd > ZEN_MAX_BUDGET_USD > maxBudgetUsd
+# --budget-warn-at 0.5 warns once at 50% (default 0.8). Free models never trip the cap.
 ```
 
 ### Ollama (local models, $0)

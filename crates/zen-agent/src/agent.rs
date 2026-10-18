@@ -29,6 +29,7 @@ use std::sync::Arc;
 use std::time::Instant;
 use zen_core::*;
 
+use crate::budget::{BudgetPolicy, BudgetVerdict};
 use crate::compaction;
 use crate::finish;
 
@@ -81,6 +82,9 @@ pub struct AgentConfig {
     pub system_prompt: String,
     /// Hard cap on model calls per turn; exceeding it yields `error_max_turns`.
     pub max_turns: usize,
+    /// Optional per-session spend cap (USD). Checked before every model call;
+    /// breaching calls are refused with `error_budget_exceeded`. `None` disables it.
+    pub budget: Option<BudgetPolicy>,
     /// Permission mode (default / acceptEdits / plan / bypassPermissions / dontAsk).
     pub permission_mode: PermissionMode,
     /// Approximate model context window in tokens; used only to derive the default
@@ -230,6 +234,7 @@ impl Default for AgentConfig {
             fallback_models: vec![],
             system_prompt: String::new(),
             max_turns: 50,
+            budget: None,
             permission_mode: PermissionMode::Default,
             context_window: 128_000,
             auto_compact_threshold: Some(100_000),
@@ -279,6 +284,8 @@ pub struct Agent {
     pub last_prompt_tokens: u64,
     /// Cap on consecutive Stop-hook "continue" signals (prevents an infinite loop).
     pub stop_hook_max_continues: usize,
+    /// Whether the one-time budget warning was already emitted this session.
+    pub budget_warned: bool,
     /// Model calls since the todo list was last in front of the model (TodoWrite, a
     /// re-injection, or compaction reset it).
     pub model_calls_since_todo: usize,
@@ -316,6 +323,7 @@ impl Agent {
             parent_tool_use_id: None,
             last_prompt_tokens: 0,
             stop_hook_max_continues: DEFAULT_STOP_HOOK_CONTINUES,
+            budget_warned: false,
             model_calls_since_todo: 0,
             journal: None,
         }
@@ -564,6 +572,59 @@ impl Agent {
             }
             let messages = self.request_messages();
             let tools = self.tools_for_request();
+
+            // Budget pre-flight: refuse the model call when it would breach the
+            // per-session spend cap. Free models and unknown pricing never trip
+            // the cap (a cap cannot be enforced on unpriced usage).
+            if let Some(policy) = self.config.budget.clone() {
+                let model = self.config.model.clone();
+                if !crate::budget::is_free_model(&model) {
+                    let spent = crate::budget::estimate_cost_usd(
+                        &model,
+                        self.usage.input_tokens,
+                        self.usage.output_tokens,
+                    );
+                    let est_next = crate::budget::estimate_cost_usd(
+                        &model,
+                        crate::compaction::context_tokens(self),
+                        crate::budget::DEFAULT_OUTPUT_ESTIMATE_TOKENS,
+                    );
+                    if let (Some(spent_usd), Some(est_cost_usd)) = (spent, est_next) {
+                        match crate::budget::check_budget(
+                            &policy,
+                            spent_usd,
+                            est_cost_usd,
+                            self.budget_warned,
+                        ) {
+                            BudgetVerdict::Allow => {}
+                            BudgetVerdict::Warn { spent_usd, cap_usd } => {
+                                self.budget_warned = true;
+                                self.sink.emit(AgentEvent::SystemMessage {
+                                    event: "budget".to_string(),
+                                    text: crate::budget::warn_message(spent_usd, cap_usd),
+                                });
+                            }
+                            BudgetVerdict::Block {
+                                spent_usd,
+                                cap_usd,
+                                est_cost_usd,
+                            } => {
+                                return self.run_result(
+                                    "error_budget_exceeded",
+                                    true,
+                                    crate::budget::block_message(
+                                        spent_usd, cap_usd, est_cost_usd,
+                                    ),
+                                    started.elapsed().as_millis() as u64,
+                                    duration_api_ms,
+                                    num_turns,
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+
             let (resp, api_ms, _model) = match
                 crate::client::chat_with_fallback(
                     &self.llm,

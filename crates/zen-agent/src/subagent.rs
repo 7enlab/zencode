@@ -180,6 +180,7 @@ impl SubAgentRunner for SubAgentExecutor {
             fallback_models: self.base_config.fallback_models.clone(),
             system_prompt,
             max_turns: def.max_turns.unwrap_or(self.base_config.max_turns),
+            budget: self.base_config.budget.clone(),
             permission_mode: subagent_mode(
                 self.base_config.permission_mode,
                 def.permission_mode.as_deref(),

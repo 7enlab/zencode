@@ -442,6 +442,12 @@ fn base_agent_config(cfg: &ResolvedConfig, cli: &Cli, system_prompt: &str) -> ze
         ..Default::default()
     };
     apply_verify_settings(&mut config, cfg, false);
+    config.budget = crate::budget::resolve_budget(
+        cli.max_budget_usd,
+        cli.budget_warn_at,
+        cfg.max_budget_usd,
+        cfg.budget_warn_at,
+    );
     config
 }
 
