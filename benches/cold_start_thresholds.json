@@ -1,0 +1,1 @@
+{"_comment":"CI regression thresholds (ms) for scripts/bench_cold_start.py medians. Generous on purpose: CI runners vary. Update in the same PR as any legitimate startup-cost change, with justification.","doctor_warm_ms":2000,"first_token_ms":15000,"repl_prompt_ms":5000,"startup_cold_ms":3000,"startup_warm_ms":1500}
