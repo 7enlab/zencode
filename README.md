@@ -397,6 +397,23 @@ CI enforces per-bundle token budgets (`SCHEMA_TOKEN_BUDGETS` in
 `crates/zen-agent/src/tool_bundles.rs`): a description edit that inflates a
 bundle over budget fails the build. Bump a budget only with a measured
 justification.
+## Session export / import
+
+No major coding agent ships session portability — transcripts are locked into
+one tool's format. ZenCode exports any session to a documented, versioned
+format (`format_version`) that other tools can read, and imports it back:
+
+```bash
+zen export --format json --session <id> -o session.json   # portable document
+zen export --format markdown -o session.md               # human-readable
+zen export --format html -o session.html                 # styled report
+zen export --redact -o session.json                     # strip secrets first
+zen import session.json                                 # restore as a NEW session
+```
+
+`--session` defaults to the most recent session for the current directory.
+Only JSON exports can be imported; import always creates a new session id.
+See [docs/session-format.md](docs/session-format.md) for the format spec.
 
 ## Layout
 

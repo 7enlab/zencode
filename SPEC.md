@@ -42,7 +42,7 @@ zen [OPTIONS] [PROMPT]
 | `--bare` | Skip ZEN.md, hooks, skills, custom commands, agents, MCP auto-discovery. |
 | `-v, --version`, `-h, --help` | Standard. |
 
-Subcommands (MVP subset): `zen mcp list|add|remove` (edit config), `zen doctor` (print loaded settings sources + model reachability).
+Subcommands (MVP subset): `zen mcp list|add|remove` (edit config), `zen doctor` (print loaded settings sources + model reachability), `zen export` / `zen import` (session portability, §10).
 
 Stdin: when `-p` and stdin is not a TTY, read stdin (cap 10 MB, error if larger) and prepend to the prompt.
 
@@ -140,6 +140,7 @@ Custom commands: Markdown files in `.zen/commands/*.md` (project) and `~/.zen/co
 - One JSON object per line: `{ "type": "user"|"assistant"|"tool"|"system"|"summary", "uuid", "parentUuid", "sessionId", "timestamp", "cwd", "message": {...OpenAI-style message...} }`.
 - `--continue`: most recently modified transcript for the current cwd. `--resume <id>`: search all project dirs for `<id>.jsonl`, or accept a path. Resume reloads messages (after the last compaction summary) and continues appending to the same file unless `--fork-session`.
 - Todo list and permission "always" rules persist with the session/settings respectively.
+- **Portability** (`zen export` / `zen import`, format spec in `docs/session-format.md`): `zen export [--format json|markdown|html] [--session <id>] [-o file] [--redact]` renders any stored session — JSON (versioned portable document with `format_version`, the only importable format), Markdown (human-readable), or HTML (styled report). `--redact` strips potential secrets (provider keys, tokens, PEM private keys, `key=value` assignments) mirroring the account-safety redaction rules. `zen import <file.json>` validates `format_version` (refuses newer-than-zen and unsupported older versions) and restores the conversation as a NEW session id, leaving the original untouched.
 
 ## 11. Context compaction
 - Track estimated tokens (usage from API, else chars/4). When history exceeds `autoCompactThreshold` (default 80% of model context window, configurable via settings `autoCompact` / `--autocompact`), auto-compact before the next request.

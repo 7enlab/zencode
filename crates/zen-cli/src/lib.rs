@@ -11,6 +11,7 @@ pub mod cost;
 pub mod context;
 pub mod envsnap;
 pub mod eventlog;
+pub mod export;
 pub mod git;
 pub mod ollama;
 pub mod models;
@@ -26,7 +27,7 @@ pub mod session;
 pub mod settings;
 pub mod system_prompt;
 
-pub use cli::{Cli, Commands, CostArgs, InputFormat, McpArgs, McpSubcommand, ModelsArgs, OutputFormat, PermissionMode};
+pub use cli::{Cli, Commands, CostArgs, ExportArgs, ImportArgs, InputFormat, McpArgs, McpSubcommand, ModelsArgs, OutputFormat, PermissionMode};
 pub use settings::{resolve_config, ResolvedConfig};
 pub use system_prompt::build_system_prompt;
 
@@ -130,6 +131,21 @@ async fn run_subcommand(
         }
         Commands::ToolHelp { name } => {
             println!("{}", commands::tool_help(name));
+            Ok(0)
+        }
+        Commands::Export(e) => {
+            export::run_export(
+                cwd,
+                home,
+                e.format,
+                e.session.as_deref(),
+                e.output.as_deref(),
+                e.redact,
+            )?;
+            Ok(0)
+        }
+        Commands::Import(i) => {
+            export::run_import(cwd, home, &i.file)?;
             Ok(0)
         }
     }

@@ -345,6 +345,10 @@ pub enum Commands {
         /// Tool name, e.g. Read
         name: String,
     },
+    /// Export a session transcript to a portable format (JSON/Markdown/HTML)
+    Export(ExportArgs),
+    /// Import a session from a JSON export file
+    Import(ImportArgs),
 }
 
 #[derive(Args, Debug, Clone)]
@@ -373,6 +377,31 @@ pub struct ContextArgs {
     /// Session id or transcript path (default: latest session for cwd)
     #[arg(long = "session")]
     pub session: Option<String>,
+}
+
+
+/// Arguments for `zen export`.
+#[derive(Args, Debug, Clone)]
+pub struct ExportArgs {
+    /// Output format: json, markdown, or html
+    #[arg(long, value_enum, default_value_t = crate::export::ExportFormat::Markdown)]
+    pub format: crate::export::ExportFormat,
+    /// Session id (default: most recent session for the current directory)
+    #[arg(long)]
+    pub session: Option<String>,
+    /// Write to this file instead of stdout
+    #[arg(short, long)]
+    pub output: Option<PathBuf>,
+    /// Redact potential secrets (API keys, tokens, private keys) from the export
+    #[arg(long)]
+    pub redact: bool,
+}
+
+/// Arguments for `zen import`.
+#[derive(Args, Debug, Clone)]
+pub struct ImportArgs {
+    /// JSON export file produced by `zen export --format json`
+    pub file: PathBuf,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -444,6 +473,33 @@ mod tests {
         let mut base = vec!["zen"];
         base.extend_from_slice(args);
         Cli::parse_from(base)
+    }
+
+    #[test]
+    fn parse_export_subcommand() {
+        let cli = parse(&["export", "--format", "json", "--session", "abc", "--redact"]);
+        match cli.subcommand {
+            Some(Commands::Export(e)) => {
+                assert_eq!(e.format, crate::export::ExportFormat::Json);
+                assert_eq!(e.session.as_deref(), Some("abc"));
+                assert!(e.redact);
+                assert!(e.output.is_none());
+            }
+            other => panic!("expected Export, got {:?}", other.map(|_| ())),
+        }
+        let cli = parse(&["export", "-o", "s.md"]);
+        match cli.subcommand {
+            Some(Commands::Export(e)) => {
+                assert_eq!(e.format, crate::export::ExportFormat::Markdown);
+                assert_eq!(e.output, Some(PathBuf::from("s.md")));
+            }
+            _ => panic!("expected Export"),
+        }
+        let cli = parse(&["import", "sess.json"]);
+        match cli.subcommand {
+            Some(Commands::Import(i)) => assert_eq!(i.file, PathBuf::from("sess.json")),
+            _ => panic!("expected Import"),
+        }
     }
 
     #[test]
