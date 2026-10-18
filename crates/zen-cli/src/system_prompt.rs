@@ -110,6 +110,29 @@ pub fn build_system_prompt(cli: &Cli, cwd: &Path, home: Option<&Path>) -> Result
         }
     }
 
+    // --style preset.
+    if let Some(style) = &cli.style {
+        let instruction = match style.as_str() {
+            "concise" => "Be concise: give short, direct answers. Skip explanations unless asked.",
+            "explain" => "Explain thoroughly: give detailed explanations with reasoning for each step.",
+            "learn" => "Teaching mode: explain concepts with examples, assume the user wants to learn.",
+            _ => "",
+        };
+        if !instruction.is_empty() {
+            parts.push(format!("# Output style: {}\n{}", style, instruction));
+        }
+    }
+
+    // --json-schema: tell the model the expected output shape.
+    if let Some(schema_path) = &cli.json_schema {
+        if let Ok(schema_text) = std::fs::read_to_string(schema_path) {
+            parts.push(format!(
+                "# Output format\nRespond with JSON only, matching this JSON Schema:\n```json\n{}\n```",
+                schema_text.trim()
+            ));
+        }
+    }
+
     // Cache-aware ordering (#49): the stable content (role, snapshot, memory, skills)
     // comes first so it is byte-identical across turns and provider prompt
     // caches can hit; the volatile environment block (date, git branch/status)

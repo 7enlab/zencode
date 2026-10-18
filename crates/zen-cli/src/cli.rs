@@ -329,6 +329,17 @@ pub struct Cli {
     #[arg(long = "tool-bundle", value_parser = parse_tool_bundle)]
     pub tool_bundle: Option<zen_agent::ToolBundle>,
 
+    /// Output style preset: concise (short answers), explain (detailed explanations),
+    /// learn (teaching mode with examples). Appends a style instruction to the system prompt.
+    #[arg(long = "style", value_name = "STYLE")]
+    pub style: Option<String>,
+
+    /// Validate the model's JSON output against a JSON Schema file (requires
+    /// --output-format json). The schema is also added to the system prompt so the
+    /// model knows the expected shape. Exits non-zero on validation failure.
+    #[arg(long = "json-schema", value_name = "FILE")]
+    pub json_schema: Option<std::path::PathBuf>,
+
     #[command(subcommand)]
     pub subcommand: Option<Commands>,
 

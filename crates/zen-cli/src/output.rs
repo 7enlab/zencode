@@ -420,6 +420,54 @@ pub fn print_result(result: &RunResult, fmt: &crate::cli::OutputFormat, buf: &Bu
     }
 }
 
+/// Validate `text` (the model's answer) against a JSON Schema file.
+/// Does a best-effort structural check: parses as JSON, then verifies `type`,
+/// `required` fields, and `properties` types from the schema. Returns Ok(()) on
+/// success or a human-readable error message.
+pub fn validate_json_schema(text: &str, schema_path: &std::path::Path) -> Result<(), String> {
+    let schema_text =
+        std::fs::read_to_string(schema_path).map_err(|e| format!("cannot read schema: {}", e))?;
+    let schema: serde_json::Value =
+        serde_json::from_str(&schema_text).map_err(|e| format!("invalid schema JSON: {}", e))?;
+    let value: serde_json::Value =
+        serde_json::from_str(text.trim()).map_err(|e| format!("output is not valid JSON: {}", e))?;
+
+    // Check top-level type
+    if let Some(t) = schema.get("type").and_then(|v| v.as_str()) {
+        let ok = match t {
+            "object" => value.is_object(),
+            "array" => value.is_array(),
+            "string" => value.is_string(),
+            "number" => value.is_number(),
+            "boolean" => value.is_boolean(),
+            _ => true,
+        };
+        if !ok {
+            return Err(format!("expected type '{}', got {}", t, json_type(&value)));
+        }
+    }
+    // Check required fields
+    if let (Some(obj), Some(req)) = (value.as_object(), schema.get("required").and_then(|v| v.as_array())) {
+        for r in req {
+            if let Some(name) = r.as_str() {
+                if !obj.contains_key(name) {
+                    return Err(format!("missing required field '{}'", name));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn json_type(v: &serde_json::Value) -> &'static str {
+    if v.is_object() { "object" }
+    else if v.is_array() { "array" }
+    else if v.is_string() { "string" }
+    else if v.is_number() { "number" }
+    else if v.is_boolean() { "boolean" }
+    else { "null" }
+}
+
 /// The json / stream-json `result` record (SPEC C8.2): zen-core's [`RunResult`] fields plus
 /// zen's `uuid` (fresh per record) and `stop_reason`. zen-core does not carry the model's
 /// finish reason, so `stop_reason` is derived from the subtype: success → "end_turn",

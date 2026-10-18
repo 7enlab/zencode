@@ -1031,6 +1031,16 @@ pub(crate) async fn run_agent_with_result(
         println!();
     }
 
+    // --json-schema: validate the model's answer text against the schema.
+    if let Some(schema_path) = &cli.json_schema {
+        if cli.output_format != OutputFormat::Json {
+            eprintln!("warning: --json-schema requires --output-format json");
+        } else if let Err(msg) = crate::output::validate_json_schema(&result.result, schema_path) {
+            eprintln!("JSON schema validation failed: {}", msg);
+            return Ok((2, result));
+        }
+    }
+
     Ok((if result.is_error { 1 } else { 0 }, result))
 }
 

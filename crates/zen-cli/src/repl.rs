@@ -17,6 +17,28 @@ enum LineAction {
     Exit,
 }
 
+/// Format a one-line status: model | cwd | git branch (if in a repo).
+/// Used as a status line above the REPL prompt.
+fn status_line(cfg_model: &str, cwd: &Path) -> String {
+    let (branch, _) = crate::git::git_info(cwd);
+    let cwd_str = cwd.display().to_string();
+    // Shorten home dir to ~ for readability
+    let cwd_short = if let Some(home) = dirs::home_dir() {
+        let h = home.display().to_string();
+        if cwd_str.starts_with(&h) {
+            cwd_str.replacen(&h, "~", 1)
+        } else {
+            cwd_str
+        }
+    } else {
+        cwd_str
+    };
+    match branch {
+        Some(b) => format!("[{} | {} | {}]", cfg_model, cwd_short, b.trim()),
+        None => format!("[{} | {}]", cfg_model, cwd_short),
+    }
+}
+
 /// Run the interactive loop. Returns when the user exits.
 pub async fn run_repl(cli: &Cli, cwd: &Path, home: Option<&Path>) -> Result<()> {
     let cfg = crate::settings::resolve_config_with_home(cli, cwd, home)?;
@@ -128,6 +150,7 @@ pub async fn run_repl(cli: &Cli, cwd: &Path, home: Option<&Path>) -> Result<()> 
     };
 
     loop {
+        println!("{}", status_line(&cfg.model, cwd));
         {
             let mut p = repl_polish::prompt_text(repl.theme, &repl.goal);
             // Plan-mode badge (#56) goes in front of the themed "> " (#71).
