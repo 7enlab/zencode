@@ -7,6 +7,7 @@ pub mod budget;
 pub mod cli;
 pub mod commands;
 pub mod cost;
+pub mod context;
 pub mod envsnap;
 pub mod eventlog;
 pub mod git;
@@ -115,6 +116,10 @@ async fn run_subcommand(
         }
         Commands::Cost(args) => {
             cost_subcommand(cli, cwd, home, args)?;
+            Ok(0)
+        }
+        Commands::Context(args) => {
+            context::run_context(args.session.as_deref(), &cli.output_format, cwd, home)?;
             Ok(0)
         }
     }

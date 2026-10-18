@@ -273,6 +273,8 @@ pub enum Commands {
     Models(ModelsArgs),
     /// Show token usage and cost for a session
     Cost(CostArgs),
+    /// Show the context debugger: token attribution for a session
+    Context(ContextArgs),
 }
 
 #[derive(Args, Debug, Clone)]
@@ -293,6 +295,14 @@ pub struct CostArgs {
     /// Output format: text, json, stream-json
     #[arg(long = "output-format", value_enum, default_value_t = OutputFormat::Text)]
     pub output_format: OutputFormat,
+}
+
+/// Arguments for `zen context`.
+#[derive(Args, Debug, Clone)]
+pub struct ContextArgs {
+    /// Session id or transcript path (default: latest session for cwd)
+    #[arg(long = "session")]
+    pub session: Option<String>,
 }
 
 #[derive(Args, Debug, Clone)]

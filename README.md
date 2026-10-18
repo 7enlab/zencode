@@ -134,6 +134,41 @@ provider changes). A model is only recommended when *every* probe succeeded.
 # use the recommended model for a run
 ./target/release/zen -p "hi" --model $(./target/release/zen models --best)
 ```
+### Context debugger
+
+`zen context` shows where your tokens actually went — an observable, attributable
+view of what the model saw. Token totals come from the API's reported usage when
+available, otherwise from a `chars/4` estimate (the output says which).
+
+```bash
+./target/release/zen context                        # latest session for this directory
+./target/release/zen context --session <id>         # a specific session
+./target/release/zen context --output-format json   # machine-readable for UIs
+```
+
+Example output:
+
+```
+Context: 42,310 tokens (reported by API) — session 9f3a…
+├── system prompt: 1,180 (2.8%)
+├── tool schemas (12): 8,400 (19.9%)
+│   ├── bash: 325
+│   └── …
+└── history (14 turns): 31,780 (75.1%)
+    ├── turn 5 tool (tool_result (read src/main.rs)): 5,120 [PRUNABLE?]
+    │     → 5120 tokens and 'src/main.rs' is not referenced by any later message
+    └── …
+
+Compactions (1):
+  1. 2026-10-17T10:02:00Z — 38,200 tokens → 100 summary tokens (38,100 dropped)
+
+Top token consumers — where did your tokens go?
+  1. tool_result (read src/main.rs) — 5,120 tokens
+     → Large result no longer referenced — a future prune pass could summarize or drop it.
+```
+
+Large tool results that no later message references are flagged `[PRUNABLE?]`
+(heuristic). Compactions show what each summary kept versus dropped.
 
 ## Layout
 
