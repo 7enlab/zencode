@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `encode_cwd`: also replace `\` and `:` when encoding the project-dir name, so Windows
+  paths like `C:\Users\...` become a single flat directory instead of nested dirs.
+  Fixes session lookup/resume failures on Windows (issue #6).
+
 ## [0.1.0] - 2026-10-17
 
 First tagged release, so downstream crates (zencode-desktop) can pin a tag instead of a commit.

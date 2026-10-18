@@ -15,11 +15,13 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 use uuid::Uuid;
 
-/// Encode an absolute cwd into the project-dir name (SPEC §10): replace `/` and `.` with `-`.
+/// Encode an absolute cwd into the project-dir name (SPEC §10): replace `/`, `\`, `:`
+/// and `.` with `-`. Backslash and colon matter on Windows (`C:\Users\...`), where a
+/// leftover `\` would be read as a path separator and `:` is not a valid filename char.
 pub fn encode_cwd(path: &Path) -> String {
     let abs = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
     let s = abs.to_string_lossy();
-    s.replace(['/', '.'], "-")
+    s.replace(['/', '\\', ':', '.'], "-")
 }
 
 /// Build the transcript directory: <home>/.zen/projects/<encoded-cwd>
@@ -440,6 +442,8 @@ mod tests {
         let s = enc;
         assert!(!s.contains('/'));
         assert!(!s.contains('.'));
+        assert!(!s.contains('\\'));
+        assert!(!s.contains(':'));
     }
 
     #[test]
