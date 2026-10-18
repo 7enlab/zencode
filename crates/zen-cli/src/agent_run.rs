@@ -550,7 +550,17 @@ pub async fn run_agent_headless(
     // their prompt templates.
     let (prompt, slash_cmd) = match &builtin {
         Some((name, args)) if name == "review" => (commands::review_prompt(args), None),
-        Some((name, _)) if name == "init" => (commands::init_prompt(), None),
+        Some((name, _)) if name == "init" => {
+            // Non-interactive (-p): fold CLAUDE.md/AGENTS.md content in automatically
+            // when such files exist; there is no prompt to ask.
+            let candidates = zen_ext::detect_import_candidates(cwd);
+            let prompt = if candidates.is_empty() {
+                commands::init_prompt()
+            } else {
+                commands::init_prompt_with_imports(&candidates)
+            };
+            (prompt, None)
+        }
         Some(_) => (prompt.to_string(), None),
         None => expand_slash_prompt_cmd(cli, cwd, home, prompt, cfg, session_id)?,
     };

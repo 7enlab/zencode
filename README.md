@@ -231,6 +231,25 @@ Plan mode is **mechanically** enforced read-only — the harness withholds `Writ
 - Research, then present a plan ending with `ExitPlanMode`. Reply `approve` (or `yes`) to accept it:
   the plan is recorded in the session transcript and plan mode exits into `acceptEdits`.
 - Start the REPL in plan mode: `"permissions": { "defaultMode": "plan" }` in `.zen/settings.json`.
+### Memory (ZEN.md)
+
+Project memory loads hierarchically — later files override/extend earlier ones:
+
+1. `/etc/zen/ZEN.md` (managed, organisation-wide)
+2. `~/.zen/ZEN.md` (user), then `~/.zen/rules/**/*.md`
+3. For each directory from the filesystem root down to cwd: `ZEN.md`, `.zen/ZEN.md`, then `ZEN.local.md`
+4. Project rules `.zen/rules/**/*.md` (root down to cwd)
+
+A directory with no ZEN.md-family file falls back to `AGENTS.md` (then `.zen/AGENTS.md`),
+so repositories written for other agents work unchanged; `~/.zen/AGENTS.md` stands in for a
+missing `~/.zen/ZEN.md`. Files support `@path` imports (max 4 hops, cycles safe).
+
+- `/memories` — list every loaded memory file with its token count and the total,
+  so you can see exactly what the model sees.
+- `/memory` — list the loaded memory file paths.
+- `/init` — scaffold (or improve) the project `ZEN.md`. If `CLAUDE.md`/`AGENTS.md` files
+  written for other agents are found, zen offers to import their content into the new
+  `ZEN.md` (migration path for Claude Code/Codex switchers).
 
 ## Layout
 

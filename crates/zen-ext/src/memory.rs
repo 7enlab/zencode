@@ -416,6 +416,11 @@ pub fn append_memory_note(cwd: &Path, note: &str) -> anyhow::Result<PathBuf> {
     Ok(path)
 }
 
+/// One memory file rendered exactly as it appears in the system prompt.
+fn render_memory_section(path: &Path, content: &str) -> String {
+    format!("# Memory: {}\n\n{}\n\n", path.display(), content.trim_end())
+}
+
 /// Memory as a system-prompt section with path headers ("" when none).
 pub fn memory_prompt(cwd: &Path, home: Option<&Path>) -> String {
     let files = memory_files(cwd, home);
@@ -424,13 +429,85 @@ pub fn memory_prompt(cwd: &Path, home: Option<&Path>) -> String {
     }
     let mut out = String::new();
     for (path, content) in &files {
-        let body = content.trim_end();
-        if body.is_empty() {
+        if content.trim().is_empty() {
             continue;
         }
-        out.push_str(&format!("# Memory: {}\n\n{}\n\n", path.display(), body));
+        out.push_str(&render_memory_section(path, content));
     }
     out.trim_end().to_string()
+}
+
+/// Rough token estimate for a rendered memory section (bytes / 4, same as elsewhere in zen).
+fn section_tokens(section: &str) -> u64 {
+    section.len() as u64 / 4
+}
+
+/// Shorten a path for display: `~/...` when under home.
+fn display_path(path: &Path, home: Option<&Path>) -> String {
+    let home_dir = home.map(Path::to_path_buf).or_else(dirs::home_dir);
+    if let Some(h) = home_dir {
+        if let Ok(rel) = path.strip_prefix(&h) {
+            return format!("~/{}", rel.display());
+        }
+    }
+    path.display().to_string()
+}
+
+/// `/memories`: every loaded memory file with its token count, plus a total.
+/// Lets users see exactly what the model sees from memory files.
+pub fn memories_report(cwd: &Path, home: Option<&Path>) -> String {
+    let files = memory_files(cwd, home);
+    let mut sections: Vec<(PathBuf, String)> = Vec::new();
+    for (path, content) in &files {
+        if content.trim().is_empty() {
+            continue;
+        }
+        sections.push((path.clone(), render_memory_section(path, content)));
+    }
+    if sections.is_empty() {
+        return "(no memory files loaded)".to_string();
+    }
+    let mut total = 0u64;
+    let mut out = String::new();
+    for (path, section) in &sections {
+        let toks = section_tokens(section);
+        total += toks;
+        out.push_str(&format!("{}  ~{} tokens\n", display_path(path, home), toks));
+    }
+    out.push_str(&format!(
+        "total: {} file(s), ~{} tokens",
+        sections.len(),
+        total
+    ));
+    out
+}
+
+/// Agent memory files written for other tools that `/init` can migrate:
+/// `CLAUDE.md` and `AGENTS.md` found walking up from `cwd`, root-most first.
+/// An `AGENTS.md` in a directory that also has a ZEN.md-family file is skipped:
+/// zen never loads it there, so there is nothing useful to migrate (and importing
+/// it would duplicate live instructions).
+pub fn detect_import_candidates(cwd: &Path) -> Vec<PathBuf> {
+    let cwd_abs = abs_path(cwd);
+    let mut out = Vec::new();
+    for dir in ancestors_root_first(&cwd_abs) {
+        let claude = dir.join("CLAUDE.md");
+        if claude.is_file() {
+            out.push(normalize(&claude));
+        }
+        let has_zen = ["ZEN.md", ".zen/ZEN.md", "ZEN.local.md"]
+            .iter()
+            .any(|f| dir.join(f).is_file());
+        if !has_zen {
+            for name in ["AGENTS.md", ".zen/AGENTS.md"] {
+                let p = dir.join(name);
+                if p.is_file() {
+                    out.push(normalize(&p));
+                }
+            }
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -777,5 +854,81 @@ mod tests {
         fs::write(proj.join("ZEN.md"), "@inc.md\n").unwrap();
         let files = mem(&proj, &tmp.path().join("nohome"));
         assert_eq!(files[0].1, "visible\n");
+    }
+
+    #[test]
+    fn memories_report_lists_files_with_token_counts() {
+        let tmp = TempDir::new();
+        let home = tmp.path().join("home");
+        let proj = tmp.path().join("proj");
+        fs::create_dir_all(home.join(".zen")).unwrap();
+        fs::create_dir_all(&proj).unwrap();
+        fs::write(home.join(".zen/ZEN.md"), "user rules here").unwrap();
+        fs::write(proj.join("ZEN.md"), "project rules here").unwrap();
+
+        let report = memories_report(&proj, Some(&home));
+        let lines: Vec<&str> = report.lines().collect();
+        // 2 file lines + 1 total line.
+        assert_eq!(lines.len(), 3, "report:\n{}", report);
+        assert!(lines[0].contains('~') && lines[0].contains("tokens"), "line0: {}", lines[0]);
+        assert!(lines[1].contains('~') && lines[1].contains("tokens"), "line1: {}", lines[1]);
+        assert!(lines[2].starts_with("total: 2 file(s), ~"), "total: {}", lines[2]);
+        // Per-file tokens add up to the total.
+        let parse = |l: &str| -> u64 {
+            l.rsplit('~').next().unwrap().split_whitespace().next().unwrap().parse().unwrap()
+        };
+        let sum: u64 = lines[..2].iter().map(|l| parse(l)).sum();
+        let total: u64 = parse(lines[2]);
+        assert_eq!(sum, total);
+        // Hierarchy order preserved: user file first.
+        assert!(lines[0].contains(".zen/ZEN.md"), "order: {}", lines[0]);
+    }
+
+    #[test]
+    fn memories_report_empty() {
+        let tmp = TempDir::new();
+        let proj = tmp.path().join("proj");
+        fs::create_dir_all(&proj).unwrap();
+        let report = memories_report(&proj, Some(&tmp.path().join("nohome")));
+        assert_eq!(report, "(no memory files loaded)");
+    }
+
+    #[test]
+    fn detect_import_candidates_finds_claude_and_agents_root_first() {
+        let tmp = TempDir::new();
+        let proj = tmp.path().join("proj");
+        let sub = proj.join("sub");
+        fs::create_dir_all(&sub).unwrap();
+        fs::write(proj.join("CLAUDE.md"), "claude rules").unwrap();
+        fs::write(sub.join("AGENTS.md"), "agents rules").unwrap();
+
+        let cands = detect_import_candidates(&sub);
+        assert_eq!(cands.len(), 2, "candidates: {:?}", cands);
+        // Root-most first: proj/CLAUDE.md before sub/AGENTS.md.
+        assert!(cands[0].ends_with("proj/CLAUDE.md"), "first: {:?}", cands[0]);
+        assert!(cands[1].ends_with("sub/AGENTS.md"), "second: {:?}", cands[1]);
+    }
+
+    #[test]
+    fn detect_import_candidates_skips_agents_md_where_zen_exists() {
+        let tmp = TempDir::new();
+        let proj = tmp.path().join("proj");
+        fs::create_dir_all(&proj).unwrap();
+        fs::write(proj.join("ZEN.md"), "zen rules").unwrap();
+        fs::write(proj.join("AGENTS.md"), "agents rules").unwrap();
+        fs::write(proj.join("CLAUDE.md"), "claude rules").unwrap();
+
+        let cands = detect_import_candidates(&proj);
+        // CLAUDE.md is always a candidate; AGENTS.md is skipped next to ZEN.md.
+        assert_eq!(cands.len(), 1, "candidates: {:?}", cands);
+        assert!(cands[0].ends_with("CLAUDE.md"));
+    }
+
+    #[test]
+    fn detect_import_candidates_none() {
+        let tmp = TempDir::new();
+        let proj = tmp.path().join("proj");
+        fs::create_dir_all(&proj).unwrap();
+        assert!(detect_import_candidates(&proj).is_empty());
     }
 }

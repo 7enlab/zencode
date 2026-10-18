@@ -255,6 +255,29 @@ fn print_turn(result: Option<RunResult>) {
     }
 }
 
+/// `/init` with a migration offer: when CLAUDE.md/AGENTS.md files written for other
+/// agents exist, ask before folding their content into the new ZEN.md.
+fn init_prompt_with_import_offer(cwd: &std::path::Path) -> String {
+    let candidates = zen_ext::detect_import_candidates(cwd);
+    if candidates.is_empty() {
+        return commands::init_prompt();
+    }
+    println!("Found existing agent memory files:");
+    for c in &candidates {
+        println!("  {}", c.display());
+    }
+    print!("Import their content into the new ZEN.md? [y/N] ");
+    std::io::Write::flush(&mut std::io::stdout()).ok();
+    let mut answer = String::new();
+    let yes = std::io::stdin().read_line(&mut answer).is_ok()
+        && matches!(answer.trim().to_ascii_lowercase().as_str(), "y" | "yes");
+    if yes {
+        commands::init_prompt_with_imports(&candidates)
+    } else {
+        commands::init_prompt()
+    }
+}
+
 async fn handle_line(
     line: &str,
     cli: &Cli,
@@ -513,7 +536,7 @@ async fn handle_slash(
             let prompt = if cmd == "/review" {
                 commands::review_prompt(&arg)
             } else {
-                commands::init_prompt()
+                init_prompt_with_import_offer(cwd)
             };
             let usage_before = agent.usage.clone();
             let result = run_turn_interruptible(agent, &prompt, repl.interrupts.as_deref_mut()).await;
@@ -591,6 +614,9 @@ async fn handle_slash(
             for (p, _) in zen_ext::memory_files(cwd, home) {
                 println!("{}", p.display());
             }
+        }
+        "/memories" => {
+            println!("{}", zen_ext::memories_report(cwd, home));
         }
         "/todos" => {
             let todos = agent.ctx.todos.lock().unwrap().clone();

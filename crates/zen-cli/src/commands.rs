@@ -9,7 +9,7 @@ pub const BUILTIN_COMMANDS: &[&str] = &[
     "/help", "/clear", "/compact", "/model", "/resume", "/cost", "/status",
     "/permissions", "/config", "/memory", "/init", "/todos", "/agents", "/mcp", "/hooks",
     "/skills", "/exit", "/context", "/add-dir", "/export", "/review", "/rename", "/quota",
-    "/diff", "/plan",
+    "/diff", "/plan", "/memories",
 ];
 
 /// Built-ins that also work as the whole prompt of `-p` (SPEC C5.4). The rest are terminal-only.
@@ -51,6 +51,25 @@ pub fn init_prompt() -> String {
      main modules and how they fit together, and project conventions. If ZEN.md already exists, \
      improve it instead of replacing useful content."
         .to_string()
+}
+
+/// `/init` prompt variant: migrate existing CLAUDE.md/AGENTS.md content into the new ZEN.md.
+/// Used when `zen_ext::detect_import_candidates` found files written for other agents.
+pub fn init_prompt_with_imports(candidates: &[std::path::PathBuf]) -> String {
+    let files = candidates
+        .iter()
+        .map(|p| format!("- {}", p.display()))
+        .collect::<Vec<_>>()
+        .join("\n");
+    format!(
+        "{}\n\nBefore writing, read these existing agent memory files and incorporate any \
+         still-relevant instructions into the new ZEN.md (dedupe against each other, keep zen's \
+         concise style, drop tool-specific syntax that does not apply to zen):\n{}\nAfter \
+         importing, the old files can be deleted: zen loads ZEN.md preferentially and ignores \
+         AGENTS.md in any directory that has one.",
+        init_prompt(),
+        files
+    )
 }
 
 /// `/context`: approximate token use by part (chars / 4) against the context window.
@@ -554,6 +573,27 @@ mod tests {
             parse_builtin("/diff --stat"),
             Some(("diff".to_string(), "--stat".to_string()))
         );
+    }
+
+    #[test]
+    fn builtin_commands_list_includes_memories() {
+        assert!(BUILTIN_COMMANDS.contains(&"/memories"));
+        // /memories is terminal-only (like /memory): not in -p mode.
+        assert!(!HEADLESS_BUILTINS.contains(&"memories"));
+    }
+
+    #[test]
+    fn init_prompt_with_imports_lists_files() {
+        let cands = vec![
+            std::path::PathBuf::from("/proj/CLAUDE.md"),
+            std::path::PathBuf::from("/proj/sub/AGENTS.md"),
+        ];
+        let p = init_prompt_with_imports(&cands);
+        assert!(p.contains("/proj/CLAUDE.md"), "prompt: {}", p);
+        assert!(p.contains("/proj/sub/AGENTS.md"), "prompt: {}", p);
+        assert!(p.contains("incorporate"), "prompt: {}", p);
+        // Base init instructions preserved.
+        assert!(p.contains("write a concise"), "prompt: {}", p);
     }
 
     #[test]

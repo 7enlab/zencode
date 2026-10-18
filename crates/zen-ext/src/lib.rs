@@ -20,6 +20,7 @@ pub use commands::{
 pub use hooks::{matches_target, CommandHookSpec, CommandHooks, OnFailure, HOOK_OUTPUT_LIMIT};
 pub use memory::{
     append_memory_note, memory_files, memory_files_with_managed, memory_prompt, MemoryFile,
+    memories_report, detect_import_candidates,
     MANAGED_MEMORY_PATH, MAX_IMPORT_DEPTH,
 };
 pub use settings::{
