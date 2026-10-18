@@ -70,7 +70,7 @@ impl TrustTier {
 // ─── Permissions ─────────────────────────────────────────────────────────────
 
 /// Declarative permission policy for a skill (Codex-style). Enforced by the harness.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SkillPermissions {
     /// Tool names the skill may use (e.g. ["read", "bash"]). Empty = advisory only.
     #[serde(default)]
@@ -91,6 +91,15 @@ pub struct SkillPermissions {
 
 fn default_file_scope() -> String {
     "project".to_string()
+}
+
+impl Default for SkillPermissions {
+    /// Matches the serde field default: advisory-only, project-scoped.
+    /// (Deriving Default would leave `file_scope` empty, which `validate()`
+    /// rejects — the derived and deserialized defaults must agree.)
+    fn default() -> Self {
+        SkillPermissions::advisory()
+    }
 }
 
 impl SkillPermissions {
@@ -1256,8 +1265,20 @@ pub async fn skill_command(
             cmd_list(&home)?;
             Ok(0)
         }
-        crate::cli::SkillSubcommand::Install { source, yes } => {
-            cmd_install(&home, source, *yes)?;
+        crate::cli::SkillSubcommand::Install {
+            source,
+            yes,
+            registry,
+        } => {
+            cmd_install(&home, source, *yes, registry.as_deref())?;
+            Ok(0)
+        }
+        crate::cli::SkillSubcommand::Search { query, registry } => {
+            crate::skill_registry::cmd_search(query, registry.as_deref())?;
+            Ok(0)
+        }
+        crate::cli::SkillSubcommand::Info { name, registry } => {
+            crate::skill_registry::cmd_info(name, registry.as_deref())?;
             Ok(0)
         }
         crate::cli::SkillSubcommand::Remove { name } => {
@@ -1297,7 +1318,29 @@ fn cmd_list(home: &Path) -> Result<()> {
     Ok(())
 }
 
-fn cmd_install(home: &Path, source: &str, yes: bool) -> Result<()> {
+fn cmd_install(
+    home: &Path,
+    source: &str,
+    yes: bool,
+    registry_override: Option<&str>,
+) -> Result<()> {
+    // registry:NAME resolves through the community registry, then reuses the
+    // standard install flow below (permission diff, explicit --yes).
+    if let Some(name) = source.strip_prefix("registry:") {
+        let reg = crate::skill_registry::load_community_registry(registry_override)?;
+        let entry = crate::skill_registry::find_in_registry(&reg, name).ok_or_else(|| {
+            anyhow!(
+                "no skill {name:?} in the community registry (try `zen skill search {name}`)"
+            )
+        })?;
+        let resolved = match &entry.source {
+            crate::skill_registry::RegistrySource::Builtin => format!("builtin:{}", entry.name),
+            crate::skill_registry::RegistrySource::Git { url } => url.clone(),
+        };
+        println!("registry:{} → {}", entry.name, resolved);
+        println!("{}", crate::skill_registry::format_skill_info(entry));
+        return cmd_install(home, &resolved, yes, registry_override);
+    }
     // builtin:NAME installs the embedded skill (no permission prompt needed —
     // reviewed in-repo, signature verified at install).
     if let Some(name) = source.strip_prefix("builtin:") {

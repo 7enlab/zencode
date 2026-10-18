@@ -29,6 +29,7 @@ pub mod session;
 pub mod session_mgmt;
 pub mod settings;
 pub mod skills;
+pub mod skill_registry;
 pub mod system_prompt;
 
 pub use cli::{Cli, Commands, CostArgs, EvalArgs, ExportArgs, ImportArgs, InputFormat, McpArgs, McpSubcommand, ModelsArgs, OutputFormat, PermissionMode, SessionSubcommand, SessionsArgs};

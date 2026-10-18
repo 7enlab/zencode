@@ -559,7 +559,15 @@ zen skill install builtin:tdd         # tdd | token-diet | security-review
 zen skill install https://github.com/you/skill.git --yes
 zen skill test tdd                    # run the skill's evals (free, deterministic)
 zen skill create my-skill             # scaffold a new skill
+zen skill search tdd                  # search the community skill registry
+zen skill info tdd                    # tier + permissions before installing
+zen skill install registry:tdd --yes  # install from the registry
 ```
+
+Discoverability: the community skill registry ([`docs/skill-registry.md`](docs/skill-registry.md))
+ships curated with the binary (`zen skill search` works offline). The registry
+is advisory — install re-verifies trust from the skill's own signature, so a
+registry can never upgrade a skill's tier.
 
 Trust tiers: `[✓ verified]` (ed25519-signed by ZenCode — nobody else in the
 industry ships a real verified tier), `[community]` (you approved the install,

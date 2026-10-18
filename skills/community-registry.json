@@ -1,0 +1,163 @@
+{
+  "format_version": 1,
+  "skills": [
+    {
+      "author": "ZenCode",
+      "description": "Test-driven development workflow — write the failing test first",
+      "name": "tdd",
+      "permissions": {
+        "allowed_tools": [
+          "bash",
+          "edit",
+          "read",
+          "write"
+        ],
+        "exec": true,
+        "file_scope": "project",
+        "file_write": true,
+        "network": false
+      },
+      "source": {
+        "kind": "builtin"
+      },
+      "tags": [
+        "testing",
+        "workflow",
+        "quality"
+      ],
+      "tier": "verified",
+      "version": "1.0.0"
+    },
+    {
+      "author": "ZenCode",
+      "description": "Token-efficiency habits for lean model calls",
+      "name": "token-diet",
+      "permissions": {
+        "allowed_tools": [
+          "read"
+        ],
+        "exec": false,
+        "file_scope": "project",
+        "file_write": false,
+        "network": false
+      },
+      "source": {
+        "kind": "builtin"
+      },
+      "tags": [
+        "tokens",
+        "cost",
+        "efficiency"
+      ],
+      "tier": "verified",
+      "version": "1.0.0"
+    },
+    {
+      "author": "ZenCode",
+      "description": "Pre-commit security checklist",
+      "name": "security-review",
+      "permissions": {
+        "allowed_tools": [
+          "glob",
+          "grep",
+          "read"
+        ],
+        "exec": false,
+        "file_scope": "project",
+        "file_write": false,
+        "network": false
+      },
+      "source": {
+        "kind": "builtin"
+      },
+      "tags": [
+        "security",
+        "review",
+        "quality"
+      ],
+      "tier": "verified",
+      "version": "1.0.0"
+    },
+    {
+      "author": "zencode-community",
+      "description": "EXAMPLE ENTRY — conventional-commit message generator from staged diffs",
+      "name": "commit-msg",
+      "permissions": {
+        "allowed_tools": [
+          "bash",
+          "read"
+        ],
+        "exec": true,
+        "file_scope": "project",
+        "file_write": false,
+        "network": false
+      },
+      "source": {
+        "kind": "git",
+        "url": "https://github.com/zencode-community/skill-commit-msg"
+      },
+      "tags": [
+        "git",
+        "commits",
+        "workflow"
+      ],
+      "tier": "community",
+      "version": "0.3.0"
+    },
+    {
+      "author": "zencode-community",
+      "description": "EXAMPLE ENTRY — plain-language explanations of unfamiliar code",
+      "name": "explain-code",
+      "permissions": {
+        "allowed_tools": [
+          "glob",
+          "grep",
+          "read"
+        ],
+        "exec": false,
+        "file_scope": "project",
+        "file_write": false,
+        "network": false
+      },
+      "source": {
+        "kind": "git",
+        "url": "https://github.com/zencode-community/skill-explain-code"
+      },
+      "tags": [
+        "learning",
+        "documentation",
+        "onboarding"
+      ],
+      "tier": "community",
+      "version": "0.2.1"
+    },
+    {
+      "author": "zencode-community",
+      "description": "EXAMPLE ENTRY — generate API reference docs from source annotations",
+      "name": "api-docs",
+      "permissions": {
+        "allowed_tools": [
+          "glob",
+          "grep",
+          "read",
+          "write"
+        ],
+        "exec": false,
+        "file_scope": "project",
+        "file_write": true,
+        "network": false
+      },
+      "source": {
+        "kind": "git",
+        "url": "https://github.com/zencode-community/skill-api-docs"
+      },
+      "tags": [
+        "documentation",
+        "api"
+      ],
+      "tier": "unverified",
+      "version": "0.1.0"
+    }
+  ],
+  "updated": "2026-10-17"
+}

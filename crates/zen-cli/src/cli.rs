@@ -482,13 +482,32 @@ pub struct SkillArgs {
 pub enum SkillSubcommand {
     /// List installed skills with trust tier badges
     List,
-    /// Install a skill from a git URL, local path, or builtin:<name>
+    /// Install a skill from a git URL, local path, builtin:<name>, or registry:<name>
     Install {
-        /// Source: git URL, local path, or builtin:<name>
+        /// Source: git URL, local path, builtin:<name>, or registry:<name>
         source: String,
         /// Approve the permission prompt and install
         #[arg(long)]
         yes: bool,
+        /// Use a custom community registry file instead of the bundled one
+        #[arg(long)]
+        registry: Option<String>,
+    },
+    /// Search the community skill registry
+    Search {
+        /// Search query (matches name, tags, description)
+        query: String,
+        /// Use a custom community registry file instead of the bundled one
+        #[arg(long)]
+        registry: Option<String>,
+    },
+    /// Show details for a skill in the community registry
+    Info {
+        /// Skill name
+        name: String,
+        /// Use a custom community registry file instead of the bundled one
+        #[arg(long)]
+        registry: Option<String>,
     },
     /// Remove an installed skill
     Remove {
@@ -766,9 +785,10 @@ mod tests {
         let cli = parse(&["skill", "install", "builtin:tdd", "--yes"]);
         match cli.subcommand {
             Some(Commands::Skill(s)) => match s.command {
-                SkillSubcommand::Install { source, yes } => {
+                SkillSubcommand::Install { source, yes, registry } => {
                     assert_eq!(source, "builtin:tdd");
                     assert!(yes);
+                    assert!(registry.is_none());
                 }
                 other => panic!("expected Install, got {:?}", other),
             },
@@ -789,6 +809,27 @@ mod tests {
             cli.subcommand,
             Some(Commands::Skill(s)) if matches!(s.command, SkillSubcommand::Create{..})
         ));
+        let cli = parse(&["skill", "search", "tdd"]);
+        assert!(matches!(
+            cli.subcommand,
+            Some(Commands::Skill(s)) if matches!(s.command, SkillSubcommand::Search{..})
+        ));
+        let cli = parse(&["skill", "info", "tdd"]);
+        assert!(matches!(
+            cli.subcommand,
+            Some(Commands::Skill(s)) if matches!(s.command, SkillSubcommand::Info{..})
+        ));
+        let cli = parse(&["skill", "install", "registry:tdd", "--yes"]);
+        match cli.subcommand {
+            Some(Commands::Skill(s)) => match s.command {
+                SkillSubcommand::Install { source, yes, .. } => {
+                    assert_eq!(source, "registry:tdd");
+                    assert!(yes);
+                }
+                other => panic!("expected Install, got {other:?}"),
+            },
+            _ => panic!("expected Skill"),
+        }
     }
 
     #[test]

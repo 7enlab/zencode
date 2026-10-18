@@ -121,6 +121,8 @@ Custom commands: Markdown files in `.zen/commands/*.md` (project) and `~/.zen/co
 
 **Skills**: directories `~/.zen/skills/<name>/SKILL.md` and `.zen/skills/<name>/SKILL.md`. SKILL.md has YAML frontmatter `name`, `description` (required), optional `allowed-tools`, `disable-model-invocation`. Only name+description are put in the system prompt; the model loads the full body via the `Skill` tool (or user types `/<skill-name>` which inlines it). Supporting files in the skill dir are readable by path.
 
+**Skill registry** (discoverability; `docs/skill-registry.md`): `zen skill search <query>` (ranked: exact name > prefix > substring > tag > description), `zen skill info <name>` (tier, permissions, source — shown before install), `zen skill install registry:<name> --yes` (resolves to `builtin:<name>` or the entry's git URL, then the standard install flow). Curated registry `skills/community-registry.json` is embedded in the binary (works offline); `--registry <path>` overrides with a local file. The registry is advisory: install re-computes the trust tier from the fetched manifest signature — a registry can never upgrade trust.
+
 ## 8. MCP client
 - Config sources: `.mcp.json` in project root (`{"mcpServers": {name: cfg}}`), `~/.zen.json`/`~/.zen/mcp.json` user, `--mcp-config` files/JSON strings. `--strict-mcp-config` = only CLI ones.
 - Server config: stdio `{ "command", "args"?, "env"? }` (type `stdio` default) or HTTP `{ "type": "http", "url", "headers"? }` (streamable HTTP; MVP may stub SSE).
