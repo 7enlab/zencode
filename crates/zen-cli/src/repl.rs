@@ -19,6 +19,9 @@ enum LineAction {
 /// Run the interactive loop. Returns when the user exits.
 pub async fn run_repl(cli: &Cli, cwd: &Path, home: Option<&Path>) -> Result<()> {
     let cfg = crate::settings::resolve_config_with_home(cli, cwd, home)?;
+    if cfg.ollama {
+        crate::ollama::ensure_ollama_ready(&cfg.base_url, &cfg.model).await?;
+    }
     let mut session_id = cli
         .session_id
         .clone()

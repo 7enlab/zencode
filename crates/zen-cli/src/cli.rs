@@ -167,6 +167,11 @@ pub struct Cli {
     #[arg(long = "base-url")]
     pub base_url: Option<String>,
 
+    /// Provider shortcut: "ollama" routes to the local Ollama instance
+    /// (same as --model ollama/<name>)
+    #[arg(long = "provider")]
+    pub provider: Option<String>,
+
     /// Permission mode
     #[arg(long = "permission-mode", value_parser = parse_permission_mode_flag)]
     pub permission_mode: Option<PermissionMode>,
@@ -585,5 +590,13 @@ mod tests {
             },
             other => panic!("expected Mcp, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn parse_provider_flag() {
+        let cli = parse(&["--provider", "ollama"]);
+        assert_eq!(cli.provider.as_deref(), Some("ollama"));
+        let cli = parse(&[]);
+        assert_eq!(cli.provider, None);
     }
 }

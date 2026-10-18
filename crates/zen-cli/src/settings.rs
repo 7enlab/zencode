@@ -17,6 +17,10 @@ pub struct ResolvedConfig {
     pub api_key_env: Option<String>,
     /// WebFetch may fetch loopback/link-local/private IPs when true (LOW-1 SSRF guard).
     pub allow_private_network: bool,
+    /// True when routed through the local Ollama provider (local inference, $0
+    /// marginal cost). Cost ledgers and model tables should treat these runs
+    /// as free.
+    pub ollama: bool,
     pub fallback_models: Vec<String>,
     pub permissions: PermissionSettings,
     pub permission_mode: PermissionMode,
@@ -306,7 +310,7 @@ pub fn resolve_config_with_home(
     // but ONLY when the provider's key env var is set. Otherwise the `/`
     // prefix is part of a gateway model ID (e.g. the default
     // `google/gemini-4-argon:free` on the experientiallabs gateway) and the
-    // default flow is left untouched. This matches PR #45's semantics.
+    // default flow is left untouched.
     let spec = zen_agent::providers::ModelSpec::parse(&raw_model, DEFAULT_BASE_URL, false);
     let provider_key = spec
         .api_key_env
@@ -331,6 +335,7 @@ pub fn resolve_config_with_home(
             base_url = spec.base_url.clone();
         }
     } else if spec.provider != "default"
+        && spec.provider != "ollama" // local, keyless: handled by the Ollama routing below
         && (cli.model.is_some()
             || std::env::var("ZEN_MODEL").map(|v| !v.is_empty()).unwrap_or(false))
     {
@@ -341,7 +346,7 @@ pub fn resolve_config_with_home(
             raw_model,
         ));
         warnings.push(format!(
-            "set {} or run `zen auth login --provider {}` for direct routing",
+            "set {} for direct routing to {}",
             spec.api_key_env.as_deref().unwrap_or("the API key"),
             spec.provider,
         ));
@@ -350,6 +355,36 @@ pub fn resolve_config_with_home(
         Some(k) => Some(k),
         None => resolve_api_key(merged.api_key_env.as_deref()),
     };
+
+    // ── Ollama provider routing ──────────────────────────────────────
+    // `--model ollama/<name>` or `--provider ollama` (also ZEN_PROVIDER)
+    // routes to the local Ollama instance: the prefix is stripped so the wire
+    // sees the native model id, the base URL defaults to Ollama, and no API
+    // key is sent to the local endpoint.
+    let provider = cli.provider.clone().or_else(|| {
+        std::env::var("ZEN_PROVIDER").ok().filter(|s| !s.is_empty())
+    });
+    if let Some(p) = provider.as_deref() {
+        if p != "ollama" {
+            anyhow::bail!("unknown --provider '{p}' (supported providers: ollama)");
+        }
+    }
+    let base_url_explicit = cli.base_url.is_some()
+        || std::env::var("ZEN_BASE_URL")
+            .map(|v| !v.is_empty())
+            .unwrap_or(false)
+        || merged.base_url.as_deref().is_some_and(|s| !s.is_empty());
+    let (model, base_url, api_key, ollama) = crate::ollama::apply_ollama_routing(
+        provider.as_deref() == Some("ollama"),
+        &model,
+        &base_url,
+        base_url_explicit,
+        api_key,
+        &crate::ollama::ollama_base_url(),
+    );
+    if ollama && model.is_empty() {
+        anyhow::bail!("empty model name after 'ollama/' prefix (e.g. --model ollama/qwen3-coder:30b)");
+    }
 
     let mut cli_allow = split_rules(&cli.allowed_tools);
     let mut cli_deny = split_rules(&cli.disallowed_tools);
@@ -374,7 +409,12 @@ pub fn resolve_config_with_home(
         api_key,
         api_key_env: merged.api_key_env.clone(),
         allow_private_network: merged.allow_private_network,
-        fallback_models: merged.fallback_models.clone(),
+        ollama,
+        fallback_models: merged
+            .fallback_models
+            .iter()
+            .map(|m| crate::ollama::strip_ollama_prefix(m).unwrap_or(m).to_string())
+            .collect(),
         permissions: PermissionSettings {
             allow: cli_allow,
             ask: merged.permissions.ask.clone(),
@@ -802,5 +842,109 @@ mod tests {
         } else {
             std::env::remove_var("DEEPSEEK_API_KEY");
         }
+    }
+
+    // ── Ollama provider routing ──────────────────────────────────────
+
+    fn clear_ollama_env() {
+        for v in ["ZEN_MODEL", "ZEN_BASE_URL", "ZEN_PROVIDER", "OLLAMA_HOST"] {
+            std::env::remove_var(v);
+        }
+    }
+
+    #[test]
+    fn ollama_model_prefix_routes_to_local() {
+        let _env = env_lock();
+        clear_ollama_env();
+        let mut cli = base_cli();
+        cli.model = Some("ollama/qwen3-coder:30b".into());
+        let cfg = resolve_config(&cli, std::env::temp_dir().as_path()).unwrap();
+        assert!(cfg.ollama);
+        assert_eq!(cfg.model, "qwen3-coder:30b");
+        assert_eq!(cfg.base_url, "http://localhost:11434/v1");
+        assert_eq!(cfg.api_key, None);
+    }
+
+    #[test]
+    fn ollama_provider_flag_routes_without_prefix() {
+        let _env = env_lock();
+        clear_ollama_env();
+        let mut cli = base_cli();
+        cli.provider = Some("ollama".into());
+        cli.model = Some("llama3.1".into());
+        let cfg = resolve_config(&cli, std::env::temp_dir().as_path()).unwrap();
+        assert!(cfg.ollama);
+        assert_eq!(cfg.model, "llama3.1");
+        assert_eq!(cfg.base_url, "http://localhost:11434/v1");
+    }
+
+    #[test]
+    fn ollama_provider_env_routes() {
+        let _env = env_lock();
+        clear_ollama_env();
+        std::env::set_var("ZEN_PROVIDER", "ollama");
+        let mut cli = base_cli();
+        cli.model = Some("ollama/mistral:7b".into());
+        let cfg = resolve_config(&cli, std::env::temp_dir().as_path()).unwrap();
+        std::env::remove_var("ZEN_PROVIDER");
+        assert!(cfg.ollama);
+        assert_eq!(cfg.model, "mistral:7b");
+    }
+
+    #[test]
+    fn ollama_host_env_overrides_default() {
+        let _env = env_lock();
+        clear_ollama_env();
+        std::env::set_var("OLLAMA_HOST", "192.168.1.5:11434");
+        let mut cli = base_cli();
+        cli.model = Some("ollama/qwen3-coder:30b".into());
+        let cfg = resolve_config(&cli, std::env::temp_dir().as_path()).unwrap();
+        std::env::remove_var("OLLAMA_HOST");
+        assert!(cfg.ollama);
+        assert_eq!(cfg.base_url, "http://192.168.1.5:11434/v1");
+    }
+
+    #[test]
+    fn ollama_explicit_base_url_wins_over_default() {
+        let _env = env_lock();
+        clear_ollama_env();
+        let mut cli = base_cli();
+        cli.model = Some("ollama/qwen3-coder:30b".into());
+        cli.base_url = Some("http://gateway.internal:11434/v1".into());
+        let cfg = resolve_config(&cli, std::env::temp_dir().as_path()).unwrap();
+        assert!(cfg.ollama);
+        assert_eq!(cfg.model, "qwen3-coder:30b");
+        assert_eq!(cfg.base_url, "http://gateway.internal:11434/v1");
+    }
+
+    #[test]
+    fn ollama_empty_model_name_rejected() {
+        let _env = env_lock();
+        clear_ollama_env();
+        let mut cli = base_cli();
+        cli.model = Some("ollama/".into());
+        let err = resolve_config(&cli, std::env::temp_dir().as_path()).unwrap_err();
+        assert!(err.to_string().contains("ollama/"), "unexpected: {err}");
+    }
+
+    #[test]
+    fn unknown_provider_rejected() {
+        let _env = env_lock();
+        clear_ollama_env();
+        let mut cli = base_cli();
+        cli.provider = Some("wat".into());
+        let err = resolve_config(&cli, std::env::temp_dir().as_path()).unwrap_err();
+        assert!(err.to_string().contains("unknown --provider"), "unexpected: {err}");
+    }
+
+    #[test]
+    fn non_ollama_model_untouched() {
+        let _env = env_lock();
+        clear_ollama_env();
+        let mut cli = base_cli();
+        cli.model = Some("gpt-4o".into());
+        let cfg = resolve_config(&cli, std::env::temp_dir().as_path()).unwrap();
+        assert!(!cfg.ollama);
+        assert_eq!(cfg.model, "gpt-4o");
     }
 }

@@ -31,6 +31,22 @@ ZEN_BASE_URL=https://openrouter.ai/api/v1 ZEN_API_KEY=... \
   ./target/release/zen -p "hi" --model nvidia/nemotron-3-super-120b-a12b:free
 ```
 
+### Ollama (local models, $0)
+
+Run fully offline with [Ollama](https://ollama.com) — no API key, no rate
+limits, no data leaving your machine:
+
+```bash
+ollama pull qwen3-coder:30b
+./target/release/zen --model ollama/qwen3-coder:30b
+# or: ./target/release/zen --provider ollama --model llama3.1
+```
+
+The `ollama/` prefix (or `--provider ollama`) routes to the local instance
+(`OLLAMA_HOST`, default `http://localhost:11434`). On startup zen checks the
+model is pulled and prints `ollama pull <name>` when it isn't. `zen doctor`
+shows `provider: ollama (local)`.
+
 Configuration lives in `~/.zen/settings.json`, `.zen/settings.json`, `.zen/settings.local.json`
 (see SPEC §12), project memory in `ZEN.md`, custom commands in `.zen/commands/`, skills in
 `.zen/skills/<name>/SKILL.md`, sub-agents in `.zen/agents/*.md`, MCP servers in `.mcp.json`.

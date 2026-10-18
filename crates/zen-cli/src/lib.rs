@@ -8,6 +8,7 @@ pub mod commands;
 pub mod envsnap;
 pub mod eventlog;
 pub mod git;
+pub mod ollama;
 pub mod output;
 pub mod repl;
 pub mod safety;
@@ -60,6 +61,9 @@ async fn run_subcommand(
             println!("zen doctor");
             println!("  model: {}", cfg.model);
             println!("  base_url: {}", cfg.base_url);
+            if cfg.ollama {
+                println!("  provider: ollama (local)");
+            }
             println!(
                 "  api_key: {}",
                 if cfg.api_key().is_some() {
@@ -138,6 +142,9 @@ async fn run_headless(cli: &Cli, cwd: &Path, home: Option<&Path>) -> Result<i32>
     use std::io::IsTerminal;
 
     let cfg = settings::resolve_config_with_home(cli, cwd, home)?;
+    if cfg.ollama {
+        crate::ollama::ensure_ollama_ready(&cfg.base_url, &cfg.model).await?;
+    }
     if !cfg.trust_skipped.is_empty() {
         eprintln!("{}", untrusted_notice(&cfg.trust_skipped));
     }
