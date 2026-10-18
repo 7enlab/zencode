@@ -10,12 +10,13 @@ pub const BUILTIN_COMMANDS: &[&str] = &[
     "/permissions", "/config", "/memory", "/init", "/todos", "/agents", "/mcp", "/hooks",
     "/skills", "/exit", "/context", "/add-dir", "/export", "/review", "/rename", "/quota",
     "/diff", "/plan", "/memories", "/loop", "/goal", "/personality", "/vim", "/theme", "/btw",
-    "/terse", "/map", "/map-refresh", "/deep-research", "/pr_comments", "/ci-fix",
+    "/terse", "/map", "/map-refresh", "/deep-research", "/pr_comments", "/ci-fix", "/done",
+    "/scope",
 ];
 
 /// Built-ins that also work as the whole prompt of `-p` (SPEC C5.4). The rest are terminal-only.
 pub const HEADLESS_BUILTINS: &[&str] =
-    &["compact", "model", "cost", "mcp", "context", "review", "init"];
+    &["compact", "model", "cost", "mcp", "context", "review", "init", "done"];
 
 /// `Some((name, args))` when `prompt` is a built-in slash command (`/name args`).
 /// `/quit` and `/continue` are accepted as aliases of `/exit` and `/resume`.

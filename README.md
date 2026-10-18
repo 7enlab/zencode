@@ -473,6 +473,25 @@ Fan out parallel research sub-agents over a topic, then synthesize a cited markd
 - Budget: `--max-subagents` (default 4, hard cap 8), per-researcher timeout, and a
   `--max-budget-usd` pre-flight check (or `ZEN_MAX_BUDGET_USD`). The dollar estimate is
   conservative until the cost ledger lands; the subagent count and timeout are the hard guard.
+### Definition of done
+
+The agent should not declare work complete without evidence, and should not silently
+grow scope. The done-guard gives you three tools:
+
+- `/done` — runs the definition-of-done checklist in the working directory: the
+  project's tests and linter (auto-detected: `cargo test`/`clippy`, `npm test`/`eslint`,
+  `pytest`, `go test`), the session todo list (every item must be `completed`), plus a
+  report of changed files, scope violations, and speculative new public APIs with no
+  callers (YAGNI). Exits non-zero in `-p` mode when a check fails, so it works in CI:
+  `zen -p "/done"`.
+- `/scope <glob>...` — declares the task scope (e.g. `/scope src/**`), seeded
+  automatically from file mentions in your first prompt. The turn guard nudges the model
+  to confirm with you before mutating files outside it, and the REPL warns you after
+  each turn that changed out-of-scope files. `/scope` with no args shows the current
+  scope; `/scope clear` removes it.
+- The system prompt carries a short "Definition of done" section, and the finish gate
+  reminds the model to run the checks after file changes (`verify.command` in settings
+  makes the harness run them automatically).
 
 ## Layout
 

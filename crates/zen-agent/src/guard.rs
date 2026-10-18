@@ -5,10 +5,16 @@
 //! nudge to the result that crosses a threshold. Separately, a non-empty todo list is shown to
 //! the model again every [`TODO_REINJECT_EVERY`] model calls and after compaction, so a long turn
 //! does not lose the plan.
+//!
+//! The done-guard (roadmap v0.7.0 #9) adds a declared task scope: [`TurnGuard::set_scope`]
+//! installs glob patterns (relative to the working directory, see [`TurnGuard::set_cwd`]);
+//! a successful file mutation outside the scope produces one nudge per file per turn telling
+//! the model to stop and confirm with the user instead of expanding scope on its own.
 
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
-use zen_core::{TodoItem, ToolOutput};
+use std::path::{Path, PathBuf};
+use zen_core::{glob_match, TodoItem, ToolOutput};
 
 /// Successful edits to one file in one turn before the guard nudges (on the Nth edit).
 pub const EDIT_REPEAT_LIMIT: usize = 4;
@@ -25,9 +31,59 @@ pub struct TurnGuard {
     edits: HashMap<String, usize>,
     failures: HashMap<String, usize>,
     nudged: HashSet<String>,
+    /// Declared task scope (done-guard): glob patterns relative to [`TurnGuard::cwd`].
+    /// Empty = no declared scope, no scope nudges.
+    scope: Vec<String>,
+    /// Working directory the scope patterns are relative to.
+    cwd: PathBuf,
 }
 
 impl TurnGuard {
+    /// Install the declared task scope: glob patterns (`*`, `**`, `?`) relative to the
+    /// working directory set with [`TurnGuard::set_cwd`]. Mutations outside it nudge.
+    pub fn set_scope(&mut self, scope: Vec<String>) {
+        self.scope = scope;
+    }
+
+    /// Working directory the scope patterns (and absolute `file_path` arguments) resolve
+    /// against.
+    pub fn set_cwd(&mut self, cwd: PathBuf) {
+        self.cwd = cwd;
+    }
+
+    /// `file_path` normalized to a `/`-separated path relative to the working directory,
+    /// so scope globs match regardless of whether the tool call used an absolute path.
+    fn normalize(&self, file: &str) -> String {
+        let p = Path::new(file);
+        let rel = if p.is_absolute() && !self.cwd.as_os_str().is_empty() {
+            p.strip_prefix(&self.cwd).map(Path::to_path_buf).unwrap_or_else(|_| p.to_path_buf())
+        } else {
+            p.to_path_buf()
+        };
+        rel.to_string_lossy().replace('\\', "/")
+    }
+
+    /// One nudge per file per turn when a successful mutation lands outside the scope.
+    fn check_scope(&mut self, tool: &str, args: &Value) -> Option<String> {
+        if self.scope.is_empty() || !EDIT_TOOLS.contains(&tool) {
+            return None;
+        }
+        let file = args.get("file_path").and_then(|v| v.as_str())?;
+        let rel = self.normalize(file);
+        if self.scope.iter().any(|p| glob_match(p, &rel)) {
+            return None;
+        }
+        if self.nudged.insert(format!("scope:{rel}")) {
+            Some(format!(
+                "[zen: `{rel}` is outside your declared task scope ({}). Stop and ask the user to confirm \
+                 before continuing -- do not expand scope on your own.]",
+                self.scope.join(", ")
+            ))
+        } else {
+            None
+        }
+    }
+
     /// Record one finished tool call; returns a note to append to its result when a threshold
     /// is reached for the first time this turn.
     pub fn observe(&mut self, tool: &str, args: &Value, out: &ToolOutput) -> Option<String> {
@@ -43,6 +99,10 @@ impl TurnGuard {
                 ));
             }
             return None;
+        }
+        // Done-guard scope check: successful file mutations outside the declared scope.
+        if let Some(note) = self.check_scope(tool, args) {
+            return Some(note);
         }
         if !EDIT_TOOLS.contains(&tool) {
             return None;
@@ -112,6 +172,41 @@ mod tests {
         assert!(g.observe("Bash", &cmd, &fail).is_none());
         assert!(g.observe("Bash", &cmd, &fail).unwrap().contains("failed 3 times"));
         assert!(g.observe("Bash", &cmd, &fail).is_none());
+    }
+
+    #[test]
+    fn scope_nudge_fires_once_per_file_outside_scope() {
+        let mut g = TurnGuard::default();
+        g.set_cwd(PathBuf::from("/repo"));
+        g.set_scope(vec!["src/**".into(), "README.md".into()]);
+        let in_scope = json!({"file_path": "src/main.rs"});
+        let out_scope = json!({"file_path": "other/x.rs"});
+        assert!(g.observe("Edit", &in_scope, &ok()).is_none(), "in-scope edit is quiet");
+        let n = g.observe("Write", &out_scope, &ok()).expect("out-of-scope write nudges");
+        assert!(n.contains("outside your declared task scope") && n.contains("other/x.rs"), "{n}");
+        assert!(g.observe("Edit", &out_scope, &ok()).is_none(), "one nudge per file per turn");
+        // Absolute paths under cwd are normalized before matching.
+        let abs_out = json!({"file_path": "/repo/other/y.rs"});
+        assert!(g.observe("Edit", &abs_out, &ok()).unwrap().contains("other/y.rs"));
+        let abs_in = json!({"file_path": "/repo/src/z.rs"});
+        assert!(g.observe("Edit", &abs_in, &ok()).is_none(), "absolute in-scope path is quiet");
+    }
+
+    #[test]
+    fn no_scope_means_no_scope_nudge() {
+        let mut g = TurnGuard::default();
+        assert!(g.observe("Edit", &json!({"file_path": "anywhere.rs"}), &ok()).is_none());
+        assert!(g.observe("Write", &json!({"file_path": "elsewhere.rs"}), &ok()).is_none());
+    }
+
+    #[test]
+    fn scope_check_ignores_failed_calls_and_reads() {
+        let mut g = TurnGuard::default();
+        g.set_cwd(PathBuf::from("/repo"));
+        g.set_scope(vec!["src/**".into()]);
+        let f = json!({"file_path": "other/x.rs"});
+        assert!(g.observe("Edit", &f, &ToolOutput::err("denied")).is_none(), "failed calls do not nudge");
+        assert!(g.observe("Read", &f, &ok()).is_none(), "reads never nudge");
     }
 
     #[test]

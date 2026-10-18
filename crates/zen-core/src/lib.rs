@@ -907,3 +907,106 @@ mod cache_tests {
         assert_eq!(s.cache_read_input_tokens, 0);
     }
 }
+
+// ───────────────────────── scope globs (done-guard) ─────────────────────────
+
+/// Match a `/`-separated relative path against a glob pattern.
+///
+/// Supported syntax: `*` (any run of characters within one path segment), `?` (one
+/// character within a segment), `**` (any number of whole path segments, including zero),
+/// everything else literal. Used by the definition-of-done scope guard (`/scope`).
+///
+/// ```
+/// # use zen_core::glob_match;
+/// assert!(glob_match("src/**", "src/a/b.rs"));
+/// assert!(glob_match("*.md", "README.md"));
+/// assert!(!glob_match("*.md", "docs/a.md"));
+/// assert!(glob_match("docs/*.md", "docs/a.md"));
+/// assert!(!glob_match("docs/*.md", "docs/sub/a.md"));
+/// ```
+pub fn glob_match(pattern: &str, path: &str) -> bool {
+    let pat: Vec<&str> = pattern.split('/').collect();
+    let segs: Vec<&str> = path.split('/').collect();
+    match_segments(&pat, &segs)
+}
+
+fn match_segments(pat: &[&str], path: &[&str]) -> bool {
+    if pat.is_empty() {
+        return path.is_empty();
+    }
+    if pat[0] == "**" {
+        // `**` swallows zero or more whole segments.
+        return (0..=path.len()).any(|i| match_segments(&pat[1..], &path[i..]));
+    }
+    if path.is_empty() || !match_segment(pat[0], path[0]) {
+        return false;
+    }
+    match_segments(&pat[1..], &path[1..])
+}
+
+/// Wildcard match within a single path segment (`*` and `?`).
+fn match_segment(pat: &str, s: &str) -> bool {
+    let p: Vec<char> = pat.chars().collect();
+    let c: Vec<char> = s.chars().collect();
+    let (mut pi, mut si) = (0usize, 0usize);
+    let (mut star, mut ss) = (None, 0usize);
+    while si < c.len() {
+        if pi < p.len() && (p[pi] == '?' || p[pi] == c[si]) {
+            pi += 1;
+            si += 1;
+        } else if pi < p.len() && p[pi] == '*' {
+            star = Some(pi);
+            pi += 1;
+            ss = si;
+        } else if let Some(sp) = star {
+            pi = sp + 1;
+            ss += 1;
+            si = ss;
+        } else {
+            return false;
+        }
+    }
+    while pi < p.len() && p[pi] == '*' {
+        pi += 1;
+    }
+    pi == p.len()
+}
+
+#[cfg(test)]
+mod glob_tests {
+    use super::glob_match;
+
+    #[test]
+    fn glob_basics() {
+        assert!(glob_match("src/**", "src/a/b.rs"));
+        assert!(glob_match("src/**", "src/x.rs"));
+        assert!(!glob_match("src/**", "other/x.rs"));
+        assert!(glob_match("exact/path.rs", "exact/path.rs"));
+        assert!(!glob_match("exact/path.rs", "exact/other.rs"));
+    }
+
+    #[test]
+    fn glob_star_stays_in_segment() {
+        assert!(glob_match("*.md", "README.md"));
+        assert!(!glob_match("*.md", "docs/a.md"));
+        assert!(glob_match("docs/*.md", "docs/a.md"));
+        assert!(!glob_match("docs/*.md", "docs/sub/a.md"));
+        assert!(glob_match("src/*.rs", "src/main.rs"));
+    }
+
+    #[test]
+    fn glob_double_star_spans_segments() {
+        assert!(glob_match("**/*.rs", "a/b/c.rs"));
+        assert!(glob_match("**/*.rs", "c.rs"));
+        assert!(glob_match("a/**/z.rs", "a/z.rs"));
+        assert!(glob_match("a/**/z.rs", "a/b/c/z.rs"));
+        assert!(!glob_match("a/**/z.rs", "a/b/c/y.rs"));
+    }
+
+    #[test]
+    fn glob_question_mark() {
+        assert!(glob_match("src/?ain.rs", "src/main.rs"));
+        assert!(!glob_match("src/?ain.rs", "src/xxain.rs"));
+        assert!(!glob_match("src/?ain.rs", "src/main.tsx"));
+    }
+}

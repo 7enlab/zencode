@@ -794,6 +794,7 @@ pub(crate) async fn run_agent_with_result(
     // `/compact [focus]` in -p (SPEC C5.4): compact the (resumed) history instead of running a
     // turn, persist the summary boundary, and report the outcome as the result.
     // Built-ins answered locally, without a model turn (SPEC C5.4).
+    let mut local_failed = false;
     if let Some((name, args)) = &builtin {
         let local = match name.as_str() {
             "model" if args.is_empty() => Some(format!("Current model: {}", agent.config.model)),
@@ -810,6 +811,27 @@ pub(crate) async fn run_agent_with_result(
                 agent.config.context_window,
                 agent.last_prompt_tokens,
             )),
+            "done" => {
+                let checks = crate::doneguard::run_done_checks(cwd, &[]).await;
+                let changed = crate::doneguard::changed_files(cwd);
+                let yagni = crate::doneguard::yagni_scan(cwd);
+                if checks
+                    .iter()
+                    .any(|c| c.status == crate::doneguard::CheckStatus::Fail)
+                {
+                    local_failed = true;
+                }
+                Some(crate::doneguard::format_report(
+                    cwd,
+                    &crate::doneguard::DoneReport {
+                        checks,
+                        changed,
+                        scope: vec![],
+                        scope_violations: vec![],
+                        yagni,
+                    },
+                ))
+            }
             _ => None,
         };
         if let Some(text) = local {
@@ -821,7 +843,7 @@ pub(crate) async fn run_agent_with_result(
             if cli.output_format == OutputFormat::Text {
                 println!();
             }
-            return Ok((0, result));
+            return Ok((if local_failed { 1 } else { 0 }, result));
         }
     }
 

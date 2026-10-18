@@ -98,6 +98,9 @@ pub fn build_system_prompt(cli: &Cli, cwd: &Path, home: Option<&Path>) -> Result
         if !skills_txt.trim().is_empty() {
             parts.push(skills_txt);
         }
+
+        // Definition of done (done-guard, roadmap v0.7.0 #9).
+        parts.push(DONE_GUIDANCE.to_string());
     }
 
     // --append-system-prompt.
@@ -126,6 +129,16 @@ pub fn build_system_prompt(cli: &Cli, cwd: &Path, home: Option<&Path>) -> Result
         Ok(prompt)
     }
 }
+
+/// Definition-of-done guidance appended to the system prompt (done-guard).
+pub const DONE_GUIDANCE: &str = "\
+Definition of done:
+- Do not declare work complete until the project's checks pass: run its tests and
+  linter, and fix what fails. (`/done` in the REPL runs these checks for you.)
+- Keep the todo list current; every item must be completed before you stop.
+- Stay inside the task's scope: do not add features, files, or public APIs that were
+  not requested. If the work genuinely needs a wider scope, say so and get confirmation.
+- Editing a file you have not read is refused by the harness -- read before changing.";
 
 /// The `Environment:` block appended to every system prompt. Public so callers that replace
 /// the prompt entirely (e.g. `--agent`) can still include it.

@@ -123,6 +123,8 @@ pub async fn run_repl(cli: &Cli, cwd: &Path, home: Option<&Path>) -> Result<()> 
         base_system_prompt,
         pre_plan_mode: zen_core::PermissionMode::Default,
         pending_plan: None,
+        scope: crate::doneguard::ScopeGuard::default(),
+        scope_seeded: false,
     };
 
     loop {
@@ -202,6 +204,10 @@ struct ReplState<'a> {
     pre_plan_mode: zen_core::PermissionMode,
     /// Plan text awaiting approval (armed when a plan-mode turn ends with ExitPlanMode).
     pending_plan: Option<String>,
+    /// Declared task scope for the definition-of-done guard (v0.7.0 #9).
+    scope: crate::doneguard::ScopeGuard,
+    /// Whether the scope has been seeded from the first user prompt yet.
+    scope_seeded: bool,
 }
 
 /// SIGINT handling for the REPL. A background task owns the signal stream: during a turn it
@@ -368,6 +374,18 @@ async fn handle_line(
 
     // Normal prompt: expand `@file` mentions first, then run the agent turn
     // (prompt, tool calls, tool results and answer are persisted).
+    // Done-guard: seed the declared scope from the first prompt's file mentions.
+    if !repl.scope_seeded {
+        repl.scope.seed_from_prompt(line, cwd);
+        repl.scope_seeded = true;
+        agent.config.done_scope = repl.scope.declared.clone();
+    }
+    let scope_active = !repl.scope.declared.is_empty();
+    let turn_start_files = if scope_active {
+        crate::doneguard::changed_files(cwd)
+    } else {
+        Vec::new()
+    };
     let usage_before = agent.usage.clone();
     let prompt = match crate::mentions::expand_mentions(line, cwd, cfg.mention_token_budget) {
         Ok(exp) => {
@@ -397,6 +415,22 @@ async fn handle_line(
                      or keep chatting to refine."
                 );
             }
+        }
+    }
+    if scope_active {
+        let after = crate::doneguard::changed_files(cwd);
+        let fresh: Vec<String> = after
+            .into_iter()
+            .filter(|f| !turn_start_files.contains(f))
+            .collect();
+        let violations = repl.scope.violations(&fresh);
+        if !violations.is_empty() {
+            eprintln!(
+                "[scope guard] {} file(s) changed outside the declared scope ({}): {}.                  Run /scope to adjust the scope.",
+                violations.len(),
+                repl.scope.declared.join(", "),
+                violations.join(", ")
+            );
         }
     }
     print_turn(result);
@@ -623,6 +657,51 @@ async fn handle_slash(
                     }
                     _ => eprintln!("not a directory: {}", p.display()),
                 }
+            }
+        }
+        "/done" => {
+            let todos = agent.ctx.todos.lock().unwrap().clone();
+            let checks = crate::doneguard::run_done_checks(cwd, &todos).await;
+            let changed = crate::doneguard::changed_files(cwd);
+            let violations = repl.scope.violations(&changed);
+            let yagni = crate::doneguard::yagni_scan(cwd);
+            println!(
+                "{}",
+                crate::doneguard::format_report(
+                    cwd,
+                    &crate::doneguard::DoneReport {
+                        checks,
+                        changed,
+                        scope: repl.scope.declared.clone(),
+                        scope_violations: violations,
+                        yagni,
+                    }
+                )
+            );
+        }
+        "/scope" => {
+            if arg == "clear" {
+                repl.scope.clear();
+                agent.config.done_scope.clear();
+                println!("scope cleared");
+            } else if arg.is_empty() {
+                if repl.scope.declared.is_empty() {
+                    println!("(no declared scope — /scope <glob>... to set one, e.g. /scope src/**)");
+                } else {
+                    println!("scope: {}", repl.scope.declared.join(" "));
+                    let changed = crate::doneguard::changed_files(cwd);
+                    let violations = repl.scope.violations(&changed);
+                    if violations.is_empty() {
+                        println!("all {} changed file(s) within scope", changed.len());
+                    } else {
+                        println!("outside scope: {}", violations.join(", "));
+                    }
+                }
+            } else {
+                repl.scope.set(arg.split_whitespace().map(|s| s.to_string()).collect());
+                repl.scope_seeded = true;
+                agent.config.done_scope = repl.scope.declared.clone();
+                println!("scope set: {}", repl.scope.declared.join(" "));
             }
         }
         "/export" => {

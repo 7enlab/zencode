@@ -203,6 +203,7 @@ impl SubAgentRunner for SubAgentExecutor {
             // Tool bundle is session-wide: sub-agents inherit it.
             tool_bundle: self.base_config.tool_bundle,
             max_parallel_tool_calls: self.base_config.max_parallel_tool_calls,
+            done_scope: self.base_config.done_scope.clone(),
         };
 
         let mut agent = Agent::new(

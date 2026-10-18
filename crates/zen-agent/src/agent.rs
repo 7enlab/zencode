@@ -128,6 +128,11 @@ pub struct AgentConfig {
     /// `maxParallelToolCalls`, default 4). At least 1; 1 runs every call sequentially,
     /// restoring the pre-batching behavior.
     pub max_parallel_tool_calls: usize,
+    /// Declared task scope for the definition-of-done guard (roadmap v0.7.0 #9): glob
+    /// patterns (`*`, `**`, `?`) relative to the working directory, e.g. `src/**`. The turn
+    /// guard nudges the model to confirm with the user before mutating files outside it.
+    /// Empty = no declared scope (the CLI seeds it from `/scope` or the first prompt).
+    pub done_scope: Vec<String>,
 }
 
 /// Timeout for a tool call when settings `toolTimeouts` has no entry for it (p0b).
@@ -269,6 +274,7 @@ impl Default for AgentConfig {
             max_output_tokens: None,
             tool_bundle: ToolBundle::All,
             max_parallel_tool_calls: DEFAULT_MAX_PARALLEL_TOOL_CALLS,
+            done_scope: vec![],
         }
     }
 }
@@ -574,6 +580,8 @@ impl Agent {
         let mut stop_continues: usize = 0;
         let plan_mode = self.config.permission_mode == PermissionMode::Plan;
         let mut turn_guard = guard::TurnGuard::default();
+        turn_guard.set_cwd(self.ctx.cwd.lock().unwrap().clone());
+        turn_guard.set_scope(self.config.done_scope.clone());
         let mut finish_gate = finish::FinishGate::default();
         let mut empty_requeries = 0usize;
         // Continue on truncation: consecutive cut-off replies, and the text stitched so far.

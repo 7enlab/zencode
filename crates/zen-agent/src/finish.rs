@@ -98,7 +98,7 @@ impl FinishGate {
         if reminder && !self.reminded && !self.changed_since_command.is_empty() {
             self.reminded = true;
             return Decision::Continue(format!(
-                "[zen: you changed {} file(s) ({}) and have not run any command since. Before finishing, run the project's build/test checks and compare the result with the request. If no check applies, say so in your answer.]",
+                "[zen: you changed {} file(s) ({}) and have not run any command since. Before finishing, run the project's build/test checks (`/done` runs them for you) and compare the result with the request. If no check applies, say so in your answer.]",
                 self.changed_since_command.len(),
                 self.changed_since_command.join(", ")
             ));
