@@ -36,6 +36,12 @@ pub struct ResolvedConfig {
     pub verify: Option<serde_json::Value>,
     /// Settings `retry.maxWaitSecs`: total backoff budget per model request (default 300 s).
     pub retry_max_wait_secs: u64,
+    /// Settings `api.timeoutSecs` / env `ZEN_REQUEST_TIMEOUT`: whole-request timeout in seconds
+    /// (`None` = default 300 s, 900 s for a local endpoint; `0` = off) (P0-2).
+    pub request_timeout_secs: Option<u64>,
+    /// Settings `api.idleTimeoutSecs` / env `ZEN_IDLE_TIMEOUT`: longest silence while reading a
+    /// response, in seconds (`None`/`0` = off) (P0-2).
+    pub idle_timeout_secs: Option<u64>,
     /// Settings `toolTimeouts`: ms per tool name (`"default"` for the rest, 0 = none) (p0b).
     pub tool_timeouts: std::collections::HashMap<String, u64>,
     /// Settings `maxContinuations`: cut-off replies continued in a row (default 3, 0 = off).
@@ -80,12 +86,18 @@ impl ResolvedConfig {
         &self,
         sink: std::sync::Arc<dyn zen_core::EventSink>,
     ) -> std::sync::Arc<dyn zen_core::LlmBackend> {
-        zen_agent::make_backend(
+        zen_agent::make_backend_with(
             self.base_url.clone(),
             self.api_key.clone(),
             sink,
             self.retry_max_wait_secs.saturating_mul(1000),
+            self.http_timeouts(),
         )
+    }
+
+    /// HTTP timeouts for this config's model client (P0-2).
+    pub fn http_timeouts(&self) -> zen_agent::HttpTimeouts {
+        zen_agent::HttpTimeouts::from_secs(&self.base_url, self.request_timeout_secs, self.idle_timeout_secs)
     }
 
     /// Settings for a [`zen_agent::RateGate`] wrapping this config's client.
@@ -143,6 +155,16 @@ pub fn sessions_auto_archive_days(v: Option<&serde_json::Value>) -> u64 {
     v.and_then(|v| v.get("autoArchiveDays"))
         .and_then(|n| n.as_u64())
         .unwrap_or(0)
+}
+
+/// A timeout in seconds: env `env_name` wins over settings `api.<key>`; each must be a
+/// non-negative number (anything else is ignored). `None` = not set (P0-2).
+pub fn api_timeout_secs(api: Option<&serde_json::Value>, key: &str, env: Option<&str>) -> Option<u64> {
+    let num = |v: &serde_json::Value| v.as_u64().or_else(|| v.as_f64().filter(|f| *f >= 0.0).map(|f| f as u64));
+    if let Some(n) = env.and_then(|e| e.trim().parse::<f64>().ok()).filter(|f| *f >= 0.0) {
+        return Some(n as u64);
+    }
+    api.and_then(|a| a.get(key)).and_then(num)
 }
 
 /// Settings `maxParallelToolCalls`: how many tool calls may run concurrently in one parallel
@@ -546,6 +568,16 @@ pub fn resolve_config_with_home(
         auto_commit: merged.auto_commit.unwrap_or(false),
         verify: merged.extra.get("verify").cloned(),
         retry_max_wait_secs: retry_max_wait_secs(merged.extra.get("retry")),
+        request_timeout_secs: api_timeout_secs(
+            merged.extra.get("api"),
+            "timeoutSecs",
+            std::env::var("ZEN_REQUEST_TIMEOUT").ok().as_deref(),
+        ),
+        idle_timeout_secs: api_timeout_secs(
+            merged.extra.get("api"),
+            "idleTimeoutSecs",
+            std::env::var("ZEN_IDLE_TIMEOUT").ok().as_deref(),
+        ),
         tool_timeouts: tool_timeouts(merged.extra.get("toolTimeouts")),
         max_continuations: max_continuations(merged.extra.get("maxContinuations")),
         tool_bundle: tool_bundle(merged.extra.get("toolBundle")),
@@ -901,6 +933,29 @@ mod tests {
         assert_eq!(t.len(), 2);
         assert!(tool_timeouts(None).is_empty());
         assert!(tool_timeouts(Some(&serde_json::json!([1]))).is_empty());
+    }
+
+    #[test]
+    fn p0_2_api_timeouts_parse_env_over_settings() {
+        let api = serde_json::json!({"timeoutSecs": 600, "idleTimeoutSecs": 30});
+        assert_eq!(api_timeout_secs(Some(&api), "timeoutSecs", None), Some(600));
+        assert_eq!(api_timeout_secs(Some(&api), "idleTimeoutSecs", None), Some(30));
+        assert_eq!(api_timeout_secs(Some(&api), "timeoutSecs", Some("45")), Some(45), "env wins");
+        assert_eq!(api_timeout_secs(Some(&api), "timeoutSecs", Some("junk")), Some(600));
+        assert_eq!(api_timeout_secs(Some(&serde_json::json!({"timeoutSecs": 0})), "timeoutSecs", None), Some(0));
+        assert_eq!(api_timeout_secs(Some(&serde_json::json!({"timeoutSecs": -1})), "timeoutSecs", None), None);
+        assert_eq!(api_timeout_secs(None, "timeoutSecs", None), None);
+        // Defaults and 0 = off, through to the client timeouts.
+        let t = zen_agent::HttpTimeouts::from_secs("https://openrouter.ai/api/v1", None, None);
+        assert_eq!(t.request, Some(std::time::Duration::from_secs(300)));
+        assert_eq!(t.idle, None);
+        assert_eq!(t.connect, std::time::Duration::from_secs(10));
+        let local = zen_agent::HttpTimeouts::from_secs("http://localhost:11434/v1", None, Some(0));
+        assert_eq!(local.request, Some(std::time::Duration::from_secs(900)));
+        assert_eq!(local.idle, None);
+        let off = zen_agent::HttpTimeouts::from_secs("https://x.example/v1", Some(0), Some(20));
+        assert_eq!(off.request, None);
+        assert_eq!(off.idle, Some(std::time::Duration::from_secs(20)));
     }
 
     #[test]

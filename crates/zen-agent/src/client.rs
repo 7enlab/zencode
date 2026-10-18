@@ -47,6 +47,141 @@ const MAX_ATTEMPTS: u32 = 6;
 const ERROR_BODY_CHARS: usize = 300;
 /// Default total backoff budget for one `chat` call (settings `retry.maxWaitSecs`).
 pub const DEFAULT_MAX_TOTAL_WAIT_MS: u64 = 300_000;
+/// Default whole-request timeout (settings `api.timeoutSecs`, env `ZEN_REQUEST_TIMEOUT`).
+pub const DEFAULT_REQUEST_TIMEOUT_SECS: u64 = 300;
+/// Default whole-request timeout for a local endpoint (Ollama, llama.cpp): local models on
+/// modest hardware can think for many minutes before the first byte.
+pub const LOCAL_REQUEST_TIMEOUT_SECS: u64 = 900;
+/// TCP/TLS connect timeout, kept short and separate so a dead host fails fast.
+pub const CONNECT_TIMEOUT_SECS: u64 = 10;
+
+/// HTTP timeouts for a model client (roadmap P0-2).
+///
+/// A request that times out is a transient error: it is retried under the same attempt cap
+/// as 5xx, and the time it burned counts against the `retry.maxWaitSecs` budget, so a model
+/// that keeps timing out is not re-sent the whole prompt over and over.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HttpTimeouts {
+    /// Whole request, send to last body byte. `None` = no limit (`api.timeoutSecs: 0`).
+    pub request: Option<Duration>,
+    /// Longest silence while reading (`api.idleTimeoutSecs`, env `ZEN_IDLE_TIMEOUT`). `None`
+    /// (the default) = off. Requests are not streamed, so the wait for the first byte is the
+    /// whole generation; set this only to catch a connection that stalls mid-body.
+    pub idle: Option<Duration>,
+    /// Connect timeout.
+    pub connect: Duration,
+}
+
+impl HttpTimeouts {
+    /// Defaults for `base_url`: 300 s (900 s for a local endpoint), idle off, connect 10 s.
+    pub fn for_url(base_url: &str) -> Self {
+        Self::from_secs(base_url, None, None)
+    }
+
+    /// From settings values in seconds: `None` = default, `Some(0)` = off.
+    pub fn from_secs(base_url: &str, request_secs: Option<u64>, idle_secs: Option<u64>) -> Self {
+        let default = if is_local_url(base_url) || base_url.to_ascii_lowercase().contains("ollama") {
+            LOCAL_REQUEST_TIMEOUT_SECS
+        } else {
+            DEFAULT_REQUEST_TIMEOUT_SECS
+        };
+        let secs = |v: u64| (v > 0).then(|| Duration::from_secs(v));
+        Self {
+            request: secs(request_secs.unwrap_or(default)),
+            idle: idle_secs.and_then(secs),
+            connect: Duration::from_secs(CONNECT_TIMEOUT_SECS),
+        }
+    }
+
+    fn apply(&self, mut b: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
+        b = b.connect_timeout(self.connect);
+        if let Some(t) = self.request {
+            b = b.timeout(t);
+        }
+        if let Some(t) = self.idle {
+            b = b.read_timeout(t);
+        }
+        b
+    }
+
+    /// Human text for a timed-out attempt that ran for `elapsed`.
+    fn describe(&self, elapsed: Duration) -> String {
+        match (self.request, self.idle) {
+            (Some(r), _) if elapsed + Duration::from_millis(50) >= r => {
+                format!("request timed out after {} (settings api.timeoutSecs)", fmt_secs(r))
+            }
+            (_, Some(i)) => format!("no data from the server for {} (settings api.idleTimeoutSecs)", fmt_secs(i)),
+            _ => format!("request timed out after {}", fmt_secs(elapsed)),
+        }
+    }
+}
+
+fn fmt_secs(d: Duration) -> String {
+    if d.as_millis().is_multiple_of(1000) {
+        format!("{} s", d.as_secs())
+    } else {
+        format!("{:.1} s", d.as_secs_f64())
+    }
+}
+
+/// Response headers that carry a provider's request id, in preference order (OpenAI and most
+/// gateways `x-request-id`, Anthropic `request-id`, AWS-fronted gateways `x-amzn-requestid`).
+const REQUEST_ID_HEADERS: [&str; 5] =
+    ["x-request-id", "request-id", "x-amzn-requestid", "x-amz-request-id", "x-correlation-id"];
+
+/// Marker used in error messages; [`request_id_from_error`] reads it back.
+const REQUEST_ID_MARK: &str = "[request id: ";
+
+/// Keep a request id only if it looks like one: short, printable, no spaces or brackets.
+fn clean_request_id(s: &str) -> Option<String> {
+    let s = s.trim();
+    (!s.is_empty()
+        && s.len() <= 128
+        && s.chars().all(|c| c.is_ascii_graphic() && c != '[' && c != ']'))
+    .then(|| s.to_string())
+}
+
+/// The provider's request id for a failed response: a known header, else `request_id` /
+/// `error.request_id` / a top-level string `id` in the JSON error body. Never reads auth headers.
+pub(crate) fn request_id(headers: &reqwest::header::HeaderMap, body: &str) -> Option<String> {
+    for h in REQUEST_ID_HEADERS {
+        if let Some(v) = headers.get(h).and_then(|v| v.to_str().ok()).and_then(clean_request_id) {
+            return Some(v);
+        }
+    }
+    let v: Value = serde_json::from_str(body).ok()?;
+    ["/request_id", "/error/request_id", "/id"]
+        .iter()
+        .find_map(|p| v.pointer(p).and_then(|x| x.as_str()).and_then(clean_request_id))
+}
+
+/// Append ` [request id: X]` to an error message when there is one.
+fn with_request_id(msg: String, id: Option<&str>) -> String {
+    match id {
+        Some(id) => format!("{} {}{}]", msg, REQUEST_ID_MARK, id),
+        None => msg,
+    }
+}
+
+/// The request id carried by an error message built by the model clients, if any (used by the
+/// session event log to store it as its own field).
+pub fn request_id_from_error(msg: &str) -> Option<String> {
+    let start = msg.rfind(REQUEST_ID_MARK)? + REQUEST_ID_MARK.len();
+    let end = msg[start..].find(']')? + start;
+    clean_request_id(&msg[start..end])
+}
+
+/// Build the pooled HTTP client for `base_url` with `timeouts`.
+fn build_http(base_url: &str, timeouts: &HttpTimeouts, user_agent: bool) -> reqwest::Client {
+    let mut builder = timeouts.apply(with_extra_roots(reqwest::Client::builder()));
+    if user_agent {
+        builder = builder.user_agent(safety::user_agent());
+    }
+    if is_local_url(base_url) {
+        builder = builder.no_proxy();
+    }
+    builder.build().unwrap_or_else(|_| reqwest::Client::new())
+}
 
 /// HTTP client for any OpenAI-compatible `/chat/completions` endpoint.
 ///
@@ -70,6 +205,8 @@ pub struct OpenAiClient {
     /// `retry.maxWaitSecs`, default 300 s). Headless runs never hang longer than this on a
     /// rate-limited or flapping gateway. Public for tests and the CLI.
     pub max_total_wait_ms: u64,
+    /// HTTP timeouts in effect; change them with [`OpenAiClient::set_timeouts`].
+    timeouts: HttpTimeouts,
     http: reqwest::Client,
     /// Per-provider request pacer (token bucket + 100 ms floor). `None` disables pacing
     /// (e.g., local models with no provider to anger). Shared across clones.
@@ -124,15 +261,8 @@ impl OpenAiClient {
     /// string is treated as absent. `sink` receives retry events.
     pub fn new(base_url: impl Into<String>, api_key: Option<String>, sink: Arc<dyn EventSink>) -> Self {
         let base_url = base_url.into();
-        let mut builder = with_extra_roots(
-            reqwest::Client::builder()
-                .timeout(Duration::from_secs(120))
-                .user_agent(safety::user_agent()),
-        );
-        if is_local_url(&base_url) {
-            builder = builder.no_proxy();
-        }
-        let http = builder.build().unwrap_or_else(|_| reqwest::Client::new());
+        let timeouts = HttpTimeouts::for_url(&base_url);
+        let http = build_http(&base_url, &timeouts, true);
         // Pacing is skipped for local endpoints (nothing to anger) and enabled
         // otherwise, using conservative per-provider defaults.
         let pacer = RateLimiter::for_provider(&base_url);
@@ -144,11 +274,23 @@ impl OpenAiClient {
             base_retry_delay_ms: 1000,
             max_retry_delay_ms: 60_000,
             max_total_wait_ms: DEFAULT_MAX_TOTAL_WAIT_MS,
+            timeouts,
             http,
             pacer: Arc::new(Mutex::new(pacer)),
             recent_429s: Arc::new(Mutex::new(Vec::new())),
             provider_name,
         }
+    }
+
+    /// Replace the HTTP timeouts (settings `api.timeoutSecs` / `api.idleTimeoutSecs`).
+    pub fn set_timeouts(&mut self, timeouts: HttpTimeouts) {
+        self.http = build_http(&self.base_url, &timeouts, true);
+        self.timeouts = timeouts;
+    }
+
+    /// The HTTP timeouts in effect.
+    pub fn timeouts(&self) -> HttpTimeouts {
+        self.timeouts
     }
 
     /// Override the human-readable provider name used in warnings. Public for tests.
@@ -303,7 +445,19 @@ impl LlmBackend for OpenAiClient {
             }
 
             let rb = self.auth(self.http.post(&url).json(&req));
+            let started = Instant::now();
             let outcome = rb.send().await;
+            // Time a timed-out attempt burned; it counts against the wait budget (P0-2).
+            let mut timed_out_ms: u64 = 0;
+            let mut timeout_text = |e: &reqwest::Error| -> String {
+                let elapsed = started.elapsed();
+                if e.is_timeout() {
+                    timed_out_ms = elapsed.as_millis() as u64;
+                    self.timeouts.describe(elapsed)
+                } else {
+                    format!("network error: {}", e)
+                }
+            };
 
             // Classify the attempt BEFORE deciding to retry. Billing/quota errors
             // are never retried; other 4xx fail fast.
@@ -317,25 +471,27 @@ impl LlmBackend for OpenAiClient {
                     let code = resp.status().as_u16();
                     // Feed live rate-limit headers into the pacer (they override defaults).
                     self.update_pacer_from_headers(resp.headers());
+                    let headers = resp.headers().clone();
                     if resp.status().is_success() {
-                        let body = resp.text().await?;
-                        // A 200 that carries a gateway error, no choices, or an empty message is
-                        // a sampling glitch (gpt-oss Harmony header errors): resample (r7 C3).
-                        match transient_completion(&body) {
-                            Some(why)
-                                if attempt < MAX_ATTEMPTS =>
-                            {
-                                Outcome::Classified(
-                                    ErrorClass::Transient,
-                                    Some(code),
-                                    why,
-                                )
+                        match resp.text().await {
+                            // A body that stalls or times out is retried like any timeout.
+                            Err(e) => Outcome::Classified(ErrorClass::Transient, Some(code), timeout_text(&e)),
+                            Ok(body) => {
+                                // A 200 that carries a gateway error, no choices, or an empty
+                                // message is a sampling glitch (gpt-oss Harmony header errors):
+                                // resample (r7 C3).
+                                match transient_completion(&body) {
+                                    Some(why) if attempt < MAX_ATTEMPTS => Outcome::Classified(
+                                        ErrorClass::Transient,
+                                        Some(code),
+                                        with_request_id(why, request_id(&headers, &body).as_deref()),
+                                    ),
+                                    _ => Outcome::Parsed(parse_completion(&body)),
+                                }
                             }
-                            _ => Outcome::Parsed(parse_completion(&body)),
                         }
                     } else {
-                        let header = resp
-                            .headers()
+                        let header = headers
                             .get(reqwest::header::RETRY_AFTER)
                             .and_then(|v| v.to_str().ok())
                             .map(str::to_string);
@@ -348,16 +504,16 @@ impl LlmBackend for OpenAiClient {
                         Outcome::Classified(
                             class,
                             Some(code),
-                            format!("HTTP {}: {}", code, first_chars(&body, ERROR_BODY_CHARS)),
+                            with_request_id(
+                                format!("HTTP {}: {}", code, first_chars(&body, ERROR_BODY_CHARS)),
+                                request_id(&headers, &body).as_deref(),
+                            ),
                         )
                     }
                 }
-                Err(e) => Outcome::Classified(
-                    ErrorClass::Transient,
-                    None,
-                    format!("network error: {}", e),
-                ),
+                Err(e) => Outcome::Classified(ErrorClass::Transient, None, timeout_text(&e)),
             };
+            waited_ms = waited_ms.saturating_add(timed_out_ms);
 
             let (class, status, err_text) = match outcome {
                 Outcome::Parsed(r) => return r,
@@ -818,6 +974,7 @@ pub struct AnthropicClient {
     pub max_retry_delay_ms: u64,
     /// Total time one `chat` call may spend sleeping between retries. Public for tests/CLI.
     pub max_total_wait_ms: u64,
+    timeouts: HttpTimeouts,
     http: reqwest::Client,
 }
 
@@ -825,12 +982,8 @@ impl AnthropicClient {
     /// Build a client. `api_key` may be `None`; an empty string is treated as absent.
     pub fn new(base_url: impl Into<String>, api_key: Option<String>, sink: Arc<dyn EventSink>) -> Self {
         let base_url = base_url.into();
-        let mut builder =
-            with_extra_roots(reqwest::Client::builder().timeout(Duration::from_secs(120)));
-        if is_local_url(&base_url) {
-            builder = builder.no_proxy();
-        }
-        let http = builder.build().unwrap_or_else(|_| reqwest::Client::new());
+        let timeouts = HttpTimeouts::for_url(&base_url);
+        let http = build_http(&base_url, &timeouts, false);
         Self {
             base_url,
             api_key: api_key.filter(|k| !k.is_empty()),
@@ -838,8 +991,20 @@ impl AnthropicClient {
             base_retry_delay_ms: 1000,
             max_retry_delay_ms: 60_000,
             max_total_wait_ms: DEFAULT_MAX_TOTAL_WAIT_MS,
+            timeouts,
             http,
         }
+    }
+
+    /// Replace the HTTP timeouts (settings `api.timeoutSecs` / `api.idleTimeoutSecs`).
+    pub fn set_timeouts(&mut self, timeouts: HttpTimeouts) {
+        self.http = build_http(&self.base_url, &timeouts, false);
+        self.timeouts = timeouts;
+    }
+
+    /// The HTTP timeouts in effect.
+    pub fn timeouts(&self) -> HttpTimeouts {
+        self.timeouts
     }
 
     fn messages_url(&self) -> String {
@@ -1035,11 +1200,27 @@ impl LlmBackend for AnthropicClient {
             if let Some(key) = &self.api_key {
                 rb = rb.header("x-api-key", key);
             }
+            let started = Instant::now();
             let res = rb.send().await;
+            let mut timed_out_ms: u64 = 0;
+            let mut timeout_text = |e: &reqwest::Error| -> String {
+                let elapsed = started.elapsed();
+                if e.is_timeout() {
+                    timed_out_ms = elapsed.as_millis() as u64;
+                    self.timeouts.describe(elapsed)
+                } else {
+                    format!("network error: {e}")
+                }
+            };
             let (retryable, long, status, err_text): (bool, bool, Option<u16>, String) = match res {
-                Ok(resp) => {
+                Ok(resp) => 'resp: {
                     let code = resp.status().as_u16();
-                    let resp_body = resp.text().await.unwrap_or_default();
+                    let headers = resp.headers().clone();
+                    let resp_body = match resp.text().await {
+                        Ok(b) => b,
+                        Err(e) => break 'resp (true, false, Some(code), timeout_text(&e)),
+                    };
+                    let rid = request_id(&headers, &resp_body);
                     if resp_body.contains("\"type\":\"error\"") || resp_body.contains("\"type\": \"error\"") {
                         // Anthropic-style error object (also on non-2xx).
                         let msg = parse_anthropic_response(&resp_body)
@@ -1047,11 +1228,21 @@ impl LlmBackend for AnthropicClient {
                             .map(|e| e.to_string())
                             .unwrap_or_else(|| first_chars(&resp_body, ERROR_BODY_CHARS));
                         let retryable = matches!(code, 429 | 500 | 502 | 503 | 504 | 529);
-                        (retryable, retryable, Some(code), format!("HTTP {}: {}", code, msg))
+                        (
+                            retryable,
+                            retryable,
+                            Some(code),
+                            with_request_id(format!("HTTP {}: {}", code, msg), rid.as_deref()),
+                        )
                     } else if (200..300).contains(&code) {
                         match parse_anthropic_response(&resp_body) {
                             Ok(parsed) => return Ok(parsed),
-                            Err(e) => (false, false, Some(code), format!("bad anthropic body: {e}")),
+                            Err(e) => (
+                                false,
+                                false,
+                                Some(code),
+                                with_request_id(format!("bad anthropic body: {e}"), rid.as_deref()),
+                            ),
                         }
                     } else {
                         let retryable = matches!(code, 429 | 500 | 502 | 503 | 504 | 529);
@@ -1059,12 +1250,16 @@ impl LlmBackend for AnthropicClient {
                             retryable,
                             retryable,
                             Some(code),
-                            format!("HTTP {}: {}", code, first_chars(&resp_body, ERROR_BODY_CHARS)),
+                            with_request_id(
+                                format!("HTTP {}: {}", code, first_chars(&resp_body, ERROR_BODY_CHARS)),
+                                rid.as_deref(),
+                            ),
                         )
                     }
                 }
-                Err(e) => (true, false, None, format!("network error: {e}")),
+                Err(e) => (true, false, None, timeout_text(&e)),
             };
+            waited_ms = waited_ms.saturating_add(timed_out_ms);
 
             if !retryable {
                 return Err(anyhow::anyhow!(err_text));
@@ -1115,13 +1310,32 @@ pub fn make_backend(
     max_total_wait_ms: u64,
 ) -> Arc<dyn LlmBackend> {
     let base_url = base_url.into();
+    let timeouts = HttpTimeouts::for_url(&base_url);
+    make_backend_with(base_url, api_key, sink, max_total_wait_ms, timeouts)
+}
+
+/// [`make_backend`] with explicit HTTP timeouts (settings `api.timeoutSecs` / `api.idleTimeoutSecs`).
+pub fn make_backend_with(
+    base_url: impl Into<String>,
+    api_key: Option<String>,
+    sink: Arc<dyn EventSink>,
+    max_total_wait_ms: u64,
+    timeouts: HttpTimeouts,
+) -> Arc<dyn LlmBackend> {
+    let base_url = base_url.into();
     if is_anthropic_url(&base_url) {
         let mut c = AnthropicClient::new(base_url, api_key, sink);
         c.max_total_wait_ms = max_total_wait_ms;
+        if c.timeouts != timeouts {
+            c.set_timeouts(timeouts);
+        }
         Arc::new(c)
     } else {
         let mut c = OpenAiClient::new(base_url, api_key, sink);
         c.max_total_wait_ms = max_total_wait_ms;
+        if c.timeouts != timeouts {
+            c.set_timeouts(timeouts);
+        }
         Arc::new(c)
     }
 }

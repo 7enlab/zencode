@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (data safety, P0-1 / P0-2)
+- Write, Edit and MultiEdit write atomically: temp file in the same directory, fsync, rename.
+  A kill or full disk mid-write no longer leaves a truncated file; file mode is kept; a
+  symlink is written through to its target instead of being replaced.
+- Model requests: timeout is configurable with `api.timeoutSecs` / `ZEN_REQUEST_TIMEOUT`
+  (default 300 s, 900 s for local endpoints, `0` = off; was a fixed 120 s), plus an optional
+  idle timeout `api.idleTimeoutSecs` / `ZEN_IDLE_TIMEOUT` and a 10 s connect timeout. Timeouts
+  are retried and the time they take counts against `retry.maxWaitSecs`.
+- Errors from the provider include its request id (`[request id: ...]`, from `x-request-id`,
+  `request-id`, etc.), also stored as `request_id` on `response_error` session records.
+
 ### Fixed
 - `encode_cwd`: also replace `\` and `:` when encoding the project-dir name, so Windows
   paths like `C:\Users\...` become a single flat directory instead of nested dirs.

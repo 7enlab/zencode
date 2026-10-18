@@ -24,6 +24,7 @@
 //! `suggested_rule`, `expand_tilde`, `canonicalize_lenient`.
 //! Everything is clean-room: descriptions and prompts are written from scratch.
 
+pub mod atomic;
 pub mod builtin;
 pub mod edit_match;
 pub mod gitignore;
@@ -32,6 +33,8 @@ pub mod permissions;
 pub mod syntax_guard;
 pub mod tool_docs;
 
+#[cfg(test)]
+mod tests_atomic;
 #[cfg(test)]
 mod tests_p0;
 #[cfg(test)]

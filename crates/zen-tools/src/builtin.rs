@@ -403,13 +403,12 @@ impl Tool for WriteTool {
                 return ToolOutput::err(format!("Error creating directory {}: {}", parent.display(), e));
             }
         }
-        match tokio::fs::write(&path, content).await {
-            Ok(()) => {
+        match crate::atomic::write_atomic_async(path.clone(), content.as_bytes().to_vec()).await {
+            Ok(warning) => {
                 ctx.read_files.lock().unwrap().insert(path.clone(), content_stamp(content.as_bytes()));
-                ToolOutput::ok(format!(
-                    "Wrote {} bytes to {}",
-                    content.len(),
-                    path.display()
+                ToolOutput::ok(with_warning(
+                    format!("Wrote {} bytes to {}", content.len(), path.display()),
+                    warning,
                 ))
             }
             Err(e) => ToolOutput::err(format!("Error writing {}: {}", path.display(), e)),
@@ -464,16 +463,20 @@ impl Tool for EditTool {
             Ok(a) => a,
             Err(e) => return ToolOutput::err(format!("Error: {}", e)),
         };
-        if let Err(e) = save_edit(ctx, &path, &text, &applied.text).await {
-            return e;
-        }
+        let warning = match save_edit(ctx, &path, &text, &applied.text).await {
+            Ok(w) => w,
+            Err(e) => return e,
+        };
         let note = applied.note.map(|n| format!(" ({})", n)).unwrap_or_default();
-        ToolOutput::ok(format!(
-            "Replaced {} occurrence(s) in {}{}\n{}",
-            if replace_all { applied.count } else { 1 },
-            path.display(),
-            note,
-            snippet_around(&applied.text, new)
+        ToolOutput::ok(with_warning(
+            format!(
+                "Replaced {} occurrence(s) in {}{}\n{}",
+                if replace_all { applied.count } else { 1 },
+                path.display(),
+                note,
+                snippet_around(&applied.text, new)
+            ),
+            warning,
         ))
     }
 }
@@ -518,15 +521,25 @@ async fn load_for_edit(ctx: &ToolContext, fp: &str) -> Result<(PathBuf, String),
     Ok((path, text))
 }
 
-async fn save_edit(ctx: &ToolContext, path: &Path, old: &str, text: &str) -> Result<(), ToolOutput> {
+/// Guard, then write atomically (P0-1). `Ok(Some(w))` carries the Windows in-place fallback note.
+async fn save_edit(ctx: &ToolContext, path: &Path, old: &str, text: &str) -> Result<Option<String>, ToolOutput> {
     if let Err(msg) = crate::syntax_guard::guard_write(path, Some(old), text).await {
         return Err(ToolOutput::err(msg));
     }
-    if let Err(e) = tokio::fs::write(path, text).await {
-        return Err(ToolOutput::err(format!("Error writing {}: {}", path.display(), e)));
-    }
+    let warning = match crate::atomic::write_atomic_async(path.to_path_buf(), text.as_bytes().to_vec()).await {
+        Ok(w) => w,
+        Err(e) => return Err(ToolOutput::err(format!("Error writing {}: {}", path.display(), e))),
+    };
     ctx.read_files.lock().unwrap().insert(path.to_path_buf(), content_stamp(text.as_bytes()));
-    Ok(())
+    Ok(warning)
+}
+
+fn with_warning(mut msg: String, warning: Option<String>) -> String {
+    if let Some(w) = warning {
+        msg.push('\n');
+        msg.push_str(&w);
+    }
+    msg
 }
 
 // ───────────────────────────── MultiEdit ─────────────────────────────
@@ -604,16 +617,20 @@ impl Tool for MultiEditTool {
                 }
             }
         }
-        if let Err(e) = save_edit(ctx, &path, &original, &text).await {
-            return e;
-        }
+        let warning = match save_edit(ctx, &path, &original, &text).await {
+            Ok(w) => w,
+            Err(e) => return e,
+        };
         let note = if notes.is_empty() { String::new() } else { format!(" ({})", notes.join("; ")) };
-        ToolOutput::ok(format!(
-            "Applied {} edit(s), {} replacement(s), to {}{}",
-            edits.len(),
-            total,
-            path.display(),
-            note
+        ToolOutput::ok(with_warning(
+            format!(
+                "Applied {} edit(s), {} replacement(s), to {}{}",
+                edits.len(),
+                total,
+                path.display(),
+                note
+            ),
+            warning,
         ))
     }
 }

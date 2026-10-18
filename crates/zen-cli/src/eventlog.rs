@@ -16,7 +16,8 @@
 //! - `{"type":"request","v":1,"seq":N,"timestamp":T,"model":M,"max_tokens":X|null,"tools_hash":H|null,
 //!    "base":S|null,"keep":K,"append":[...],"body_hash":B,"body_bytes":L}`
 //! - `{"type":"response","v":1,"seq":N,"timestamp":T,"response":{"message":..,"usage":..,"finish_reason":..}}`
-//! - `{"type":"response_error","v":1,"seq":N,"timestamp":T,"error":"..."}`
+//! - `{"type":"response_error","v":1,"seq":N,"timestamp":T,"error":"...","request_id":"..."}`
+//!   (`request_id` only when the provider sent one, P0-2)
 //! - `{"type":"turn_assistant","v":1,"timestamp":T,"assistant":{..}}` and
 //!   `{"type":"tool_result","v":1,"timestamp":T,"tool_use_id":I,"content":C,"is_error":E,"final":F}`
 //!   (durable tool results): the main agent's turn as it happens, each tool result the moment it
@@ -147,13 +148,21 @@ impl Recorder {
                 "timestamp": chrono::Utc::now().to_rfc3339(),
                 "response": {"message": r.message, "usage": r.usage, "finish_reason": r.finish_reason},
             }),
-            Err(e) => json!({
-                "type": "response_error",
-                "v": EVENT_LOG_VERSION,
-                "seq": seq,
-                "timestamp": chrono::Utc::now().to_rfc3339(),
-                "error": e.to_string(),
-            }),
+            Err(e) => {
+                let error = e.to_string();
+                let mut rec = json!({
+                    "type": "response_error",
+                    "v": EVENT_LOG_VERSION,
+                    "seq": seq,
+                    "timestamp": chrono::Utc::now().to_rfc3339(),
+                    "error": error,
+                });
+                // The provider's request id, for support tickets (P0-2; add-only field).
+                if let Some(id) = zen_agent::request_id_from_error(&error) {
+                    rec["request_id"] = json!(id);
+                }
+                rec
+            }
         };
         if let Err(e) = crate::session::append_record(&path, &rec) {
             eprintln!("warning: could not record model response in {}: {}", path.display(), e);
@@ -457,6 +466,66 @@ mod tests {
         let d = std::env::temp_dir().join(format!("zen_eventlog_{}_{}", tag, uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&d).unwrap();
         d
+    }
+
+    /// P0-2: a provider request id lands in the session file's `response_error` record, and the
+    /// API key never does.
+    #[tokio::test]
+    async fn p0_2_request_id_is_recorded_in_the_session_and_the_key_is_not() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move {
+            while let Ok((mut sock, _)) = listener.accept().await {
+                let mut buf = vec![0u8; 65536];
+                let mut got = Vec::new();
+                loop {
+                    let n = sock.read(&mut buf).await.unwrap_or(0);
+                    got.extend_from_slice(&buf[..n]);
+                    let txt = String::from_utf8_lossy(&got).to_string();
+                    let done = txt.find("\r\n\r\n").is_some_and(|h| {
+                        let len = txt[..h]
+                            .lines()
+                            .find_map(|l| l.to_ascii_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse::<usize>().unwrap_or(0)))
+                            .unwrap_or(0);
+                        got.len() >= h + 4 + len
+                    });
+                    if done || n == 0 {
+                        break;
+                    }
+                }
+                let body = r#"{"error":{"message":"model not found"}}"#;
+                let resp = format!(
+                    "HTTP/1.1 404 X\r\nContent-Type: application/json\r\nx-request-id: abc\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                let _ = sock.write_all(resp.as_bytes()).await;
+                let _ = sock.shutdown().await;
+            }
+        });
+        let dir = tmp("reqid");
+        let transcript = dir.join("sess.jsonl");
+        let recorder = Recorder::new(transcript.clone());
+        let client: Arc<dyn LlmBackend> = Arc::new(zen_agent::OpenAiClient::new(
+            url,
+            Some("sk-live-TOPSECRET".into()),
+            Arc::new(NullSink),
+        ));
+        let backend = wrap(client, Some(&recorder));
+        let req = ChatRequest { model: "m".into(), messages: vec![ChatMessage::user("hi")], tools: vec![], max_tokens: None };
+        let err = backend.chat(req).await.unwrap_err().to_string();
+        assert!(err.contains("[request id: abc]"), "{err}");
+        let text = std::fs::read_to_string(&transcript).unwrap();
+        let rec: Value = text
+            .lines()
+            .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+            .find(|v| v["type"] == "response_error")
+            .expect("response_error record");
+        assert_eq!(rec["request_id"], "abc");
+        assert!(rec["error"].as_str().unwrap().contains("request id: abc"));
+        assert!(!text.contains("TOPSECRET") && !text.to_ascii_lowercase().contains("authorization"), "{text}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[tokio::test]
