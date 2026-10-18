@@ -1414,3 +1414,190 @@ async fn plan_mode_rejects_hallucinated_mutating_call_by_the_harness() {
     assert_eq!(r.result, "plan done");
     assert_paired(agent.messages());
 }
+
+// ── multi-tool-call batching (v0.4.0) ───────────────────────────────
+
+use std::sync::atomic::Ordering;
+
+/// Four parallel-safe Read calls in one assistant message run concurrently (up to the
+/// configured cap) and their results are recorded in the original call order.
+#[tokio::test]
+async fn parallel_reads_run_concurrently_and_keep_order() {
+    let (tool, max) = ConcurrencyTool::read(100);
+    let llm = MockLlm::new(vec![
+        resp_multi_tool(vec![
+            ("Read", r#"{"p":"a"}"#, "r1"),
+            ("Read", r#"{"p":"b"}"#, "r2"),
+            ("Read", r#"{"p":"c"}"#, "r3"),
+            ("Read", r#"{"p":"d"}"#, "r4"),
+        ]),
+        resp("done"),
+    ]);
+    let reg = registry_with(vec![tool as Arc<dyn Tool>]);
+    let (mut agent, sink, _h) = build_agent(llm.clone(), reg, allow(), base_cfg());
+    let r = agent.run_turn("go").await;
+    assert_eq!(r.result, "done");
+    assert_eq!(r.num_turns, 2);
+    // All four overlapped: with 100 ms per call this only happens concurrently.
+    assert_eq!(max.load(Ordering::SeqCst), 4, "expected all 4 reads to run concurrently");
+    // Results recorded in the original call order…
+    let ids: Vec<&str> = agent
+        .messages()
+        .iter()
+        .filter(|m| m.role == "tool")
+        .filter_map(|m| m.tool_call_id.as_deref())
+        .collect();
+    assert_eq!(ids, vec!["r1", "r2", "r3", "r4"]);
+    // …and all four results reach the model together in the next request.
+    let second = &llm.requests()[1];
+    let tool_msgs: Vec<_> = second.messages.iter().filter(|m| m.role == "tool").collect();
+    assert_eq!(tool_msgs.len(), 4);
+    // Each tool result event is marked as having run in parallel.
+    let events = sink.events.lock().unwrap();
+    let results: Vec<_> = events
+        .iter()
+        .filter_map(|e| match e {
+            AgentEvent::ToolResult { tool_use_id, parallel, .. } => Some((tool_use_id.clone(), *parallel)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(results.len(), 4);
+    assert!(results.iter().all(|(_, p)| *p), "all four ran in a parallel batch: {results:?}");
+    assert_paired(agent.messages());
+}
+
+/// `max_parallel_tool_calls` caps how many tool futures are in flight at once.
+#[tokio::test]
+async fn max_parallel_tool_calls_caps_concurrency() {
+    let (tool, max) = ConcurrencyTool::read(80);
+    let llm = MockLlm::new(vec![
+        resp_multi_tool(vec![
+            ("Read", r#"{"p":"a"}"#, "r1"),
+            ("Read", r#"{"p":"b"}"#, "r2"),
+            ("Read", r#"{"p":"c"}"#, "r3"),
+            ("Read", r#"{"p":"d"}"#, "r4"),
+        ]),
+        resp("done"),
+    ]);
+    let reg = registry_with(vec![tool as Arc<dyn Tool>]);
+    let cfg = AgentConfig { max_parallel_tool_calls: 2, ..base_cfg() };
+    let (mut agent, _sink, _h) = build_agent(llm.clone(), reg, allow(), cfg);
+    let r = agent.run_turn("go").await;
+    assert_eq!(r.result, "done");
+    let observed = max.load(Ordering::SeqCst);
+    assert!(observed <= 2, "cap of 2 exceeded: observed {observed}");
+    assert!(observed >= 2, "expected some overlap with cap 2, observed {observed}");
+    let ids: Vec<&str> = agent
+        .messages()
+        .iter()
+        .filter(|m| m.role == "tool")
+        .filter_map(|m| m.tool_call_id.as_deref())
+        .collect();
+    assert_eq!(ids, vec!["r1", "r2", "r3", "r4"]);
+    assert_paired(agent.messages());
+}
+
+/// `max_parallel_tool_calls = 1` restores fully sequential execution (the old behavior).
+#[tokio::test]
+async fn max_parallel_tool_calls_one_is_sequential() {
+    let (tool, max) = ConcurrencyTool::read(50);
+    let llm = MockLlm::new(vec![
+        resp_multi_tool(vec![
+            ("Read", r#"{"p":"a"}"#, "r1"),
+            ("Read", r#"{"p":"b"}"#, "r2"),
+            ("Read", r#"{"p":"c"}"#, "r3"),
+        ]),
+        resp("done"),
+    ]);
+    let reg = registry_with(vec![tool as Arc<dyn Tool>]);
+    let cfg = AgentConfig { max_parallel_tool_calls: 1, ..base_cfg() };
+    let (mut agent, sink, _h) = build_agent(llm.clone(), reg, allow(), cfg);
+    let r = agent.run_turn("go").await;
+    assert_eq!(r.result, "done");
+    assert_eq!(max.load(Ordering::SeqCst), 1, "calls must not overlap with cap 1");
+    let events = sink.events.lock().unwrap();
+    assert!(events.iter().filter_map(|e| match e {
+        AgentEvent::ToolResult { parallel, .. } => Some(*parallel),
+        _ => None,
+    }).all(|p| !p));
+    assert_paired(agent.messages());
+}
+
+/// An error in one parallel call does not block the others; every result is recorded.
+#[tokio::test]
+async fn error_in_one_parallel_call_does_not_block_others() {
+    let (reads, _max) = ConcurrencyTool::read(50);
+    let failing = Arc::new(FakeTool {
+        name: "Glob",
+        read_only: true,
+        output: ToolOutput::err("boom"),
+    });
+    let llm = MockLlm::new(vec![
+        resp_multi_tool(vec![
+            ("Read", r#"{"p":"a"}"#, "r1"),
+            ("Glob", r#"{"p":"*"}"#, "g1"),
+            ("Read", r#"{"p":"b"}"#, "r2"),
+        ]),
+        resp("done"),
+    ]);
+    let reg = registry_with(vec![reads as Arc<dyn Tool>, failing as Arc<dyn Tool>]);
+    let (mut agent, _sink, _h) = build_agent(llm.clone(), reg, allow(), base_cfg());
+    let r = agent.run_turn("go").await;
+    assert_eq!(r.result, "done");
+    let tool_msgs: Vec<(&str, &str)> = agent
+        .messages()
+        .iter()
+        .filter(|m| m.role == "tool")
+        .map(|m| (m.tool_call_id.as_deref().unwrap(), m.content.as_deref().unwrap()))
+        .collect();
+    assert_eq!(tool_msgs.len(), 3);
+    assert_eq!(tool_msgs[0].0, "r1");
+    assert_eq!(tool_msgs[1].0, "g1");
+    assert!(tool_msgs[1].1.contains("boom"));
+    assert_eq!(tool_msgs[2].0, "r2");
+    assert_paired(agent.messages());
+}
+
+/// A mutating call (Write) flushes the parallel batch and runs alone: sequential when
+/// uncertain, so dependent calls can never race.
+#[tokio::test]
+async fn write_flushes_parallel_batch_and_runs_alone() {
+    let (reads, max) = ConcurrencyTool::read(50);
+    let write = Arc::new(FakeTool { name: "Write", read_only: false, output: ToolOutput::ok("wrote") });
+    let llm = MockLlm::new(vec![
+        resp_multi_tool(vec![
+            ("Read", r#"{"p":"a"}"#, "r1"),
+            ("Read", r#"{"p":"b"}"#, "r2"),
+            ("Write", r#"{"p":"c"}"#, "w1"),
+            ("Read", r#"{"p":"d"}"#, "r3"),
+        ]),
+        resp("done"),
+    ]);
+    let reg = registry_with(vec![reads as Arc<dyn Tool>, write as Arc<dyn Tool>]);
+    let (mut agent, sink, _h) = build_agent(llm.clone(), reg, allow(), base_cfg());
+    let r = agent.run_turn("go").await;
+    assert_eq!(r.result, "done");
+    // The two reads before the write may overlap with each other, but the write itself
+    // never overlaps with anything: max 2, and results stay in call order.
+    assert!(max.load(Ordering::SeqCst) <= 2);
+    let ids: Vec<&str> = agent
+        .messages()
+        .iter()
+        .filter(|m| m.role == "tool")
+        .filter_map(|m| m.tool_call_id.as_deref())
+        .collect();
+    assert_eq!(ids, vec!["r1", "r2", "w1", "r3"]);
+    let events = sink.events.lock().unwrap();
+    let by_id: std::collections::HashMap<String, bool> = events
+        .iter()
+        .filter_map(|e| match e {
+            AgentEvent::ToolResult { tool_use_id, parallel, .. } => {
+                Some((tool_use_id.clone(), *parallel))
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(by_id.get("w1"), Some(&false), "the write must not be marked parallel");
+    assert_eq!(by_id.get("r3"), Some(&false), "a lone call is not parallel");
+    assert_paired(agent.messages());
+}

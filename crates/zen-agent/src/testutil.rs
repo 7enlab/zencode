@@ -85,6 +85,71 @@ pub fn resp_tool(name: &str, args: &str, id: &str) -> ChatResponse {
     }
 }
 
+/// A tool-call completion with several tool calls in one assistant message
+/// (multi-tool-call turn). Each entry is (tool name, arguments JSON, call id).
+pub fn resp_multi_tool(calls: Vec<(&str, &str, &str)>) -> ChatResponse {
+    let tool_calls = calls
+        .into_iter()
+        .map(|(name, args, id)| ToolCall {
+            id: id.into(),
+            call_type: "function".into(),
+            function: FunctionCall { name: name.into(), arguments: args.into() },
+        })
+        .collect();
+    ChatResponse {
+        message: ChatMessage::assistant(None, Some(tool_calls)),
+        usage: Usage { prompt_tokens: 20, completion_tokens: 8, total_tokens: 28, ..Default::default() },
+        finish_reason: Some("tool_calls".into()),
+    }
+}
+
+/// A read-only fake tool that records how many of its calls overlap in time, for
+/// parallel-batching tests. Register it under a parallel-safe name ("Read", "Glob", "Grep"
+/// or "LS") so the agent treats it as batchable.
+pub struct ConcurrencyTool {
+    pub name: &'static str,
+    pub delay: std::time::Duration,
+    pub current: Arc<std::sync::atomic::AtomicUsize>,
+    pub max: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+impl ConcurrencyTool {
+    pub fn read(delay_ms: u64) -> (Arc<Self>, Arc<std::sync::atomic::AtomicUsize>) {
+        let max = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let tool = Arc::new(Self {
+            name: "Read",
+            delay: std::time::Duration::from_millis(delay_ms),
+            current: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            max: max.clone(),
+        });
+        (tool, max)
+    }
+}
+
+#[async_trait::async_trait]
+impl Tool for ConcurrencyTool {
+    fn name(&self) -> &str {
+        self.name
+    }
+    fn description(&self) -> &str {
+        "concurrency-tracking fake tool for tests"
+    }
+    fn parameters_schema(&self) -> Value {
+        json!({ "type": "object" })
+    }
+    fn is_read_only(&self) -> bool {
+        true
+    }
+    async fn call(&self, _args: Value, _ctx: &ToolContext) -> ToolOutput {
+        use std::sync::atomic::Ordering;
+        let c = self.current.fetch_add(1, Ordering::SeqCst) + 1;
+        self.max.fetch_max(c, Ordering::SeqCst);
+        tokio::time::sleep(self.delay).await;
+        self.current.fetch_sub(1, Ordering::SeqCst);
+        ToolOutput::ok("read-ok")
+    }
+}
+
 /// A tool that returns a canned [`ToolOutput`] and reports its read-only-ness.
 pub struct FakeTool {
     pub name: &'static str,

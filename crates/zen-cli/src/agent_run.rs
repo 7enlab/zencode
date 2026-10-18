@@ -535,6 +535,7 @@ pub fn base_agent_config(cfg: &ResolvedConfig, cli: &Cli, system_prompt: &str) -
             ..zen_agent::prune::PruneConfig::default()
         },
         tool_bundle: resolve_tool_bundle(cli, cfg),
+        max_parallel_tool_calls: cfg.max_parallel_tool_calls,
         ..Default::default()
     };
     apply_verify_settings(&mut config, cfg, false);

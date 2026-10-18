@@ -86,9 +86,12 @@ One per tool result. The user's own prompt is not echoed.
 | `uuid` | string | |
 | `session_id` | string | |
 | `parent_tool_use_id` | string \| null | `Task` call id for results inside a sub-agent, else `null` |
-| `message` | object | `{role: "user", content: [{type: "tool_result", tool_use_id, content, is_error}]}` |
+| `message` | object | `{role: "user", content: [{type: "tool_result", tool_use_id, content, is_error, parallel}]}` |
 
-`content` is the text the model sees (string). A permission denial also produces a `user` record
+`content` is the text the model sees (string). `parallel` is `true` when the call actually
+executed concurrently with another call of the same turn (multi-tool-call batching, capped by
+settings `maxParallelToolCalls`, default 4); `false` for calls that ran alone. A permission
+denial also produces a `user` record
 with `is_error: true` for the same `tool_use_id`, after the `permission_denied` record. The
 `Task` tool's own result (the sub-agent's final answer) has `parent_tool_use_id: null`; only the
 sub-agent's inner messages carry the parent id.

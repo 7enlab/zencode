@@ -124,10 +124,18 @@ pub struct AgentConfig {
     /// Fixed for the whole session (never recomposed per request) so provider
     /// prompt caches stay valid. Default: All (current behavior).
     pub tool_bundle: ToolBundle,
+    /// Max tool calls executed concurrently within one parallel batch (settings
+    /// `maxParallelToolCalls`, default 4). At least 1; 1 runs every call sequentially,
+    /// restoring the pre-batching behavior.
+    pub max_parallel_tool_calls: usize,
 }
 
 /// Timeout for a tool call when settings `toolTimeouts` has no entry for it (p0b).
 pub const DEFAULT_TOOL_TIMEOUT_MS: u64 = 300_000;
+
+/// Default for settings `maxParallelToolCalls`: at most this many tool calls run concurrently
+/// in one parallel batch.
+pub const DEFAULT_MAX_PARALLEL_TOOL_CALLS: usize = 4;
 
 impl AgentConfig {
     /// The timeout the agent enforces around one call of `tool` (None = none).
@@ -260,6 +268,7 @@ impl Default for AgentConfig {
             prune: PruneConfig::default(),
             max_output_tokens: None,
             tool_bundle: ToolBundle::All,
+            max_parallel_tool_calls: DEFAULT_MAX_PARALLEL_TOOL_CALLS,
         }
     }
 }
@@ -459,12 +468,13 @@ impl Agent {
     }
 
     /// Emit a tool result event and return the textual content (for logging).
-    fn emit_tool_result(&self, tool_use_id: &str, content: &str, is_error: bool) {
+    fn emit_tool_result(&self, tool_use_id: &str, content: &str, is_error: bool, parallel: bool) {
         self.sink.emit(AgentEvent::ToolResult {
             tool_use_id: tool_use_id.to_string(),
             content: content.to_string(),
             is_error,
             parent_tool_use_id: self.parent_tool_use_id.clone(),
+            parallel,
         });
     }
 
@@ -1103,7 +1113,9 @@ impl Agent {
 
     /// Run the prepared calls of one batch and record every result in order. With more than
     /// one runnable call they execute concurrently (only parallel-safe read-only calls are ever
-    /// batched together). A PostToolUse stop skips the results of the calls after it.
+    /// batched together), capped at `config.max_parallel_tool_calls` in flight at once
+    /// (settings `maxParallelToolCalls`, default 4; 1 runs them one at a time). A PostToolUse
+    /// stop skips the results of the calls after it.
     async fn flush_calls(
         &mut self,
         slots: Vec<Slot>,
@@ -1116,40 +1128,55 @@ impl Agent {
             return;
         }
         let runnable = slots.iter().filter(|s| matches!(s, Slot::Run(_))).count();
-        let mut outs: Vec<Option<ToolOutput>> = Vec::with_capacity(slots.len());
+        let mut outs: Vec<Option<ToolOutput>> = (0..slots.len()).map(|_| None).collect();
+        // True per slot when the call actually overlapped with another call in its chunk.
+        let mut ran_parallel = vec![false; slots.len()];
         if runnable > 1 {
-            let mut handles = Vec::with_capacity(slots.len());
-            for s in &slots {
-                handles.push(match s {
-                    Slot::Run(p) => {
-                        let tool = p.tool.clone();
-                        let args = p.args.clone();
-                        let ctx = self.call_ctx(&p.tool_use_id, &p.tool_name);
-                        let timeout = self.config.tool_timeout_with_source(&p.tool_name);
-                        let journal = self.journal.clone();
-                        let id = p.tool_use_id.clone();
-                        let sink = self.sink.clone();
-                        let tool_name = p.tool_name.clone();
-                        Some(tokio::spawn(async move {
+            // Indices of the runnable slots, processed in chunks of at most `limit` so no
+            // more than `limit` tool futures are in flight at once. Each chunk's results
+            // land at their original slot index, so recording order never changes.
+            let limit = self.config.max_parallel_tool_calls.max(1);
+            let run_idx: Vec<usize> = slots
+                .iter()
+                .enumerate()
+                .filter(|(_, s)| matches!(s, Slot::Run(_)))
+                .map(|(i, _)| i)
+                .collect();
+            for chunk in run_idx.chunks(limit) {
+                let mut handles = Vec::with_capacity(chunk.len());
+                for &i in chunk {
+                    let Slot::Run(p) = &slots[i] else { continue };
+                    let tool = p.tool.clone();
+                    let args = p.args.clone();
+                    let ctx = self.call_ctx(&p.tool_use_id, &p.tool_name);
+                    let timeout = self.config.tool_timeout_with_source(&p.tool_name);
+                    let journal = self.journal.clone();
+                    let id = p.tool_use_id.clone();
+                    let sink = self.sink.clone();
+                    let tool_name = p.tool_name.clone();
+                    handles.push((
+                        i,
+                        tokio::spawn(async move {
                             let out = run_tool_with_heartbeat(tool, args, ctx, timeout, sink, id.clone(), tool_name, TOOL_PROGRESS_INTERVAL).await;
                             // Durable the moment this call finishes, not when the batch does.
                             if let Some(j) = journal {
                                 j.tool_result(&id, &out.content, out.is_error, false);
                             }
                             out
-                        }))
+                        }),
+                    ));
+                }
+                if chunk.len() > 1 {
+                    for &i in chunk {
+                        ran_parallel[i] = true;
                     }
-                    _ => None,
-                });
-            }
-            for h in handles {
-                outs.push(match h {
-                    Some(h) => Some(
+                }
+                for (i, h) in handles {
+                    outs[i] = Some(
                         h.await
                             .unwrap_or_else(|e| ToolOutput::err(format!("tool task failed: {}", e))),
-                    ),
-                    None => None,
-                });
+                    );
+                }
             }
         }
         let mut skip = false;
@@ -1157,22 +1184,25 @@ impl Agent {
             match slot {
                 Slot::Done(id, content, is_error) => {
                     self.journal_result(&id, &content, is_error, true);
-                    self.emit_tool_result(&id, &content, is_error);
+                    self.emit_tool_result(&id, &content, is_error, false);
                     self.messages.push(ChatMessage::tool(id, content));
                 }
                 Slot::Stop(id, content, _) => {
                     self.journal_result(&id, &content, true, true);
-                    self.emit_tool_result(&id, &content, true);
+                    self.emit_tool_result(&id, &content, true, false);
                     self.messages.push(ChatMessage::tool(id, content));
                 }
-                Slot::Run(p) => {
+                Slot::Run(mut p) => {
                     if skip {
                         let content = "[tool call skipped: run stopping]".to_string();
                         self.journal_result(&p.tool_use_id, &content, false, true);
-                        self.emit_tool_result(&p.tool_use_id, &content, false);
+                        self.emit_tool_result(&p.tool_use_id, &content, false, false);
                         self.messages.push(ChatMessage::tool(p.tool_use_id, content));
                         continue;
                     }
+                    // The stream-json `parallel` flag reports actual overlap, not mere
+                    // eligibility: a lone parallel-safe call (or cap 1) ran sequentially.
+                    p.parallel = ran_parallel[i];
                     let out = match outs.get_mut(i).and_then(Option::take) {
                         Some(o) => o,
                         None => {
@@ -1212,7 +1242,7 @@ impl Agent {
         turn_guard: &mut guard::TurnGuard,
         final_text: &str,
     ) -> Option<String> {
-        let PendingCall { tool_use_id, tool_name, args, repair_notes, .. } = p;
+        let PendingCall { tool_use_id, tool_name, args, repair_notes, parallel, .. } = p;
         // The raw output is already journaled; journal again only if the model will see more.
         let raw = (self.journal.is_some()).then(|| out.content.clone());
         // 4. PostToolUse (or PostToolUseFailure when the tool reported an error).
@@ -1283,7 +1313,7 @@ impl Agent {
                 self.prune_stats.capped_tokens += saved;
             }
         }
-        self.emit_tool_result(&tool_use_id, &out.content, out.is_error);
+        self.emit_tool_result(&tool_use_id, &out.content, out.is_error, parallel);
         self.messages.push(ChatMessage::tool(tool_use_id, out.content));
         if post.stop_run {
             Some(post.stop_reason.unwrap_or_else(|| final_text.to_string()))
@@ -1401,8 +1431,14 @@ impl Agent {
     }
 }
 
-/// Tools whose read-only calls may run concurrently within one assistant message (perf p0).
-/// Anything not listed (Bash, edits, Task, MCP, TodoWrite, Skill) runs alone, in order.
+/// Dependency heuristic for multi-tool-call batching (v0.4.0).
+///
+/// A call may run concurrently with the rest of its batch only when it is provably
+/// side-effect free: read-only (`Tool::is_read_only`) AND one of these tools, whose outputs
+/// never depend on another call's side effects and never mutate shared state.
+/// Everything else (Bash, Write/Edit/MultiEdit, Task, MCP tools, TodoWrite, WebFetch, …)
+/// flushes the current batch and runs alone, in order — sequential when uncertain, so a call
+/// whose input feeds on another call's output can never race it.
 pub(crate) fn is_parallel_safe(tool_name: &str) -> bool {
     matches!(tool_name, "Read" | "Glob" | "Grep" | "LS")
 }

@@ -42,6 +42,9 @@ pub struct ResolvedConfig {
     pub tool_bundle: zen_agent::ToolBundle,
     /// Settings `sessions.autoArchiveDays`: auto-archive sessions older than N days (0 = off).
     pub auto_archive_days: u64,
+    /// Settings `maxParallelToolCalls`: max tool calls run concurrently in one parallel batch
+    /// (default 4; 1 = fully sequential).
+    pub max_parallel_tool_calls: usize,
     pub max_turns: usize,
     /// Config `maxBudgetUsd`: session spend cap in USD (flag/env take precedence).
     pub max_budget_usd: Option<f64>,
@@ -138,6 +141,16 @@ pub fn sessions_auto_archive_days(v: Option<&serde_json::Value>) -> u64 {
     v.and_then(|v| v.get("autoArchiveDays"))
         .and_then(|n| n.as_u64())
         .unwrap_or(0)
+}
+
+/// Settings `maxParallelToolCalls`: how many tool calls may run concurrently in one parallel
+/// batch. A non-negative integer; anything else → the default
+/// ([`zen_agent::DEFAULT_MAX_PARALLEL_TOOL_CALLS`]). Clamped to at least 1, so 0 (or a
+/// missing/invalid value) never means "unlimited" — 1 runs every call sequentially.
+pub fn max_parallel_tool_calls(v: Option<&serde_json::Value>) -> usize {
+    v.and_then(|v| v.as_u64())
+        .map_or(zen_agent::DEFAULT_MAX_PARALLEL_TOOL_CALLS, |n| n as usize)
+        .max(1)
 }
 
 /// Default for settings `retry.maxWaitSecs`.
@@ -531,6 +544,7 @@ pub fn resolve_config_with_home(
         max_continuations: max_continuations(merged.extra.get("maxContinuations")),
         tool_bundle: tool_bundle(merged.extra.get("toolBundle")),
         auto_archive_days: sessions_auto_archive_days(merged.extra.get("sessions")),
+        max_parallel_tool_calls: max_parallel_tool_calls(merged.extra.get("maxParallelToolCalls")),
         max_turns,
         max_budget_usd: merged.extra.get("maxBudgetUsd").and_then(|v| v.as_f64()),
         budget_warn_at: merged.extra.get("budgetWarnAt").and_then(|v| v.as_f64()),
@@ -860,6 +874,17 @@ mod tests {
         assert_eq!(max_continuations(Some(&serde_json::json!(5))), 5);
         assert_eq!(max_continuations(Some(&serde_json::json!(-1))), zen_agent::DEFAULT_MAX_CONTINUATIONS);
         assert_eq!(max_continuations(Some(&serde_json::json!("x"))), zen_agent::DEFAULT_MAX_CONTINUATIONS);
+    }
+
+    #[test]
+    fn max_parallel_tool_calls_parse() {
+        assert_eq!(max_parallel_tool_calls(None), zen_agent::DEFAULT_MAX_PARALLEL_TOOL_CALLS);
+        assert_eq!(max_parallel_tool_calls(Some(&serde_json::json!(8))), 8);
+        // 0 clamps to 1 (sequential), never "unlimited".
+        assert_eq!(max_parallel_tool_calls(Some(&serde_json::json!(0))), 1);
+        assert_eq!(max_parallel_tool_calls(Some(&serde_json::json!(1))), 1);
+        assert_eq!(max_parallel_tool_calls(Some(&serde_json::json!(-1))), zen_agent::DEFAULT_MAX_PARALLEL_TOOL_CALLS);
+        assert_eq!(max_parallel_tool_calls(Some(&serde_json::json!("x"))), zen_agent::DEFAULT_MAX_PARALLEL_TOOL_CALLS);
     }
 
     #[test]

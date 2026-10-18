@@ -666,6 +666,7 @@ mod tests {
             content: "Error: no match".into(),
             is_error: true,
             parent_tool_use_id: None,
+            parallel: false,
         });
         // Failed Read -> does not count as edit failure.
         sink.emit(AgentEvent::ToolResult {
@@ -673,6 +674,7 @@ mod tests {
             content: "Error: not found".into(),
             is_error: true,
             parent_tool_use_id: None,
+            parallel: false,
         });
         // Successful Write -> does not count.
         sink.emit(assistant_event("w1", "Write"));
@@ -681,6 +683,7 @@ mod tests {
             content: "ok".into(),
             is_error: false,
             parent_tool_use_id: None,
+            parallel: false,
         });
         let (_, _, edit_failures) = sink.snapshot();
         assert_eq!(edit_failures, 1);

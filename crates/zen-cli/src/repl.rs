@@ -1121,6 +1121,7 @@ fn build_repl_config(
         tool_timeouts: cfg.tool_timeouts.clone(),
         max_continuations: cfg.max_continuations,
         tool_bundle: crate::agent_run::resolve_tool_bundle(cli, cfg),
+        max_parallel_tool_calls: cfg.max_parallel_tool_calls,
         ..Default::default()
     };
     if let Some(w) = cfg.context_window {

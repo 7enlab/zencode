@@ -437,8 +437,10 @@ impl HookRunner for NoHooks {
 pub enum AgentEvent {
     /// Assistant message (text and/or tool calls). parent = Task tool_call id for sub-agents.
     Assistant { message: ChatMessage, parent_tool_use_id: Option<String> },
-    /// One tool result.
-    ToolResult { tool_use_id: String, content: String, is_error: bool, parent_tool_use_id: Option<String> },
+    /// One tool result. `parallel` is true when the call actually executed concurrently with
+    /// another call of the same turn (multi-tool-call batching); additive for stream-json
+    /// consumers.
+    ToolResult { tool_use_id: String, content: String, is_error: bool, parent_tool_use_id: Option<String>, parallel: bool },
     /// Partial assistant text delta (when streaming is on).
     TextDelta { text: String },
     /// Periodic heartbeat while a tool call runs (issue #21). Emitted every few

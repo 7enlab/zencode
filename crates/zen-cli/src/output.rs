@@ -293,7 +293,7 @@ impl zen_core::EventSink for StreamJsonSink {
                     "parent_tool_use_id": serde_json::to_value(&parent_tool_use_id).unwrap_or(serde_json::Value::Null),
                 }));
             }
-            AgentEvent::ToolResult { tool_use_id, content, is_error, parent_tool_use_id } => {
+            AgentEvent::ToolResult { tool_use_id, content, is_error, parent_tool_use_id, parallel } => {
                 let uuid = uuid::Uuid::new_v4();
                 self.emit_line(serde_json::json!({
                     "type": "user",
@@ -305,6 +305,7 @@ impl zen_core::EventSink for StreamJsonSink {
                             "tool_use_id": tool_use_id,
                             "content": content,
                             "is_error": is_error,
+                            "parallel": parallel,
                         }]
                     },
                     "session_id": self.session_id,
@@ -522,6 +523,7 @@ mod tests {
             content: "file contents here".into(),
             is_error: false,
             parent_tool_use_id: None,
+            parallel: false,
         });
         let out = buf.text();
         let lines: Vec<&str> = out.lines().filter(|l| !l.trim().is_empty()).collect();
@@ -533,6 +535,7 @@ mod tests {
         assert_eq!(u["message"]["content"][0]["tool_use_id"], "call_1");
         assert_eq!(u["message"]["content"][0]["content"], "file contents here");
         assert_eq!(u["message"]["content"][0]["is_error"], false);
+        assert_eq!(u["message"]["content"][0]["parallel"], false);
     }
 
     #[test]
@@ -691,6 +694,7 @@ mod tests {
             content: "out".into(),
             is_error: false,
             parent_tool_use_id: None,
+            parallel: false,
         });
         sink.emit(AgentEvent::ToolProgress {
             tool_use_id: "call_1".into(),
