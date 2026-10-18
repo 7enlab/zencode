@@ -17,6 +17,7 @@ pub mod models;
 pub mod mentions;
 pub mod output;
 pub mod planmode;
+pub mod prompt_budget;
 pub mod repl;
 pub mod safety;
 pub mod repl_polish;
