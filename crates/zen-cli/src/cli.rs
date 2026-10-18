@@ -180,6 +180,12 @@ pub struct Cli {
     #[arg(long = "no-session-persistence")]
     pub no_session_persistence: bool,
 
+    /// Ephemeral mode: no session persistence at all. No transcript, no session
+    /// directory, nothing session-related is written under ~/.zen; everything
+    /// stays in memory and is discarded on exit. Implies `--no-session-persistence`.
+    #[arg(long)]
+    pub ephemeral: bool,
+
     /// Override model
     #[arg(long = "model")]
     pub model: Option<String>,
@@ -689,6 +695,15 @@ mod tests {
         let cli = parse(&["--no-prune", "--prune"]);
         assert!(cli.prune);
         assert!(!cli.no_prune);
+    }
+
+    #[test]
+    fn parse_ephemeral() {
+        let cli = parse(&["--ephemeral"]);
+        assert!(cli.ephemeral);
+        // Off by default.
+        let cli = parse(&[]);
+        assert!(!cli.ephemeral);
     }
 
     #[test]

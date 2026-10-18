@@ -223,7 +223,8 @@ pub fn load_history(path: &Path) -> Result<Vec<zen_core::ChatMessage>> {
 ///   text) is written first, followed by every message after it. [`load_messages`] then resumes
 ///   from that boundary.
 pub struct TranscriptWriter {
-    pub path: PathBuf,
+    /// Transcript file path, or `None` in ephemeral mode (nothing is written).
+    pub path: Option<PathBuf>,
     pub session_id: String,
     pub cwd: String,
     last_uuid: Option<String>,
@@ -237,7 +238,19 @@ impl TranscriptWriter {
     /// A writer for `path`; the parent chain starts empty.
     pub fn new(path: PathBuf, session_id: &str, cwd: &Path) -> Self {
         Self {
-            path,
+            path: Some(path),
+            session_id: session_id.to_string(),
+            cwd: cwd.display().to_string(),
+            last_uuid: None,
+            file: None,
+        }
+    }
+
+    /// An ephemeral writer: records are accepted but never touch disk.
+    /// Used with `--ephemeral`; `path` is `None` and every append is a no-op.
+    pub fn ephemeral(session_id: &str, cwd: &Path) -> Self {
+        Self {
+            path: None,
             session_id: session_id.to_string(),
             cwd: cwd.display().to_string(),
             last_uuid: None,
@@ -246,13 +259,17 @@ impl TranscriptWriter {
     }
 
     /// Append one JSON line through the kept-open handle and flush it.
+    /// In ephemeral mode (`path` is `None`) this is a no-op.
     fn append_line(&mut self, record: &Value) -> Result<()> {
         use std::io::Write;
+        let Some(path) = self.path.as_ref() else {
+            return Ok(());
+        };
         if self.file.is_none() {
-            if let Some(parent) = self.path.parent() {
+            if let Some(parent) = path.parent() {
                 std::fs::create_dir_all(parent)?;
             }
-            let f = std::fs::OpenOptions::new().create(true).append(true).open(&self.path)?;
+            let f = std::fs::OpenOptions::new().create(true).append(true).open(path)?;
             self.file = Some(std::io::BufWriter::new(f));
         }
         let line = serde_json::to_string(record)?;
@@ -437,6 +454,28 @@ mod tests {
     fn p0b_1_session_scratch_dir_sits_next_to_the_transcript() {
         let t = Path::new("/h/.zen/projects/-p/abc-123.jsonl");
         assert_eq!(session_scratch_dir(t), PathBuf::from("/h/.zen/projects/-p/abc-123"));
+    }
+
+    #[test]
+    fn ephemeral_writer_writes_nothing() {
+        let dir = std::env::temp_dir().join(format!("zen_eph_w_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let ghost = dir.join(".zen").join("projects").join("x").join("s.jsonl");
+        let mut w = TranscriptWriter::ephemeral("s", &dir);
+        assert!(w.path.is_none());
+        // persist_turn / write must be silent no-ops, creating no files or dirs.
+        w.persist_turn(&[], &[zen_core::ChatMessage {
+            role: "user".into(),
+            content: Some("hello".into()),
+            name: None,
+            tool_calls: None,
+            tool_call_id: None,
+        }])
+        .unwrap();
+        assert!(!ghost.exists());
+        assert!(!dir.join(".zen").exists());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

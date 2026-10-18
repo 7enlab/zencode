@@ -27,15 +27,23 @@ pub async fn run_repl(cli: &Cli, cwd: &Path, home: Option<&Path>) -> Result<()> 
         .session_id
         .clone()
         .unwrap_or_else(crate::session::new_session_id);
-    let proj_dir = crate::session::ensure_session_dir(
-        home.unwrap_or(&std::env::temp_dir()),
-        cwd,
-        &session_id,
-    )?;
-    let transcript_path = crate::session::session_path(&proj_dir, &session_id);
+    // `--ephemeral`: no session directory, no transcript file — everything stays in memory.
+    let transcript_path: Option<std::path::PathBuf> = if cli.ephemeral {
+        None
+    } else {
+        let proj_dir = crate::session::ensure_session_dir(
+            home.unwrap_or(&std::env::temp_dir()),
+            cwd,
+            &session_id,
+        )?;
+        Some(crate::session::session_path(&proj_dir, &session_id))
+    };
     // Every turn (and every slash command that rewrites history, e.g. /compact) is persisted
-    // through the parentUuid-chained transcript writer (SPEC C9).
-    let mut writer = crate::session::TranscriptWriter::new(transcript_path.clone(), &session_id, cwd);
+    // through the parentUuid-chained transcript writer (SPEC C9) — a no-op in ephemeral mode.
+    let mut writer = match &transcript_path {
+        Some(p) => crate::session::TranscriptWriter::new(p.clone(), &session_id, cwd),
+        None => crate::session::TranscriptWriter::ephemeral(&session_id, cwd),
+    };
 
     println!(
         "zen {} — model {}, cwd {}",
@@ -43,6 +51,9 @@ pub async fn run_repl(cli: &Cli, cwd: &Path, home: Option<&Path>) -> Result<()> 
         cfg.model,
         cwd.display()
     );
+    if cli.ephemeral {
+        println!("EPHEMERAL MODE — nothing will be saved");
+    }
     println!("Type /help for commands, !cmd for shell, @file to attach files, #note to remember, Ctrl-D to exit.");
 
     let assembly = crate::agent_run::assemble(
@@ -51,7 +62,7 @@ pub async fn run_repl(cli: &Cli, cwd: &Path, home: Option<&Path>) -> Result<()> 
         home,
         &cfg,
         &session_id,
-        Some(&transcript_path),
+        transcript_path.as_deref(),
     )
     .await?;
 
@@ -80,7 +91,10 @@ pub async fn run_repl(cli: &Cli, cwd: &Path, home: Option<&Path>) -> Result<()> 
         Arc::new(zen_core::NullSink),
         {
             let mut ctx = crate::agent_run::tool_context_public(cwd, &cfg, cli, &session_id);
-            ctx.session_dir = Some(crate::session::session_scratch_dir(&transcript_path));
+            // Ephemeral: no session dir under ~/.zen — tools fall back to a temp scratch dir.
+            ctx.session_dir = transcript_path
+                .as_ref()
+                .map(|q| crate::session::session_scratch_dir(q));
             ctx
         },
         config,
@@ -428,12 +442,23 @@ async fn handle_slash(
             agent.set_messages(vec![]);
             // A new session with its own transcript (SPEC §6: /clear starts a new session).
             let new_id = crate::session::new_session_id();
-            let path = repl.writer.path.with_file_name(format!("{}.jsonl", new_id));
-            agent.ctx.session_dir = Some(crate::session::session_scratch_dir(&path));
-            if let Some(r) = &repl.recorder {
-                r.set_path(path.clone());
+            if cli.ephemeral {
+                // Ephemeral: fresh id, still nothing on disk.
+                agent.ctx.session_dir = None;
+                *repl.writer = crate::session::TranscriptWriter::ephemeral(&new_id, cwd);
+            } else {
+                let path = repl
+                    .writer
+                    .path
+                    .as_ref()
+                    .expect("non-ephemeral writer always has a path")
+                    .with_file_name(format!("{}.jsonl", new_id));
+                agent.ctx.session_dir = Some(crate::session::session_scratch_dir(&path));
+                if let Some(r) = &repl.recorder {
+                    r.set_path(path.clone());
+                }
+                *repl.writer = crate::session::TranscriptWriter::new(path, &new_id, cwd);
             }
-            *repl.writer = crate::session::TranscriptWriter::new(path, &new_id, cwd);
             *repl.session_id = new_id.clone();
             agent.ctx.session_id = new_id.clone();
             repl.goal = None;
@@ -582,9 +607,12 @@ async fn handle_slash(
             if arg.is_empty() {
                 eprintln!("usage: /rename <name>");
             } else {
-                match crate::session::append_title(&repl.writer.path, session_id, &arg) {
-                    Ok(()) => println!("session renamed to {}", arg),
-                    Err(e) => eprintln!("rename failed: {}", e),
+                match repl.writer.path.as_ref() {
+                    Some(p) => match crate::session::append_title(p, session_id, &arg) {
+                        Ok(()) => println!("session renamed to {}", arg),
+                        Err(e) => eprintln!("rename failed: {}", e),
+                    },
+                    None => println!("session rename is unavailable in ephemeral mode"),
                 }
             }
         }
@@ -722,6 +750,7 @@ async fn handle_slash(
             println!("personality: {}", repl.personality.name());
             println!("theme: {}", repl.theme.name());
             println!("vim_mode: {}", repl.vim_mode);
+            println!("ephemeral: {}", cli.ephemeral);
             if cfg.loaded_sources.is_empty() {
                 println!("settings: (none)");
             } else {
@@ -827,6 +856,10 @@ async fn handle_slash(
             }
         }
         "/resume" | "/continue" => {
+            if cli.ephemeral {
+                println!("cannot resume sessions in ephemeral mode (nothing is persisted)");
+                return Ok(LineAction::Continue);
+            }
             let home_dir = home.map(Path::to_path_buf).unwrap_or_else(std::env::temp_dir);
             let sessions = crate::session::list_sessions_for_cwd(&home_dir, cwd);
             if arg.is_empty() {

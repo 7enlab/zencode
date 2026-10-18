@@ -156,6 +156,26 @@ zen -p "summarize this repo" --terse --max-output-tokens 500
 
 The built-in system prompt is distilled (every behavioral rule kept, ~20% fewer tokens than
 the original) and `/context` shows the system-prompt token cost per session.
+### Ephemeral mode (`--ephemeral`)
+
+For sensitive work: nothing session-related is written to disk. No transcript, no session
+directory, nothing under `~/.zen` — everything stays in memory and is discarded on exit.
+A startup banner (`EPHEMERAL MODE — nothing will be saved`) confirms the mode is active.
+
+```bash
+./target/release/zen --ephemeral                      # interactive REPL, zero trace
+./target/release/zen -p "review this" --ephemeral     # headless, zero trace
+```
+
+Notes:
+
+- `--ephemeral` implies `--no-session-persistence` and works in both REPL and `-p` modes.
+- `/cost` and `/context` keep working (in-memory usage); `/export` still writes the file you
+  explicitly ask for; `/resume` is refused (there is nothing to resume); tool scratch falls
+  back to a temp directory instead of `~/.zen/projects/...`.
+- Spend caps (`--max-budget-usd`) are still enforced from in-memory usage.
+- Explicit user actions still write files on request: `/export <file>`, `#note` (project memory),
+  `/config` (project settings). Ephemeral covers *session* persistence, not files you ask for.
 
 ### Folder trust
 

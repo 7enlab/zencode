@@ -256,6 +256,9 @@ async fn run_headless(cli: &Cli, cwd: &Path, home: Option<&Path>) -> Result<i32>
     if !cfg.trust_skipped.is_empty() {
         eprintln!("{}", untrusted_notice(&cfg.trust_skipped));
     }
+    if cli.ephemeral {
+        eprintln!("EPHEMERAL MODE — nothing will be saved");
+    }
     let system_prompt = build_system_prompt(cli, cwd, home)?;
 
     // stdin (only for -p with text input format)
@@ -309,16 +312,17 @@ async fn run_headless(cli: &Cli, cwd: &Path, home: Option<&Path>) -> Result<i32>
     Ok(code)
 }
 
-/// Decide the session id, the transcript to write (None with `--no-session-persistence`) and
-/// the transcript to replay history from (`--resume`/`--continue`; for `--fork-session` this is
-/// the *source* session while the new id gets a fresh file).
+/// Decide the session id, the transcript to write (None with `--no-session-persistence` or
+/// `--ephemeral`) and the transcript to replay history from (`--resume`/`--continue`;
+/// for `--fork-session` this is the *source* session while the new id gets a fresh file).
 fn resolve_session(
     cli: &Cli,
     cwd: &Path,
     home: Option<&Path>,
 ) -> Result<(String, Option<std::path::PathBuf>, Option<std::path::PathBuf>)> {
     let home_path = home.map(|p| p.to_path_buf());
-    let persist = !cli.no_session_persistence;
+    // `--ephemeral` implies no persistence: nothing is written under ~/.zen.
+    let persist = !cli.no_session_persistence && !cli.ephemeral;
 
     // --resume <id|path> / --continue
     let resumed: Option<std::path::PathBuf> = if let Some(h) = &home_path {
@@ -412,6 +416,41 @@ mod tests {
         let cli = Cli::parse_from(["zen", "-p", "--no-session-persistence", "hi"]);
         let (_, path, _) = resolve_session(&cli, &dir, Some(&dir)).unwrap();
         assert!(path.is_none());
+    }
+
+    #[test]
+    fn resolve_session_ephemeral_writes_nothing() {
+        let dir = std::env::temp_dir().join(format!("zen_lib_eph_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let cli = Cli::parse_from(["zen", "-p", "--ephemeral", "hi"]);
+        let (id, path, _) = resolve_session(&cli, &dir, Some(&dir)).unwrap();
+        assert!(!id.is_empty());
+        assert!(path.is_none(), "ephemeral must not produce a transcript path");
+        // Nothing session-related may be created under home.
+        assert!(
+            !dir.join(".zen").exists(),
+            "ephemeral must not create ~/.zen entries"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn resolve_session_ephemeral_allows_readonly_resume() {
+        let dir = std::env::temp_dir().join(format!("zen_lib_eph_rs_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        // A prior (non-ephemeral) session exists on disk.
+        let proj = session::ensure_session_dir(&dir, &dir, "orig").unwrap();
+        let p = session::session_path(&proj, "orig");
+        session::append_typed(&p, "user", "orig", "cwd", "u", None, None, None).unwrap();
+
+        let cli = Cli::parse_from(["zen", "-p", "--ephemeral", "--resume", "orig", "hi"]);
+        let (id, path, src) = resolve_session(&cli, &dir, Some(&dir)).unwrap();
+        assert_eq!(id, "orig");
+        assert_eq!(src, Some(p), "ephemeral resume replays history read-only");
+        assert!(path.is_none(), "ephemeral resume must not open a transcript for writing");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
