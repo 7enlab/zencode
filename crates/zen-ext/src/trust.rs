@@ -27,7 +27,32 @@ pub fn trust_store_path(home: Option<&Path>) -> Option<PathBuf> {
 }
 
 fn canon(p: &Path) -> PathBuf {
-    std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf())
+    // Both the stored trust entry and the runtime cwd must go through the *same*
+    // normalization, or a trust decision can differ between two spellings of the same
+    // directory. When the path doesn't exist (canonicalize fails) fall back to a lexical
+    // normalization (`.`/`..`/trailing slashes) rather than the raw spelling, so both
+    // sides stay symmetric.
+    std::fs::canonicalize(p).unwrap_or_else(|_| normalize_lexical(p))
+}
+
+/// Lexical path normalization without touching the filesystem: collapses `.`, `..`
+/// and redundant separators. Used only as the `canon` fallback for missing paths.
+fn normalize_lexical(p: &Path) -> PathBuf {
+    use std::path::Component;
+    let mut out = PathBuf::new();
+    for comp in p.components() {
+        match comp {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                out.pop();
+            }
+            _ => out.push(comp.as_os_str()),
+        }
+    }
+    if out.as_os_str().is_empty() {
+        out.push(".");
+    }
+    out
 }
 
 fn read_store(path: &Path) -> Vec<String> {
@@ -196,6 +221,28 @@ mod tests {
     fn home_is_trusted() {
         let t = TempDir::new();
         assert!(is_folder_trusted(t.path(), Some(t.path())));
+    }
+
+    #[test]
+    fn canon_is_symmetric_for_missing_paths() {
+        // HIGH: when canonicalize fails (missing path), both sides must still normalize
+        // identically — `.`, `..` and trailing slashes must not change a trust decision.
+        use std::path::Path;
+        assert_eq!(canon(Path::new("/nope/a/./b")), canon(Path::new("/nope/a/b")));
+        assert_eq!(canon(Path::new("/nope/a/b/")), canon(Path::new("/nope/a/b")));
+        assert_eq!(canon(Path::new("/nope/a/x/../b")), canon(Path::new("/nope/a/b")));
+    }
+
+    #[test]
+    fn dotdot_spelling_of_trusted_dir_is_trusted() {
+        let t = TempDir::new();
+        let home = t.path().join("home");
+        let proj = t.path().join("proj");
+        fs::create_dir_all(proj.join("sub")).unwrap();
+        fs::create_dir_all(&home).unwrap();
+        trust_folder(&proj, Some(&home)).unwrap();
+        // Same directory via a `..` spelling must give the same trust decision.
+        assert!(is_folder_trusted(&proj.join("sub").join(".."), Some(&home)));
     }
 
     #[test]

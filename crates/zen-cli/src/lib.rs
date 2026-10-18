@@ -200,6 +200,14 @@ fn resolve_session(
             None
         }
     } else {
+        // Session history lives under the home directory; silently starting a fresh
+        // session here would make the user believe they resumed when they didn't.
+        if cli.resume.as_deref().is_some_and(|r| !r.is_empty()) {
+            anyhow::bail!("--resume needs a home directory to locate the session");
+        }
+        if cli.continue_session {
+            anyhow::bail!("--continue needs a home directory to locate the session");
+        }
         None
     };
 

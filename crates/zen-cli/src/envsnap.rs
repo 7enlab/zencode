@@ -231,12 +231,53 @@ fn make_targets(cwd: &Path) -> Vec<String> {
 }
 
 /// First line of `cmd --version`, when the tool exists.
+/// Budget for toolchain version probes: a slow `mvn -v`/`gradle` must not block session
+/// start forever (these are documented as short-lived probes, like the git probes).
+const TOOL_VERSION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+
 fn tool_version(cmd: &[&str]) -> Option<String> {
-    let out = Command::new(cmd[0]).args(&cmd[1..]).output().ok()?;
-    if !out.status.success() {
+    use std::io::Read;
+    let mut child = Command::new(cmd[0])
+        .args(&cmd[1..])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .ok()?;
+    // Drain both pipes on a thread so a full pipe can't block the child; wait with a deadline.
+    let mut stdout = child.stdout.take();
+    let mut stderr = child.stderr.take();
+    let reader = std::thread::spawn(move || {
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        if let Some(o) = stdout.as_mut() {
+            let _ = o.read_to_end(&mut out);
+        }
+        if let Some(e) = stderr.as_mut() {
+            let _ = e.read_to_end(&mut err);
+        }
+        (out, err)
+    });
+    let deadline = std::time::Instant::now() + TOOL_VERSION_TIMEOUT;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(s)) => break Some(s),
+            Ok(None) if std::time::Instant::now() < deadline => {
+                std::thread::sleep(std::time::Duration::from_millis(5))
+            }
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                break None;
+            }
+        }
+    };
+    let (out, err) = reader.join().unwrap_or_default();
+    if !status?.success() {
         return None;
     }
-    let text = if out.stdout.is_empty() { out.stderr } else { out.stdout };
+    // Fall back to stderr when stdout is empty (e.g. `java -version`).
+    let text = if out.is_empty() { err } else { out };
     let line = String::from_utf8_lossy(&text).lines().next()?.trim().to_string();
     (!line.is_empty()).then(|| line.chars().take(80).collect())
 }

@@ -191,14 +191,20 @@ fn fuzzy_replace(text: &str, old: &str, new: &str, strategy: Strategy, label: &s
 
 /// When every non-blank line of `old` starts with a Read-style line number + tab, return `old`
 /// (and `new`, if it carries the same prefixes) without them.
+///
+/// The extracted numbers must be strictly increasing (blank lines don't break the sequence):
+/// a TSV data file or code that merely *looks* numbered (e.g. `123\tfoo`) must never be
+/// silently rewritten, otherwise the edit would match the wrong region (CRITICAL).
 fn strip_line_numbers(old: &str, new: &str) -> Option<(String, String)> {
-    fn numbered(l: &str) -> Option<&str> {
+    fn numbered(l: &str) -> Option<(u64, &str)> {
         let t = l.trim_start();
         let digits = t.len() - t.trim_start_matches(|c: char| c.is_ascii_digit()).len();
         if digits == 0 {
             return None;
         }
-        t[digits..].strip_prefix('\t')
+        let num: u64 = t[..digits].parse().ok()?;
+        let rest = t[digits..].strip_prefix('\t')?;
+        Some((num, rest))
     }
     fn strip_all(s: &str) -> Option<String> {
         let lines: Vec<&str> = s.lines().collect();
@@ -206,12 +212,21 @@ fn strip_line_numbers(old: &str, new: &str) -> Option<(String, String)> {
             return None;
         }
         let mut out = Vec::with_capacity(lines.len());
+        let mut prev: Option<u64> = None;
         for l in lines {
             if l.trim().is_empty() {
                 out.push(String::new());
-            } else {
-                out.push(numbered(l)?.to_string());
+                continue;
             }
+            let (num, rest) = numbered(l)?;
+            // Read-style line numbers are strictly increasing; anything else is real content.
+            if let Some(p) = prev {
+                if num <= p {
+                    return None;
+                }
+            }
+            prev = Some(num);
+            out.push(rest.to_string());
         }
         Some(out.join("\n"))
     }
@@ -333,6 +348,21 @@ mod tests {
         let a = ok(text, "     2\tbeta\n     3\tgamma", "     2\tBETA\n     3\tgamma");
         assert_eq!(a.text, "alpha\nBETA\ngamma\n");
         assert!(a.note.unwrap().contains("line-number"));
+    }
+
+    #[test]
+    fn non_monotonic_number_prefixes_are_not_stripped() {
+        // CRITICAL: a TSV/data file whose lines merely look numbered must not be rewritten.
+        // `strip_line_numbers` requires strictly increasing numbers.
+        assert!(strip_line_numbers("123\tfoo\n123\tbar", "x").is_none());
+        assert!(strip_line_numbers("5\tfoo\n3\tbar", "x").is_none());
+        assert!(strip_line_numbers("1\tfoo\n1\tbar", "x").is_none());
+        // Genuine Read-style prefixes (strictly increasing) still strip.
+        let (o, _) = strip_line_numbers("     7\tfoo\n     8\tbar", "x").expect("should strip");
+        assert_eq!(o, "foo\nbar");
+        // Blank lines don't break the sequence.
+        let (o, _) = strip_line_numbers("7\tfoo\n\n8\tbar", "x").expect("should strip");
+        assert_eq!(o, "foo\n\nbar");
     }
 
     #[test]

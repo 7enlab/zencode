@@ -19,6 +19,9 @@ pub(crate) struct StdioTransport {
     pending: Pending,
     next_id: AtomicU64,
     child: Mutex<Option<tokio::process::Child>>,
+    /// PID of the spawned server; on Unix it leads its own process group (pgid == pid),
+    /// so `kill()` can take down grandchildren holding the stdout pipe too.
+    child_pid: Mutex<Option<u32>>,
     configured_timeout_ms: AtomicU64,
 }
 
@@ -44,10 +47,13 @@ impl StdioTransport {
         cmd.stdout(std::process::Stdio::piped());
         cmd.stderr(std::process::Stdio::null());
         cmd.kill_on_drop(true);
+        #[cfg(unix)]
+        cmd.process_group(0);
 
         let mut child = cmd
             .spawn()
             .map_err(|e| anyhow::anyhow!("failed to spawn '{}': {}", command, e))?;
+        let child_pid = child.id();
         let stdin = child.stdin.take().ok_or_else(|| anyhow::anyhow!("no stdin pipe"))?;
         let stdout = child.stdout.take().ok_or_else(|| anyhow::anyhow!("no stdout pipe"))?;
 
@@ -84,6 +90,7 @@ impl StdioTransport {
             pending,
             next_id: AtomicU64::new(1),
             child: Mutex::new(Some(child)),
+            child_pid: Mutex::new(child_pid),
             configured_timeout_ms: AtomicU64::new(timeout_ms),
         }))
     }
@@ -134,11 +141,40 @@ impl StdioTransport {
     }
 
     pub(crate) fn kill(&self) {
+        // Kill the whole process group, not just the direct child: a grandchild holding
+        // the stdout pipe would otherwise keep the reader task's `next_line()` pending
+        // forever after the server itself is dead.
+        let pid = self.child_pid.lock().ok().and_then(|mut g| g.take());
         if let Ok(mut guard) = self.child.lock() {
             if let Some(mut child) = guard.take() {
                 let _ = child.start_kill();
             }
         }
+        kill_process_group(pid);
+    }
+}
+
+/// Best-effort kill of a process group led by `pid` (mirrors `kill_tree` in zen-tools).
+fn kill_process_group(pid: Option<u32>) {
+    let Some(pid) = pid else { return };
+    #[cfg(unix)]
+    {
+        // The server leads its own process group (pgid == pid).
+        let _ = std::process::Command::new("kill")
+            .args(["-KILL", "--", &format!("-{}", pid)])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+    }
+    #[cfg(windows)]
+    {
+        let _ = std::process::Command::new("taskkill")
+            .args(["/T", "/F", "/PID", &pid.to_string()])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
     }
 }
 

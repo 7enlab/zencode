@@ -88,8 +88,29 @@ fn p0b_2_timeout_defaults() {
     assert_eq!(c.tool_timeout_ms("Read"), Some(crate::DEFAULT_TOOL_TIMEOUT_MS));
     assert_eq!(c.tool_timeout_ms("mcp__srv__x"), Some(300_000));
     assert_eq!(c.tool_timeout_ms("Bash"), None);
+    // A sub-agent run (Task) and JobOutput (own wait_ms) have no timeout unless set by name.
     assert_eq!(c.tool_timeout_ms("Task"), None);
     assert_eq!(c.tool_timeout_ms("JobOutput"), None);
     let c = crate::AgentConfig { tool_timeouts: [("Task".to_string(), 9u64)].into(), ..base_cfg() };
     assert_eq!(c.tool_timeout_ms("Task"), Some(9));
+    // An explicit 0 still disables the timeout.
+    let c = crate::AgentConfig { tool_timeouts: [("Task".to_string(), 0u64)].into(), ..base_cfg() };
+    assert_eq!(c.tool_timeout_ms("Task"), None);
+    // toolTimeouts.default does not cap a whole sub-agent run.
+    let c = crate::AgentConfig { tool_timeouts: [("default".to_string(), 42u64)].into(), ..base_cfg() };
+    assert_eq!(c.tool_timeout_ms("Task"), None);
+    assert_eq!(c.tool_timeout_ms("JobOutput"), None);
+    assert_eq!(c.tool_timeout_ms("Read"), Some(42));
+}
+
+#[test]
+fn p0b_2_timeout_source_is_reported() {
+    use crate::agent::TimeoutSource;
+    let c = base_cfg();
+    assert_eq!(c.tool_timeout_with_source("Read"), (Some(crate::DEFAULT_TOOL_TIMEOUT_MS), TimeoutSource::BuiltIn));
+    let c = crate::AgentConfig { tool_timeouts: [("default".to_string(), 42u64)].into(), ..base_cfg() };
+    assert_eq!(c.tool_timeout_with_source("Read"), (Some(42), TimeoutSource::Default));
+    let c = crate::AgentConfig { tool_timeouts: [("Read".to_string(), 7u64)].into(), ..base_cfg() };
+    assert_eq!(c.tool_timeout_with_source("Read"), (Some(7), TimeoutSource::PerTool));
+    assert_eq!(c.tool_timeout_with_source("Bash"), (None, TimeoutSource::None));
 }

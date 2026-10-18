@@ -90,22 +90,87 @@ pub fn looks_like_plan_exit(text: &str) -> bool {
 /// 1. **Grow**: if the cut lands on tool results, the window is extended backwards to their owning
 ///    assistant message, so the most recent tool exchange (usually the freshest evidence the
 ///    model is working from) survives compaction intact. The window may therefore be *longer*
-///    than `keep` by the size of one exchange.
+///    than `keep` by the size of one exchange. The candidate owner is verified to actually own
+///    *every* pulled-in tool result (by `tool_call_id`); otherwise the cut is left alone and the
+///    orphan results are dropped by the shrink step instead of dragging unrelated history in.
 /// 2. **Shrink**: if the window is still invalid (e.g. a dangling call that was never answered),
-///    messages are dropped from the front until what remains is a valid exchange. In the
-///    pathological case nothing is kept and compaction starts from the summary alone.
+///    messages are dropped from the front until what remains is a valid exchange. If no valid
+///    suffix exists, the most recent complete exchange is retained instead of returning empty,
+///    so a single dangling sibling call can never silently discard the freshest evidence.
 pub fn safe_tail(messages: &[ChatMessage], keep: usize) -> Vec<ChatMessage> {
     if messages.is_empty() {
         return vec![];
     }
-    let mut start = messages.len().saturating_sub(keep);
-    while start > 0 && start < messages.len() && messages[start].role == "tool" {
-        start -= 1;
+    let n = messages.len();
+    let mut start = n.saturating_sub(keep);
+    // --- Grow: extend back over the tool-result run only when the preceding assistant
+    // message owns every result being pulled in. ---
+    if start > 0 && start < n && messages[start].role == "tool" {
+        let mut run_start = start;
+        while run_start > 0 && messages[run_start - 1].role == "tool" {
+            run_start -= 1;
+        }
+        let owns_everything = run_start > 0 && {
+            let prev = &messages[run_start - 1];
+            prev.role == "assistant"
+                && prev
+                    .tool_calls
+                    .as_ref()
+                    .map(|calls| {
+                        messages[run_start..]
+                            .iter()
+                            .take_while(|m| m.role == "tool")
+                            .filter_map(|m| m.tool_call_id.as_deref())
+                            .all(|id| calls.iter().any(|c| c.id == id))
+                    })
+                    .unwrap_or(false)
+        };
+        if owns_everything {
+            start = run_start - 1;
+        }
+        // else: leave the cut where it is; the shrink step drops the orphan tool
+        // results rather than pulling in an unrelated earlier exchange.
     }
-    while start < messages.len() && !window_is_valid(&messages[start..]) {
+    // --- Shrink: drop from the front until the window is valid. ---
+    while start < n && !window_is_valid(&messages[start..]) {
         start += 1;
     }
-    messages[start..].to_vec()
+    if start < n {
+        return messages[start..].to_vec();
+    }
+    // No valid suffix: retain the most recent complete exchange instead of nothing.
+    let (es, ee) = most_recent_complete_exchange(messages);
+    messages[es..ee].to_vec()
+}
+
+/// The `(start, end)` range of the most recent complete exchange: the last user message
+/// (or the start of history) through the longest valid prefix of its exchange. Used as the
+/// `safe_tail` fallback so a dangling tool call at the very end can never empty the tail.
+fn most_recent_complete_exchange(messages: &[ChatMessage]) -> (usize, usize) {
+    let n = messages.len();
+    let mut user_starts: Vec<usize> = messages
+        .iter()
+        .enumerate()
+        .filter(|(_, m)| m.role == "user")
+        .map(|(i, _)| i)
+        .collect();
+    if !user_starts.contains(&0) {
+        user_starts.push(0);
+    }
+    user_starts.sort_unstable();
+    for &s in user_starts.iter().rev() {
+        let end = user_starts
+            .iter()
+            .find(|&&i| i > s)
+            .copied()
+            .unwrap_or(n);
+        for e in (s + 1..=end).rev() {
+            if window_is_valid(&messages[s..e]) {
+                return (s, e);
+            }
+        }
+    }
+    (0, 0)
 }
 
 /// A window is valid when every `tool` message's id was opened by an assistant `tool_calls`
@@ -315,6 +380,47 @@ mod tests {
         assert!(safe_tail(&[], 4).is_empty());
         let msgs = vec![ChatMessage::user("a"), ChatMessage::user("b")];
         assert_eq!(safe_tail(&msgs, 99).len(), 2);
+    }
+
+    #[test]
+    fn safe_tail_never_discards_freshest_complete_exchange() {
+        // HIGH: a dangling sibling call (c2 never answered) must not empty the tail;
+        // the most recent complete exchange ([user]) is retained instead.
+        let mut msgs = vec![
+            ChatMessage::user("u"),
+            tool_call_msg("c1"),
+            ChatMessage::tool("c1", "fresh evidence"),
+        ];
+        // Make c1's owner also open a dangling c2.
+        if let Some(calls) = &mut msgs[1].tool_calls {
+            calls.push(ToolCall {
+                id: "c2".into(),
+                call_type: "function".into(),
+                function: FunctionCall { name: "Read".into(), arguments: "{}".into() },
+            });
+        }
+        let tail = safe_tail(&msgs, 10);
+        assert!(!tail.is_empty(), "tail must retain the complete exchange");
+        assert_eq!(tail[0].role, "user");
+        assert_eq!(tail[0].content.as_deref(), Some("u"));
+    }
+
+    #[test]
+    fn safe_tail_grow_does_not_cross_exchange_boundaries() {
+        // HIGH: stacked tool results from different exchanges must not pull in an
+        // unrelated earlier assistant message. Here tool(cX) is an orphan stacked after
+        // a complete exchange; the grow must not claim assistant(A) owns it.
+        let msgs = vec![
+            ChatMessage::user("u"),
+            tool_call_msg("c1"),
+            ChatMessage::tool("c1", "r1"),
+            ChatMessage::tool("cX", "orphan"),
+        ];
+        let tail = safe_tail(&msgs, 1);
+        // The orphan is dropped; the complete exchange [user, assistant, tool(c1)] survives.
+        assert!(tail.iter().all(|m| m.tool_call_id.as_deref() != Some("cX")));
+        assert!(window_ok(&tail));
+        assert!(!tail.is_empty());
     }
 
     #[test]

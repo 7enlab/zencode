@@ -83,14 +83,17 @@ impl Recorder {
             st.tool_hashes = hashes;
             st.scanned = true;
         }
+        // Build all records before touching shared state. The sequence number is only
+        // assigned (and `tool_hashes` only marked) after every append succeeds, so a failed
+        // write can never leave the in-memory seq / hashes diverged from what's on disk,
+        // and concurrent recorders can't interleave seq numbers with another's lines.
         let seq = st.next_seq;
-        st.next_seq += 1;
         let mut lines: Vec<Value> = vec![];
         let tools_hash = if req.tools.is_empty() {
             None
         } else {
             let h = fnv1a_hex(serde_json::to_string(&req.tools)?.as_bytes());
-            if st.tool_hashes.insert(h.clone()) {
+            if !st.tool_hashes.contains(&h) {
                 lines.push(json!({"type": "tools", "v": EVENT_LOG_VERSION, "hash": h, "tools": req.tools}));
             }
             Some(h)
@@ -120,12 +123,17 @@ impl Recorder {
             "body_hash": fnv1a_hex(body.as_bytes()),
             "body_bytes": body.len(),
         }));
-        st.chains.insert(key, (seq, req.messages.clone()));
         let path = st.path.clone();
-        drop(st);
+        // Hold the lock through the appends: seq assignment and the file write are atomic
+        // with respect to other recorders, and state below only advances on success.
         for l in &lines {
             crate::session::append_record(&path, l)?;
         }
+        st.next_seq = seq + 1;
+        if let Some(h) = &tools_hash {
+            st.tool_hashes.insert(h.clone());
+        }
+        st.chains.insert(key, (seq, req.messages.clone()));
         Ok(seq)
     }
 

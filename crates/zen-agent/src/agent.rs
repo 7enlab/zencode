@@ -117,34 +117,71 @@ pub const DEFAULT_TOOL_TIMEOUT_MS: u64 = 300_000;
 
 impl AgentConfig {
     /// The timeout the agent enforces around one call of `tool` (None = none).
+    /// See [`AgentConfig::tool_timeout_with_source`].
+    pub fn tool_timeout_ms(&self, tool: &str) -> Option<u64> {
+        self.tool_timeout_with_source(tool).0
+    }
+
+    /// The timeout the agent enforces around one call of `tool` (None = none), plus where
+    /// that timeout came from so error messages name the actual source.
     ///
     /// Bash enforces its own timeout (it kills the process and keeps partial semantics), so the
     /// agent hands Bash its configured default through `ToolContext::tool_timeout_ms` instead.
-    /// `Task` (a whole sub-agent run) and `JobOutput` (bounded by its own `wait_ms`) have no
-    /// timeout unless configured by name.
-    pub fn tool_timeout_ms(&self, tool: &str) -> Option<u64> {
+    /// Every other tool falls back to `toolTimeouts["default"]` (then the built-in default);
+    /// set a tool to 0 for no timeout.
+    pub fn tool_timeout_with_source(&self, tool: &str) -> (Option<u64>, TimeoutSource) {
         if tool == "Bash" {
-            return None;
+            return (None, TimeoutSource::None);
         }
-        let t = match self.tool_timeouts.get(tool) {
-            Some(t) => *t,
-            None if matches!(tool, "Task" | "JobOutput") => 0,
-            None => self.tool_timeouts.get("default").copied().unwrap_or(DEFAULT_TOOL_TIMEOUT_MS),
-        };
-        (t > 0).then_some(t)
+        match self.tool_timeouts.get(tool) {
+            Some(t) => ((t > &0).then_some(*t), TimeoutSource::PerTool),
+            // A whole sub-agent run (`Task`) and `JobOutput` (bounded by its own `wait_ms`)
+            // have no timeout unless configured by name: the generic default would kill them.
+            None if matches!(tool, "Task" | "JobOutput") => (None, TimeoutSource::None),
+            None => match self.tool_timeouts.get("default") {
+                Some(t) => ((t > &0).then_some(*t), TimeoutSource::Default),
+                None => (Some(DEFAULT_TOOL_TIMEOUT_MS), TimeoutSource::BuiltIn),
+            },
+        }
     }
 }
 
+/// Where a tool-call timeout came from, for accurate timeout error messages.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TimeoutSource {
+    /// `toolTimeouts.<tool>` explicitly set.
+    PerTool,
+    /// `toolTimeouts.default` applied.
+    Default,
+    /// Built-in default (no user configuration).
+    BuiltIn,
+    /// No timeout (Bash, or explicitly set to 0).
+    None,
+}
+
 /// Run one tool call under its timeout (p0b).
-async fn run_tool(tool: Arc<dyn Tool>, args: Value, ctx: ToolContext, timeout_ms: Option<u64>) -> ToolOutput {
+async fn run_tool(
+    tool: Arc<dyn Tool>,
+    args: Value,
+    ctx: ToolContext,
+    timeout: (Option<u64>, TimeoutSource),
+) -> ToolOutput {
+    let (timeout_ms, source) = timeout;
     let Some(ms) = timeout_ms else { return tool.call(args, &ctx).await };
+    // Name the actual timeout source instead of always blaming `toolTimeouts.default`.
+    let src = match source {
+        TimeoutSource::PerTool => format!("settings toolTimeouts.{}", tool.name()),
+        TimeoutSource::Default => "settings toolTimeouts.default".to_string(),
+        TimeoutSource::BuiltIn => "the built-in default timeout".to_string(),
+        TimeoutSource::None => "a timeout that was then disabled".to_string(),
+    };
     match tokio::time::timeout(std::time::Duration::from_millis(ms), tool.call(args, &ctx)).await {
         Ok(out) => out,
         Err(_) => ToolOutput::err(format!(
-            "Error: {} timed out after {} ms and was stopped (settings toolTimeouts.{} or toolTimeouts.default)",
+            "Error: {} timed out after {} ms and was stopped ({})",
             tool.name(),
             ms,
-            tool.name()
+            src
         )),
     }
 }
@@ -946,7 +983,7 @@ impl Agent {
                         let tool = p.tool.clone();
                         let args = p.args.clone();
                         let ctx = self.call_ctx(&p.tool_use_id, &p.tool_name);
-                        let timeout = self.config.tool_timeout_ms(&p.tool_name);
+                        let timeout = self.config.tool_timeout_with_source(&p.tool_name);
                         let journal = self.journal.clone();
                         let id = p.tool_use_id.clone();
                         Some(tokio::spawn(async move {
@@ -996,7 +1033,7 @@ impl Agent {
                         Some(o) => o,
                         None => {
                             let ctx = self.call_ctx(&p.tool_use_id, &p.tool_name);
-                            let timeout = self.config.tool_timeout_ms(&p.tool_name);
+                            let timeout = self.config.tool_timeout_with_source(&p.tool_name);
                             let out = run_tool(p.tool.clone(), p.args.clone(), ctx, timeout).await;
                             self.journal_result(&p.tool_use_id, &out.content, out.is_error, false);
                             out

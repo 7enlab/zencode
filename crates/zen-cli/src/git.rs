@@ -37,17 +37,36 @@ fn spawn_probe(program: &str, cwd: &Path, args: &[&str]) -> Option<Probe> {
 /// Wait for `probe` until `deadline`; kill it and return `None` on timeout or failure.
 fn finish_probe(probe: Option<Probe>, deadline: Instant) -> Option<String> {
     let Probe { mut child, reader } = probe?;
+    // Reap the stdout-drain thread after killing the child; without this the thread
+    // leaks every time a probe times out.
+    let kill_and_reap = |mut child: Child, reader: std::thread::JoinHandle<Vec<u8>>| {
+        let _ = child.kill();
+        let _ = child.wait();
+        let _ = reader.join();
+    };
     loop {
         match child.try_wait() {
             Ok(Some(status)) => {
                 let out = reader.join().ok()?;
                 return status.success().then(|| String::from_utf8_lossy(&out).into_owned());
             }
-            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(2)),
-            _ => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return None;
+            Ok(None) => {
+                if Instant::now() < deadline {
+                    std::thread::sleep(Duration::from_millis(2));
+                } else {
+                    kill_and_reap(child, reader);
+                    return None;
+                }
+            }
+            // A transient `try_wait` error (e.g. EINTR) must not kill a healthy child;
+            // retry unless the deadline has passed.
+            Err(_) => {
+                if Instant::now() < deadline {
+                    std::thread::sleep(Duration::from_millis(2));
+                } else {
+                    kill_and_reap(child, reader);
+                    return None;
+                }
             }
         }
     }
@@ -89,14 +108,17 @@ pub fn git_info(cwd: &Path) -> (Option<String>, Option<String>) {
 
 /// Current branch name for the repo containing `cwd`, if any.
 pub fn current_branch(cwd: &Path) -> Option<String> {
+    // The deadline covers the spawn itself, like `git_info_with` does.
+    let deadline = Instant::now() + GIT_TIMEOUT;
     let p = spawn_probe("git", cwd, &["rev-parse", "--abbrev-ref", "HEAD"]);
-    finish_probe(p, Instant::now() + GIT_TIMEOUT).and_then(|o| parse_branch(&o))
+    finish_probe(p, deadline).and_then(|o| parse_branch(&o))
 }
 
 /// One-line `git status --porcelain` summary: "clean" or "N changed files".
 pub fn status_summary(cwd: &Path) -> Option<String> {
+    let deadline = Instant::now() + GIT_TIMEOUT;
     let p = spawn_probe("git", cwd, &["status", "--porcelain"]);
-    finish_probe(p, Instant::now() + GIT_TIMEOUT).map(|o| parse_status(&o))
+    finish_probe(p, deadline).map(|o| parse_status(&o))
 }
 
 /// OS description, e.g. "linux (x86_64)".

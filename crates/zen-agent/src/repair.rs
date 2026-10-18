@@ -118,20 +118,30 @@ fn alias_target(key: &str) -> Option<&'static str> {
 /// lists the fields the schema expects.
 pub fn repair_args(raw: &str, schema: Option<&Value>) -> Result<(Value, Vec<String>), String> {
     let mut notes = Vec::new();
-    let mut obj = match parse_object(raw, &mut notes) {
-        Ok(o) => o,
-        Err(e) => {
-            let hint = schema.map(schema_hint).unwrap_or_default();
-            return Err(if hint.is_empty() { e } else { format!("{}. {}", e, hint) });
-        }
-    };
+    // `parse_object` attaches the schema hint itself on every error path, so malformed
+    // input gets an equally helpful error regardless of which repair path failed.
+    let mut obj = parse_object(raw, &mut notes, schema)?;
     if let Some(s) = schema {
         coerce_object(&mut obj, s, "", &mut notes);
     }
     Ok((Value::Object(obj), notes))
 }
 
-fn parse_object(raw: &str, notes: &mut Vec<String>) -> Result<Map<String, Value>, String> {
+/// Attach the schema's field hint to an error, when a schema is available.
+fn with_hint(base: String, schema: Option<&Value>) -> String {
+    let hint = schema.map(schema_hint).unwrap_or_default();
+    if hint.is_empty() {
+        base
+    } else {
+        format!("{}. {}", base, hint)
+    }
+}
+
+fn parse_object(
+    raw: &str,
+    notes: &mut Vec<String>,
+    schema: Option<&Value>,
+) -> Result<Map<String, Value>, String> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
         if !raw.is_empty() {
@@ -141,21 +151,21 @@ fn parse_object(raw: &str, notes: &mut Vec<String>) -> Result<Map<String, Value>
     }
     // Strict first: a well-formed call must come through untouched and without notes.
     let strict_err = match serde_json::from_str::<Value>(trimmed) {
-        Ok(v) => return into_object(v, notes),
+        Ok(v) => return into_object(v, notes, schema),
         Err(e) => e.to_string(),
     };
     let unfenced = strip_fences(trimmed);
     if unfenced != trimmed {
         notes.push("removed code fence around arguments".into());
         if let Ok(v) = serde_json::from_str::<Value>(unfenced) {
-            return into_object(v, notes);
+            return into_object(v, notes, schema);
         }
     }
     // A complete object followed by junk (`{..}<|call|>`, `{..}}`, `{..} {..}`): keep the
     // first object (r8).
     if let Some(v) = unfenced.find('{').and_then(|i| first_object(&unfenced[i..])) {
         notes.push("ignored trailing text after the JSON arguments".into());
-        return into_object(v, notes);
+        return into_object(v, notes, schema);
     }
     let body = extract_braced(unfenced).unwrap_or(unfenced);
     let fixed = normalize_json_text(body);
@@ -163,9 +173,9 @@ fn parse_object(raw: &str, notes: &mut Vec<String>) -> Result<Map<String, Value>
     match parsed {
         Some(v) => {
             notes.push("repaired malformed JSON".into());
-            into_object(v, notes)
+            into_object(v, notes, schema)
         }
-        None => Err(strict_err),
+        None => Err(with_hint(strict_err, schema)),
     }
 }
 
@@ -178,7 +188,11 @@ fn first_object(s: &str) -> Option<Value> {
     }
 }
 
-fn into_object(v: Value, notes: &mut Vec<String>) -> Result<Map<String, Value>, String> {
+fn into_object(
+    v: Value,
+    notes: &mut Vec<String>,
+    schema: Option<&Value>,
+) -> Result<Map<String, Value>, String> {
     match v {
         Value::Object(o) => Ok(o),
         Value::Null => Ok(Map::new()),
@@ -186,11 +200,14 @@ fn into_object(v: Value, notes: &mut Vec<String>) -> Result<Map<String, Value>, 
         Value::String(inner) => {
             notes.push("arguments were a JSON string; decoded it".into());
             let mut inner_notes = Vec::new();
-            let o = parse_object(&inner, &mut inner_notes)?;
+            let o = parse_object(&inner, &mut inner_notes, schema)?;
             notes.extend(inner_notes);
             Ok(o)
         }
-        other => Err(format!("arguments must be a JSON object, got {}", type_name(&other))),
+        other => Err(with_hint(
+            format!("arguments must be a JSON object, got {}", type_name(&other)),
+            schema,
+        )),
     }
 }
 
@@ -551,6 +568,25 @@ mod tests {
             assert_eq!(got, want, "input {:?}", raw);
             assert!(!notes.is_empty(), "input {:?} was repaired but produced no note", raw);
         }
+    }
+
+    #[test]
+    fn error_hints_are_consistent_across_repair_paths() {
+        // HIGH: malformed input must get the schema hint whether it fails on the strict
+        // path, the brace-extraction path, or as a non-object value.
+        let schema = read_schema();
+        for raw in ["not json at all {{{", "[1, 2, 3]", "\"just a string\""] {
+            let err = repair_args(raw, Some(&schema)).unwrap_err();
+            assert!(
+                err.contains("file_path"),
+                "input {:?} error lacks schema hint: {}",
+                raw,
+                err
+            );
+        }
+        // Without a schema there is simply no hint to attach; the error still explains itself.
+        let err = repair_args("[1, 2, 3]", None).unwrap_err();
+        assert!(err.contains("must be a JSON object"), "{}", err);
     }
 
     #[test]
