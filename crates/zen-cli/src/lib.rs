@@ -25,6 +25,7 @@ pub mod repl;
 pub mod safety;
 pub mod repl_polish;
 pub mod repomap;
+pub mod review;
 pub mod session;
 pub mod session_mgmt;
 pub mod settings;
@@ -32,7 +33,7 @@ pub mod skills;
 pub mod skill_registry;
 pub mod system_prompt;
 
-pub use cli::{Cli, Commands, CostArgs, EvalArgs, ExportArgs, ImportArgs, InputFormat, McpArgs, McpSubcommand, ModelsArgs, OutputFormat, PermissionMode, SessionSubcommand, SessionsArgs};
+pub use cli::{Cli, Commands, CostArgs, EvalArgs, ExportArgs, ImportArgs, InputFormat, McpArgs, McpSubcommand, ModelsArgs, OutputFormat, PermissionMode, ReviewArgs, SessionSubcommand, SessionsArgs};
 pub use settings::{resolve_config, ResolvedConfig};
 pub use system_prompt::build_system_prompt;
 
@@ -161,6 +162,9 @@ async fn run_subcommand(
         Commands::Skill(skill) => {
             skills::skill_command(cwd, home, &skill.command).await?;
             Ok(0)
+        }
+        Commands::Review(args) => {
+            return review::run_review(cli, cwd, home, args).await;
         }
     }
 }

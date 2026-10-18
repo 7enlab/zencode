@@ -435,6 +435,31 @@ zen import session.json                                 # restore as a NEW sessi
 Only JSON exports can be imported; import always creates a new session id.
 See [docs/session-format.md](docs/session-format.md) for the format spec.
 
+### Code review
+
+```bash
+./target/release/zen review                  # review uncommitted changes (staged + unstaged + untracked)
+./target/release/zen review --uncommitted     # same, explicit
+./target/release/zen review --base main       # review the diff against a base ref
+./target/release/zen review --commit abc123   # review a specific commit
+./target/release/zen review --fail-on medium --output-format json
+```
+
+`zen review` runs the model with a **mechanically enforced read-only tool set**
+(only `Read`, `Glob`, `Grep` are registered — write tools do not exist in the
+session, and a permission checker denies anything not flagged read-only). Findings
+are grouped by severity (`critical` / `high` / `medium` / `low` / `nit`) with
+`file:line`, category (`bugs`, `security`, `perf`, `style`, `tests-missing`) and a
+suggested fix.
+
+Exit codes are CI-friendly: `0` = no findings at or above `--fail-on` (default
+`high`), `1` = findings at or above the threshold, `2` = tool error (git failure,
+missing API key, unparseable model output). Example pre-commit hook:
+
+```bash
+zen review --fail-on high || echo "review found blocking issues"
+```
+
 ## Layout
 
 | Crate | What it owns |

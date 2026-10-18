@@ -524,6 +524,8 @@ pub enum SkillSubcommand {
         /// Skill name
         name: String,
     },
+    /// Review code changes (read-only; CI-friendly exit codes)
+    Review(ReviewArgs),
 }
 
 #[derive(Args, Debug, Clone)]
@@ -582,6 +584,28 @@ pub enum McpSubcommand {
         /// JSON object describing the server
         json: String,
     },
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct ReviewArgs {
+    /// Review uncommitted changes (default when no scope flag is given)
+    #[arg(long)]
+    pub uncommitted: bool,
+    /// Review the diff against a base ref, e.g. --base main
+    #[arg(long, value_name = "REF")]
+    pub base: Option<String>,
+    /// Review a specific commit
+    #[arg(long, value_name = "SHA")]
+    pub commit: Option<String>,
+    /// Minimum severity that fails the command: critical|high|medium|low|nit
+    #[arg(long, default_value = "high")]
+    pub fail_on: String,
+    /// Output format: text, json, stream-json
+    #[arg(long = "output-format", value_enum, default_value_t = OutputFormat::Text)]
+    pub output_format: OutputFormat,
+    /// Max diff bytes sent to the model
+    #[arg(long, default_value_t = 100_000)]
+    pub max_diff_bytes: usize,
 }
 
 // ─── Tests ─────────────────────────────────────────────────────────────────
