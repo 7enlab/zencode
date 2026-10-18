@@ -147,6 +147,23 @@ pub struct Cli {
     #[arg(long = "autocompact", value_parser = parse_autocompact)]
     pub autocompact: Option<String>,
 
+    /// Prune old tool results (kills the N× re-billing multiplier); on by default.
+    /// `--no-prune` disables.
+    #[arg(long = "prune", overrides_with = "no_prune")]
+    pub prune: bool,
+
+    /// Disable tool-result pruning.
+    #[arg(long = "no-prune", overrides_with = "prune")]
+    pub no_prune: bool,
+
+    /// Prune tool results older than N turns (default 5; never prunes the last 2 turns)
+    #[arg(long = "prune-after")]
+    pub prune_after: Option<usize>,
+
+    /// Truncate tool results larger than N tokens with a re-read hint (default 8000)
+    #[arg(long = "max-result-tokens")]
+    pub max_result_tokens: Option<u64>,
+
     /// Use a fixed session id (must be a valid UUID, SPEC C9.2)
     #[arg(long = "session-id", value_parser = parse_session_uuid)]
     pub session_id: Option<String>,
@@ -530,6 +547,28 @@ mod tests {
     fn parse_fork_session() {
         let cli = parse(&["--fork-session"]);
         assert!(cli.fork_session);
+    }
+
+    #[test]
+    fn parse_prune_flags() {
+        // Default: pruning on (prune=false, no_prune=false → enabled).
+        let cli = parse(&[]);
+        assert!(!cli.prune);
+        assert!(!cli.no_prune);
+        assert_eq!(cli.prune_after, None);
+        assert_eq!(cli.max_result_tokens, None);
+
+        let cli = parse(&["--prune-after", "3", "--max-result-tokens", "4000"]);
+        assert_eq!(cli.prune_after, Some(3));
+        assert_eq!(cli.max_result_tokens, Some(4000));
+
+        // --no-prune wins over --prune when both are given (last wins).
+        let cli = parse(&["--prune", "--no-prune"]);
+        assert!(cli.no_prune);
+        assert!(!cli.prune);
+        let cli = parse(&["--no-prune", "--prune"]);
+        assert!(cli.prune);
+        assert!(!cli.no_prune);
     }
 
     #[test]

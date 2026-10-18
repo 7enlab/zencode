@@ -447,6 +447,8 @@ pub enum AgentEvent {
     ToolProgress { tool_use_id: String, tool_name: String, elapsed_ms: u64 },
     ApiRetry { attempt: u32, max_retries: u32, retry_delay_ms: u64, error_status: Option<u16>, error: String },
     CompactBoundary { trigger: String, pre_tokens: u64 },
+    /// Tool-result pruning replaced old results with extractive summaries.
+    Pruned { pruned: usize, tokens_saved: u64 },
     PermissionDenied(PermissionDenial),
     /// A hook's `systemMessage` (or a non-fatal hook warning) meant for the user, not the model.
     /// `event` is the hook event name that produced it.

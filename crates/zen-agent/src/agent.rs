@@ -31,6 +31,7 @@ use zen_core::*;
 
 use crate::budget::{BudgetPolicy, BudgetVerdict};
 use crate::compaction;
+use crate::prune::{PruneConfig, PruneStats};
 use crate::finish;
 
 /// How often one turn requeries after an empty reply before accepting it (r7 C5).
@@ -114,6 +115,8 @@ pub struct AgentConfig {
     /// Consecutive replies cut off by the output token limit that the loop continues / asks to
     /// re-emit before giving up (settings `maxContinuations`, 0 = never continue).
     pub max_continuations: usize,
+    /// Tool-result pruning (kills the N× re-billing multiplier).
+    pub prune: PruneConfig,
 }
 
 /// Timeout for a tool call when settings `toolTimeouts` has no entry for it (p0b).
@@ -247,6 +250,7 @@ impl Default for AgentConfig {
             verify_after_edit_timeout_secs: 60,
             tool_timeouts: Default::default(),
             max_continuations: DEFAULT_MAX_CONTINUATIONS,
+            prune: PruneConfig::default(),
         }
     }
 }
@@ -293,6 +297,12 @@ pub struct Agent {
     /// interrupted turn can be resumed with its finished tool results. None = not journaled
     /// (sub-agents, tests, unsaved sessions).
     pub journal: Option<Arc<dyn ToolJournal>>,
+    /// Message-index boundaries of each model call, for tool-result pruning.
+    /// `prune_turn_starts[0]` is always 0; entry k is `messages.len()` just before
+    /// model call k. Reset on compaction / history replacement.
+    pub prune_turn_starts: Vec<usize>,
+    /// Tokens saved by tool-result pruning (observability).
+    pub prune_stats: PruneStats,
 }
 
 impl Agent {
@@ -326,6 +336,8 @@ impl Agent {
             budget_warned: false,
             model_calls_since_todo: 0,
             journal: None,
+            prune_turn_starts: vec![0],
+            prune_stats: PruneStats::default(),
         }
     }
 
@@ -334,6 +346,8 @@ impl Agent {
         self.messages = messages;
         // A new history invalidates the API-reported context size.
         self.last_prompt_tokens = 0;
+        // …and the turn boundaries used for pruning.
+        self.prune_turn_starts = vec![0];
     }
 
     /// The conversation history (excluding the system prompt).
@@ -565,6 +579,12 @@ impl Agent {
                     let _ = compaction::compact_impl(self, None, "auto").await;
                 }
             }
+
+            // 4b. Tool-result pruning: replace old, large, unreferenced tool results
+            // with extractive summaries (kills the N× re-billing multiplier). Runs
+            // before the request is built so the savings apply to this call too.
+            self.prune_turn_starts.push(self.messages.len());
+            self.prune_old_results();
 
             num_turns += 1;
             if self.config.depth == 0 {
@@ -1225,6 +1245,21 @@ impl Agent {
         if raw.as_deref() != Some(out.content.as_str()) {
             self.journal_result(&tool_use_id, &out.content, out.is_error, true);
         }
+        // Size cap: truncate oversized tool results with a re-read hint instead of
+        // sending them whole. The journal already kept the raw output above.
+        if self.config.prune.enabled {
+            let max = self.config.prune.max_result_tokens;
+            if crate::prune::est_tokens(&out.content) > max {
+                let label = crate::prune::tool_call_label(
+                    &tool_name,
+                    &serde_json::to_string(&args).unwrap_or_default(),
+                );
+                let (capped, saved) = crate::prune::cap_content(&out.content, &label, max);
+                out.content = capped;
+                self.prune_stats.capped += 1;
+                self.prune_stats.capped_tokens += saved;
+            }
+        }
         self.emit_tool_result(&tool_use_id, &out.content, out.is_error);
         self.messages.push(ChatMessage::tool(tool_use_id, out.content));
         if post.stop_run {
@@ -1282,6 +1317,62 @@ impl Agent {
 
     /// Replace the history with a model-written summary plus the trailing messages
     /// (SPEC §11). `trigger` is `"manual"` or `"auto"`; `focus` steers the summary.
+    /// Replace prunable old tool results with extractive summaries, in place.
+    ///
+    /// Runs before each model request so the savings apply immediately. Results
+    /// whose identifier appears in the current plan or recent tool calls are
+    /// never pruned (identifier preservation).
+    fn prune_old_results(&mut self) {
+        if !self.config.prune.enabled {
+            return;
+        }
+        let current_turn = self.prune_turn_starts.len().saturating_sub(1);
+        let min_age = self.config.prune.min_age();
+        // Protected identifiers: the current plan plus identifiers from tool calls
+        // in recent turns (age < min_age) — the agent is actively working with
+        // those files, so older results for the same identifier must survive.
+        let mut protected = self.plan_text().unwrap_or_default();
+        protected.push('\n');
+        for (i, m) in self.messages.iter().enumerate() {
+            let age =
+                current_turn.saturating_sub(crate::prune::turn_of(&self.prune_turn_starts, i));
+            if age >= min_age {
+                continue;
+            }
+            if let Some(calls) = &m.tool_calls {
+                for c in calls {
+                    if let Some(id) = crate::prune::extract_identifier(
+                        &c.function.name,
+                        &c.function.arguments,
+                    ) {
+                        protected.push_str(&id);
+                        protected.push('\n');
+                    }
+                }
+            }
+        }
+        let stats = crate::prune::prune_messages(
+            &mut self.messages,
+            &self.prune_turn_starts,
+            current_turn,
+            &self.config.prune,
+            &protected,
+        );
+        if stats.pruned > 0 {
+            self.prune_stats.pruned += stats.pruned;
+            self.prune_stats.pruned_tokens += stats.pruned_tokens;
+            self.sink.emit(AgentEvent::Pruned {
+                pruned: stats.pruned,
+                tokens_saved: stats.pruned_tokens,
+            });
+        }
+    }
+
+    /// Tokens saved by tool-result pruning so far (observability for `zen cost`).
+    pub fn prune_stats(&self) -> &PruneStats {
+        &self.prune_stats
+    }
+
     pub async fn compact(&mut self, focus: Option<&str>, trigger: &str) -> anyhow::Result<()> {
         compaction::compact_impl(self, focus, trigger).await
     }

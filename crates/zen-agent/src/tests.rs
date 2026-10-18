@@ -59,6 +59,125 @@ async fn text_reply_is_the_result_and_system_prompt_is_sent_not_stored() {
 }
 
 #[tokio::test]
+async fn prune_old_tool_results_end_to_end() {
+    // 8 model calls: 7 tool calls in a row (each returning a large,
+    // never-referenced result), then a final text reply that ends the turn.
+    // prune_after=2 → results from turns 1..=5 are old enough to prune by the
+    // last call.
+    let big = "x".repeat(12_000); // ~3k tokens
+    let mut scripted = vec![];
+    for i in 1..=7 {
+        scripted.push(resp_tool(
+            "Read",
+            &format!(r#"{{"path": "src/f{}.rs"}}"#, i),
+            &format!("c{}", i),
+        ));
+    }
+    scripted.push(resp("done"));
+    let llm = MockLlm::new(scripted);
+    let reg = registry_with(vec![fake("Read", true, &big)]);
+    let mut cfg = base_cfg();
+    cfg.prune.prune_after = 2;
+    let (mut agent, sink, _h) = build_agent(llm.clone(), reg, allow(), cfg);
+
+    let r = agent.run_turn("go").await;
+    assert_eq!(r.subtype, "success");
+
+    // Old results were pruned and stats accumulated.
+    let stats = agent.prune_stats();
+    assert!(stats.pruned >= 4, "expected pruning, got {:?}", stats);
+    assert!(stats.pruned_tokens > 0);
+
+    // The last request the model saw contains pruned summaries, not raw output.
+    let requests = llm.requests();
+    let last_req = requests.last().unwrap();
+    let pruned_summaries: Vec<_> = last_req
+        .messages
+        .iter()
+        .filter(|m| {
+            m.role == "tool"
+                && m.content.as_deref().unwrap_or("").starts_with("[zen: pruned")
+        })
+        .collect();
+    assert!(
+        !pruned_summaries.is_empty(),
+        "expected [zen: pruned markers in the final request"
+    );
+    // Summaries keep the identifier and the tool_call_id (structure preserved).
+    let first = pruned_summaries[0].content.as_deref().unwrap();
+    assert!(first.contains("src/f1.rs"), "identifier preserved: {}", first);
+    assert!(pruned_summaries[0].tool_call_id.is_some());
+
+    // A Pruned event was emitted for observability.
+    let events = sink.events.lock().unwrap();
+    assert!(
+        events.iter().any(|e| matches!(
+            e,
+            AgentEvent::Pruned { pruned, tokens_saved }
+                if *pruned > 0 && *tokens_saved > 0
+        )),
+        "expected AgentEvent::Pruned"
+    );
+
+    // History stays paired: every tool_call still has its tool result.
+    assert_paired(agent.messages());
+}
+
+#[tokio::test]
+async fn no_prune_disables_pruning_and_capping() {
+    let big = "x".repeat(12_000);
+    let llm = MockLlm::new(vec![
+        resp_tool("Read", r#"{"path": "src/f1.rs"}"#, "c1"),
+        resp("done"),
+    ]);
+    let reg = registry_with(vec![fake("Read", true, &big)]);
+    let mut cfg = base_cfg();
+    cfg.prune.enabled = false;
+    let (mut agent, _sink, _h) = build_agent(llm.clone(), reg, allow(), cfg);
+
+    agent.run_turn("go").await;
+    assert_eq!(agent.prune_stats().pruned, 0);
+    assert_eq!(agent.prune_stats().capped, 0);
+    // Raw large result is untouched in history.
+    let tool_msg = agent
+        .messages()
+        .iter()
+        .find(|m| m.role == "tool")
+        .unwrap();
+    assert_eq!(tool_msg.content.as_deref().unwrap().len(), 12_000);
+}
+
+#[tokio::test]
+async fn oversized_tool_result_is_capped_with_reread_hint() {
+    // 40k chars ≈ 10k tokens > 8k cap.
+    let huge = "y".repeat(40_000);
+    let llm = MockLlm::new(vec![
+        resp_tool("Read", r#"{"path": "src/big.rs"}"#, "c1"),
+        resp("done"),
+    ]);
+    let reg = registry_with(vec![fake("Read", true, &huge)]);
+    let (mut agent, _sink, _h) = build_agent(llm.clone(), reg, allow(), base_cfg());
+
+    agent.run_turn("go").await;
+    let stats = agent.prune_stats();
+    assert_eq!(stats.capped, 1);
+    assert!(stats.capped_tokens > 0);
+
+    let tool_msg = agent
+        .messages()
+        .iter()
+        .find(|m| m.role == "tool")
+        .unwrap();
+    let content = tool_msg.content.as_deref().unwrap();
+    assert!(
+        content.starts_with("[zen: truncated"),
+        "capped result carries the marker"
+    );
+    assert!(content.contains("re-read with a narrower query"));
+    assert!(content.contains("src/big.rs"), "label preserved: {}", &content[..120]);
+}
+
+#[tokio::test]
 async fn tool_call_roundtrip_feeds_result_back_and_accumulates_usage() {
     let llm = MockLlm::new(vec![resp_tool("Echo", r#"{"x":1}"#, "c1"), resp("done")]);
     let reg = registry_with(vec![fake("Echo", true, "ECHOED")]);

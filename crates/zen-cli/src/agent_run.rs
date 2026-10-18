@@ -439,6 +439,19 @@ fn base_agent_config(cfg: &ResolvedConfig, cli: &Cli, system_prompt: &str) -> ze
         depth: 0,
         tool_timeouts: cfg.tool_timeouts.clone(),
         max_continuations: cfg.max_continuations,
+        prune: zen_agent::prune::PruneConfig {
+            // --no-prune wins (overrides_with makes --prune/--no-prune exclusive,
+            // so `!no_prune` is the effective default-on).
+            enabled: !cli.no_prune,
+            prune_after: cli
+                .prune_after
+                .unwrap_or(zen_agent::prune::DEFAULT_PRUNE_AFTER),
+            max_result_tokens: cli
+                .max_result_tokens
+                .map(|n| n.max(1))
+                .unwrap_or(zen_agent::prune::DEFAULT_MAX_RESULT_TOKENS),
+            ..zen_agent::prune::PruneConfig::default()
+        },
         ..Default::default()
     };
     apply_verify_settings(&mut config, cfg, false);

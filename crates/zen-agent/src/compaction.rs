@@ -149,6 +149,8 @@ pub(crate) async fn compact_impl(
     agent.messages = new_msgs;
     // Reset the API-derived token count so the next request re-measures from scratch.
     agent.last_prompt_tokens = 0;
+    // Pruning turn boundaries refer to message indices; the history was replaced.
+    agent.prune_turn_starts = vec![0];
 
     agent.sink.emit(AgentEvent::CompactBoundary {
         trigger: trigger.to_string(),

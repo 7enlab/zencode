@@ -362,6 +362,17 @@ impl zen_core::EventSink for StreamJsonSink {
                     "pre_tokens": pre_tokens,
                 }));
             }
+            AgentEvent::Pruned { pruned, tokens_saved } => {
+                let uuid = uuid::Uuid::new_v4();
+                self.emit_line(serde_json::json!({
+                    "type": "system",
+                    "subtype": "prune",
+                    "uuid": uuid.to_string(),
+                    "session_id": self.session_id,
+                    "pruned": pruned,
+                    "tokens_saved": tokens_saved,
+                }));
+            }
             AgentEvent::PermissionDenied(d) => {
                 let uuid = uuid::Uuid::new_v4();
                 self.emit_line(serde_json::json!({

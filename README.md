@@ -298,6 +298,30 @@ Verify it is working: `/cost` (or `zen cost`) shows the session's cache hit
 rate, e.g. `Prompt cache: 800 tokens served from cache (80% of input)`. If the
 hit rate is unexpectedly 0 on a paid model, something broke the prefix
 stability — that is the first thing to check.
+### Tool-result pruning
+
+In a long agent loop the cost driver is rarely the model's answers — it is the
+ever-growing input prefix replayed on every step. A 5,000-token tool result added
+on step 2 of a 15-step run is re-billed ~13 more times. Zen prunes it:
+
+- **Pruning** (on by default): tool results older than `--prune-after` turns
+  (default 5; never the last 2 turns) that are large (>=2k tokens) and whose
+  identifier (file path, command, ...) is not referenced by any later message are
+  replaced with an extractive summary: first line + token count + a
+  `[zen: pruned ...]` marker. Summaries are extractive, never rewritten — exact
+  identifiers survive byte-identical. Results whose identifier appears in the
+  current plan or recent tool calls are never pruned.
+- **Capping**: new tool results over `--max-result-tokens` tokens (default 8000)
+  are truncated with a `[zen: truncated ...]` marker and a re-read hint instead of
+  being sent whole. The session journal keeps the raw output.
+
+```bash
+./target/release/zen -p "refactor the auth module" --prune-after 3
+./target/release/zen -p "refactor the auth module" --no-prune   # disable
+```
+
+Pruning emits a `system`/`prune` stream-json event (`pruned`, `tokens_saved`) and
+`zen context` tells pruned summaries apart from live results by their marker.
 
 ## Layout
 

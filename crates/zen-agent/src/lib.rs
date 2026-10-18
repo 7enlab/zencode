@@ -48,6 +48,7 @@ pub mod compaction;
 pub mod finish;
 pub mod guard;
 pub mod plan;
+pub mod prune;
 pub mod repair;
 pub mod safety;
 mod subagent;

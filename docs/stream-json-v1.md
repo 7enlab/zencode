@@ -140,6 +140,18 @@ Emitted when the conversation is compacted (see `fixtures/stream-json/compact_bo
 | `trigger` | string | `"auto"` or `"manual"` |
 | `pre_tokens` | number | prompt tokens before compaction |
 
+### `system` / `prune`
+
+Emitted when tool-result pruning replaces old results with extractive summaries
+(not in the fixtures).
+
+| field | type | notes |
+|---|---|---|
+| `type`, `subtype` | `"system"`, `"prune"` | |
+| `uuid`, `session_id` | string | |
+| `pruned` | number | tool results replaced with summaries |
+| `tokens_saved` | number | input tokens no longer re-billed per turn |
+
 ### `stream_event`
 
 Only with `--include-partial-messages` (not in the fixtures). Text deltas while a reply streams;
