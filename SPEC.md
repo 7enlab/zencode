@@ -267,6 +267,7 @@ Status column is maintained in PLAN.md ("Parity status").
 
 ### C5 Slash commands, custom commands, skills
 - C5.1 P1 Built-ins: /help /clear /compact [focus] /config [k=v] /cost /status /model [name] /permissions /memory /init /agents /mcp /hooks /skills /resume [id] /exit, plus /context (token breakdown), /add-dir, /export (write transcript as markdown), /review (prompt template), /rename, /diff (git diff HEAD + untracked; --staged, --stat). Others P3.
+- C5.1 P1 Built-ins: /help /clear /compact [focus] /config [k=v] /cost /status /model [name] /permissions /memory /init /agents /mcp /hooks /skills /resume [id] /exit, plus /context (token breakdown), /add-dir, /export (write transcript as markdown), /review (prompt template), /rename, /btw (side question, no history). Others P3.
 - C5.2 P1 Custom commands `.zen/commands/**.md`, `~/.zen/commands/**.md` (subdir → `dir:name`), frontmatter description, argument-hint, allowed-tools, model, disable-model-invocation; `$ARGUMENTS`, `$0..$9`/`$ARGUMENTS[N]` positional, `${ZEN_SESSION_ID}`, `${ZEN_PROJECT_DIR}`, `` !`cmd` `` pre-execution, `@file` inlining.
 - C5.3 P1 Skills `.zen/skills/<name>/SKILL.md`, `~/.zen/skills/...`; frontmatter name, description, allowed-tools, disable-model-invocation (not listed for the model), user-invocable (false → hidden from `/`), argument-hint, model; skills and commands share `/name`, skill wins; `${ZEN_SKILL_DIR}`.
 - C5.4 P1 In -p, `/name args` as the prompt is expanded; terminal-only built-ins unavailable; `/model x`, `/compact`, `/cost`, `/mcp` work.

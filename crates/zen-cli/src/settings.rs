@@ -10,6 +10,9 @@ pub const DEFAULT_MAX_TURNS: usize = 50;
 #[derive(Debug, Clone)]
 pub struct ResolvedConfig {
     pub model: String,
+    /// Model override for `/btw` side questions (`--btw-model` / `btw.model` setting);
+    /// `None` means the session model is used.
+    pub btw_model: Option<String>,
     pub base_url: String,
     pub api_key: Option<String>,
     /// Name of the env var the API key was resolved from (`apiKeyEnv` setting);
@@ -362,6 +365,10 @@ pub fn resolve_config_with_home(
     }
 
     let raw_model = resolve_model(cli, merged.model.as_deref());
+    let btw_model = cli
+        .btw_model
+        .clone()
+        .or_else(|| crate::btw::settings_btw_model(&merged.extra));
     // Named-provider routing: a `provider/model` value (e.g. `zai/glm-5.2`)
     // routes directly to that provider's API (see zen_agent::providers) --
     // but ONLY when the provider's key env var is set. Otherwise the `/`
@@ -462,6 +469,7 @@ pub fn resolve_config_with_home(
 
     Ok(ResolvedConfig {
         model,
+        btw_model,
         base_url,
         api_key,
         api_key_env: merged.api_key_env.clone(),

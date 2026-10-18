@@ -163,6 +163,11 @@ pub struct Cli {
     #[arg(long = "model")]
     pub model: Option<String>,
 
+    /// Model for `/btw` side questions (a cheap model is recommended);
+    /// defaults to the session model
+    #[arg(long = "btw-model")]
+    pub btw_model: Option<String>,
+
     /// OpenAI-compatible endpoint base URL
     #[arg(long = "base-url")]
     pub base_url: Option<String>,

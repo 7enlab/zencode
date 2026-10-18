@@ -458,6 +458,30 @@ async fn handle_slash(
                 println!("model set to {}", arg);
             }
         }
+        "/btw" => {
+            if arg.is_empty() {
+                println!("usage: /btw <question> \u{2014} ask a quick side question; the main conversation is untouched");
+            } else {
+                // Side question: minimal context (short system prompt + question only), no
+                // tools, and the main agent history is never modified \u2014 so the transcript
+                // is untouched too. A cheap model keeps it cheap: --btw-model, or the
+                // `btw.model` setting; otherwise the session model is used.
+                let model = cfg
+                    .btw_model
+                    .clone()
+                    .unwrap_or_else(|| agent.config.model.clone());
+                match crate::btw::run_btw(&agent.llm, &model, &arg).await {
+                    Ok(answer) => {
+                        if answer.trim().is_empty() {
+                            println!("(no answer)");
+                        } else {
+                            println!("{}", answer.trim_end());
+                        }
+                    }
+                    Err(e) => eprintln!("btw failed: {:#}", e),
+                }
+            }
+        }
         "/cost" => println!("{}", commands::cost_report(&agent.usage, &agent.config.model, &cfg.base_url)),
         "/quota" => {
             let store = home.map(zen_agent::RateGate::default_store_path);

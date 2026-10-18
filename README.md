@@ -107,6 +107,19 @@ untracked files (parity with Claude Code and Codex CLI, which both ship `/diff`)
 
 Output is colored when stdout is a terminal and `NO_COLOR` is unset. Outside a git repo it
 prints a hint instead of failing.
+### `/btw` side questions
+
+`/btw <question>` asks the model a quick side question without disturbing the main
+conversation: only a short system prompt and the question are sent (never the session
+history), no tools are offered, and nothing is written to the transcript.
+
+```text
+> /btw what does exit code 137 mean?
+Out of memory — the process was killed (OOM).
+```
+
+Keep it cheap with a small model: `--btw-model <name>` or the `btw.model` setting
+(`{"btw": {"model": "org/tiny-model"}}` in settings); otherwise the session model is used.
 
 ### Folder trust
 
