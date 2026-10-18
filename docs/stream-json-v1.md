@@ -186,7 +186,7 @@ Always the last line.
 | `result` | string | final assistant text (continuations stitched), or the error text |
 | `session_id` | string | |
 | `total_cost_usd` | number | currently always `0.0` |
-| `usage` | `{input_tokens, output_tokens}` | summed over the turn |
+| `usage` | `{input_tokens, output_tokens, cache_read_input_tokens}` | summed over the turn; `cache_read_input_tokens` is the input served from the provider prompt cache (Anthropic `cache_control` / OpenAI automatic caching), 0 when unsupported |
 | `model` | string | |
 | `permission_denials` | `{tool_name, tool_use_id, tool_input}`[] | |
 | `uuid` | string | |

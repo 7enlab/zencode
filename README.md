@@ -263,6 +263,41 @@ missing `~/.zen/ZEN.md`. Files support `@path` imports (max 4 hops, cycles safe)
 - `/init` — scaffold (or improve) the project `ZEN.md`. If `CLAUDE.md`/`AGENTS.md` files
   written for other agents are found, zen offers to import their content into the new
   `ZEN.md` (migration path for Claude Code/Codex switchers).
+## Prompt caching (paid models)
+
+In a long agent loop the cost driver is rarely the model's answers — it is the
+ever-growing input prefix (system prompt + tool schemas) replayed on every turn.
+Zen ships prompt caching for paid models, on by default, with zero configuration:
+
+- **Anthropic** (`--base-url https://api.anthropic.com`): explicit
+  `cache_control: {"type": "ephemeral"}` breakpoints after the tool definitions
+  and after the stable system block. Cache reads are billed at **10% of the
+  input price** (90% off); the 5-minute TTL refreshes on every read, so an active
+  session stays warm.
+- **OpenAI**: automatic — any stable prompt prefix >= 1,024 tokens is served from
+  cache at 90% off, no code changes. Zen keeps the prefix stable so hits happen.
+- **Gemini / DeepSeek**: implicit/best-effort caching benefits from the same
+  stable-prefix discipline, free.
+
+Measured savings on real agent trajectories: **-49% to -80% token cost**
+(LangChain Deep Agents eval), **25-35% off the total bill** in production.
+
+How zen keeps the cache hot:
+
+1. **Cache-aware prompt ordering** — the system prompt is assembled
+   stable-first: role, project snapshot, memory, skills. The volatile
+   environment block (date, git branch/status) goes *last*, after an internal
+   marker, so it never poisons the cached prefix.
+2. **Stable tool bundles** — tool definitions are sent in the same order every
+   turn. Recomposing the tool list per request would silently invalidate the
+   cache (Anthropic caches tools before everything else).
+3. **No volatile values in the prefix** — a CI test fails the build if today's
+   date or a request id ever leaks into the cacheable prefix.
+
+Verify it is working: `/cost` (or `zen cost`) shows the session's cache hit
+rate, e.g. `Prompt cache: 800 tokens served from cache (80% of input)`. If the
+hit rate is unexpectedly 0 on a paid model, something broke the prefix
+stability — that is the first thing to check.
 
 ## Layout
 

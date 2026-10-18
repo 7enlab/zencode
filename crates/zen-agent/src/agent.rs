@@ -659,6 +659,7 @@ impl Agent {
 
             self.usage.input_tokens += resp.usage.prompt_tokens;
             self.usage.output_tokens += resp.usage.completion_tokens;
+            self.usage.cache_read_input_tokens += resp.usage.cache_read_input_tokens;
             self.last_prompt_tokens = resp.usage.prompt_tokens;
 
             let mut resp = resp;

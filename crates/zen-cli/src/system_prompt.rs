@@ -2,10 +2,17 @@
 //! skills list and user-provided text (SPEC §3).
 //!
 //! Assembly order matters and mirrors what the model is expected to see: the role prompt first
-//! (replaced entirely by `--system-prompt`), then a short environment block (cwd, OS, date, git),
-//! then the project snapshot (`envsnap.rs`), then project memory (`ZEN.md`) and the available skills list, and finally any
-//! `--append-system-prompt` text. `--bare` suppresses the snapshot/memory/skills/id sections so a scripted
+//! (replaced entirely by `--system-prompt`), then the project snapshot (`envsnap.rs`),
+//! then project memory (`ZEN.md`) and the available skills list, then any
+//! `--append-system-prompt` text, and finally a short environment block (cwd, OS, date, git).
+//! `--bare` suppresses the snapshot/memory/skills/id sections so a scripted
 //! run is reproducible.
+//!
+//! Cache-aware ordering: everything before [`zen_core::CACHE_VOLATILE_MARKER`] is the
+//! *stable* prefix and must be byte-identical across turns of a session so provider
+//! prompt caches (Anthropic `cache_control`, OpenAI automatic caching) can hit.
+//! The environment block is volatile (it carries the current date and git
+//! branch/status) and rides last, after the marker, so it never breaks the cache.
 
 use crate::cli::Cli;
 use anyhow::Result;
@@ -47,9 +54,6 @@ pub fn build_system_prompt(cli: &Cli, cwd: &Path, home: Option<&Path>) -> Result
         None => parts.push(DEFAULT_SYSTEM_PROMPT.to_string()),
     }
 
-    // Environment block.
-    parts.push(environment_block(cwd));
-
     if !cli.bare {
         // Project snapshot (tree, build/test commands, toolchains), computed once per session
         // so the prompt prefix stays cache-stable (r7).
@@ -78,7 +82,16 @@ pub fn build_system_prompt(cli: &Cli, cwd: &Path, home: Option<&Path>) -> Result
         }
     }
 
-    Ok(parts.join("\n\n"))
+    // Cache-aware ordering: the stable content (role, snapshot, memory, skills)
+    // comes first so it is byte-identical across turns and provider prompt
+    // caches can hit; the volatile environment block (date, git branch/status)
+    // goes last, after the marker, so it never poisons the cached prefix.
+    Ok(format!(
+        "{}{}{}",
+        parts.join("\n\n"),
+        zen_core::CACHE_VOLATILE_MARKER,
+        environment_block(cwd)
+    ))
 }
 
 /// The `Environment:` block appended to every system prompt. Public so callers that replace
@@ -118,6 +131,38 @@ mod tests {
         assert!(p.contains("zen"));
         assert!(p.contains("working directory: /tmp"));
         assert!(p.contains("date:"));
+    }
+
+    /// Anti-pattern guard: the stable (cacheable) system-prompt prefix must never
+    /// contain volatile values (today's date, request ids, timestamps). A single
+    /// changing byte in the prefix silently invalidates the provider prompt cache
+    /// for the whole session.
+    #[test]
+    fn stable_prefix_contains_no_volatile_values() {
+        let c = cli(&["--bare"]);
+        let p = build_system_prompt(&c, Path::new("/tmp"), None).unwrap();
+        let (stable, volatile) = zen_core::split_stable_volatile(&p);
+        assert!(p.contains(zen_core::CACHE_VOLATILE_MARKER), "prompt must carry the volatile marker");
+        assert!(!volatile.is_empty(), "environment block must be present after the marker");
+        // Today's date lives in the volatile tail, never in the stable prefix.
+        let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+        assert!(!stable.contains(&today), "stable prefix leaks today's date — cache killer");
+        assert!(volatile.contains(&today), "volatile tail should carry the date");
+        // Stable prefix is time-invariant: two builds must agree byte-for-byte.
+        let p2 = build_system_prompt(&c, Path::new("/tmp"), None).unwrap();
+        let (stable2, _) = zen_core::split_stable_volatile(&p2);
+        assert_eq!(stable, stable2, "stable prefix must be deterministic across builds");
+    }
+
+    #[test]
+    fn volatile_block_comes_last() {
+        // Cache-aware ordering: the model still sees the environment, but only
+        // after the stable content, so the cacheable prefix is maximal.
+        let c = cli(&["--bare"]);
+        let p = build_system_prompt(&c, Path::new("/tmp"), None).unwrap();
+        let env_pos = p.find("Environment:").expect("env block present");
+        let marker_pos = p.find(zen_core::CACHE_VOLATILE_MARKER).expect("marker present");
+        assert!(marker_pos < env_pos, "environment block must come after the volatile marker");
     }
 
     #[test]

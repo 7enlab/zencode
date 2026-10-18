@@ -64,11 +64,19 @@ impl ResolvedConfig {
         self.api_key.as_deref()
     }
 
-    /// An OpenAI-compatible client for this config, with the `retry.maxWaitSecs` budget applied.
-    pub fn llm_client(&self, sink: std::sync::Arc<dyn zen_core::EventSink>) -> zen_agent::OpenAiClient {
-        let mut c = zen_agent::OpenAiClient::new(self.base_url.clone(), self.api_key.clone(), sink);
-        c.max_total_wait_ms = self.retry_max_wait_secs.saturating_mul(1000);
-        c
+    /// The LLM backend for this config, with the `retry.maxWaitSecs` budget applied.
+    /// Anthropic base URLs get [`zen_agent::AnthropicClient`] (Messages API with
+    /// prompt caching); everything else gets the OpenAI-compatible client.
+    pub fn llm_client(
+        &self,
+        sink: std::sync::Arc<dyn zen_core::EventSink>,
+    ) -> std::sync::Arc<dyn zen_core::LlmBackend> {
+        zen_agent::make_backend(
+            self.base_url.clone(),
+            self.api_key.clone(),
+            sink,
+            self.retry_max_wait_secs.saturating_mul(1000),
+        )
     }
 
     /// Settings for a [`zen_agent::RateGate`] wrapping this config's client.
@@ -91,7 +99,7 @@ impl ResolvedConfig {
         let (settings, store_path) =
             self.rate_gate_for(home);
         std::sync::Arc::new(zen_agent::RateGate::new(
-            std::sync::Arc::new(client),
+            client,
             self.base_url.clone(),
             settings,
             store_path,

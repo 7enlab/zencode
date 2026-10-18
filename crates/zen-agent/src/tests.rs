@@ -1173,7 +1173,7 @@ async fn budget_warns_once_at_threshold_then_stays_quiet() {
     cfg.budget = Some(BudgetPolicy { max_budget_usd: 1.0, warn_at: 0.5 });
     let (mut agent, sink, _h) = build_agent(llm.clone(), ToolRegistry::new(), allow(), cfg);
     // 200k input tokens of gpt-4o @ $2.50/1M = $0.50 = warn threshold.
-    agent.usage = UsageStats { input_tokens: 200_000, output_tokens: 0 };
+    agent.usage = UsageStats { input_tokens: 200_000, output_tokens: 0, ..Default::default() };
     let r = agent.run_turn("hi").await;
     assert_eq!(r.subtype, "success");
     assert!(agent.budget_warned, "warn-once flag must be set");

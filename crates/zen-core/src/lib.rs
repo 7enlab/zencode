@@ -79,6 +79,23 @@ pub struct Usage {
     pub completion_tokens: u64,
     #[serde(default)]
     pub total_tokens: u64,
+    /// Anthropic `usage.cache_read_input_tokens` / OpenAI
+    /// `usage.prompt_tokens_details.cached_tokens`: input tokens served from the
+    /// provider's prompt cache (billed at ~10% of the normal input price).
+    #[serde(default)]
+    pub cache_read_input_tokens: u64,
+    /// Anthropic `usage.cache_creation_input_tokens`: tokens written to the prompt
+    /// cache on this request (billed at a 1.25x premium; only the first write).
+    #[serde(default)]
+    pub cache_creation_input_tokens: u64,
+}
+
+/// Fraction of input tokens served from the prompt cache (0.0 when unknown).
+pub fn cache_hit_rate(cache_read_input_tokens: u64, prompt_tokens: u64) -> f64 {
+    if prompt_tokens == 0 {
+        return 0.0;
+    }
+    (cache_read_input_tokens as f64 / prompt_tokens as f64).min(1.0)
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -457,10 +474,40 @@ pub trait ToolJournal: Send + Sync {
 
 // ───────────────────────────── results ─────────────────────────────
 
+/// Marker separating the stable (cacheable) system-prompt prefix from the volatile
+/// tail. Everything before the marker must be byte-identical across turns of a
+/// session so provider prompt caches (Anthropic `cache_control`, OpenAI automatic
+/// caching) can hit; everything after it (date, git branch/status, request ids)
+/// changes per turn or per day and must never be part of the cached prefix.
+///
+/// `zen-cli` assembles the system prompt as `stable + MARKER + volatile`;
+/// `zen-agent`'s Anthropic request builder splits on it to place cache breakpoints.
+pub const CACHE_VOLATILE_MARKER: &str = "\n\n<!-- zen-cache: volatile context below -->\n\n";
+
+/// Split a system prompt into `(stable, volatile)` at [`CACHE_VOLATILE_MARKER`].
+/// When the marker is absent the whole prompt is stable and volatile is empty.
+pub fn split_stable_volatile(prompt: &str) -> (&str, &str) {
+    match prompt.split_once(CACHE_VOLATILE_MARKER) {
+        Some((stable, volatile)) => (stable, volatile),
+        None => (prompt, ""),
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct UsageStats {
     pub input_tokens: u64,
     pub output_tokens: u64,
+    /// Accumulated [`Usage::cache_read_input_tokens`]: input tokens served from the
+    /// provider prompt cache across the session.
+    #[serde(default)]
+    pub cache_read_input_tokens: u64,
+}
+
+impl UsageStats {
+    /// Fraction of this session's input tokens served from the prompt cache.
+    pub fn cache_hit_rate(&self) -> f64 {
+        cache_hit_rate(self.cache_read_input_tokens, self.input_tokens)
+    }
 }
 
 /// The final `{"type":"result",...}` object (SPEC §14).
@@ -807,5 +854,52 @@ mod tests {
         assert!(!is_wsl_launcher(Path::new(r"C:\Windows\System32\cmd.exe"), root));
         assert!(!is_wsl_launcher(Path::new(r"C:\WindowsApps\bash.exe"), root));
         assert!(!is_wsl_launcher(Path::new(r"C:\Windows\System32\bash.exe"), None));
+    }
+}
+
+#[cfg(test)]
+mod cache_tests {
+    use super::*;
+
+    #[test]
+    fn split_stable_volatile_with_marker() {
+        let p = format!("stable{}volatile", CACHE_VOLATILE_MARKER);
+        let (s, v) = split_stable_volatile(&p);
+        assert_eq!(s, "stable");
+        assert_eq!(v, "volatile");
+    }
+
+    #[test]
+    fn split_stable_volatile_without_marker_is_all_stable() {
+        let (s, v) = split_stable_volatile("just a prompt");
+        assert_eq!(s, "just a prompt");
+        assert_eq!(v, "");
+    }
+
+    #[test]
+    fn cache_hit_rate_math() {
+        assert_eq!(cache_hit_rate(0, 0), 0.0);
+        assert_eq!(cache_hit_rate(0, 100), 0.0);
+        assert!((cache_hit_rate(75, 100) - 0.75).abs() < 1e-9);
+        // Clamp: never report >100% even on provider rounding quirks.
+        assert_eq!(cache_hit_rate(150, 100), 1.0);
+    }
+
+    #[test]
+    fn usage_stats_cache_hit_rate() {
+        let u = UsageStats { input_tokens: 1000, output_tokens: 10, cache_read_input_tokens: 900 };
+        assert!((u.cache_hit_rate() - 0.9).abs() < 1e-9);
+        assert_eq!(UsageStats::default().cache_hit_rate(), 0.0);
+    }
+
+    #[test]
+    fn usage_deserializes_old_json_without_cache_fields() {
+        // Additive change: transcripts/usage records written before caching
+        // existed must still load (fields default to 0).
+        let u: Usage = serde_json::from_str(r#"{"prompt_tokens":5,"completion_tokens":2,"total_tokens":7}"#).unwrap();
+        assert_eq!(u.cache_read_input_tokens, 0);
+        assert_eq!(u.cache_creation_input_tokens, 0);
+        let s: UsageStats = serde_json::from_str(r#"{"input_tokens":5,"output_tokens":2}"#).unwrap();
+        assert_eq!(s.cache_read_input_tokens, 0);
     }
 }

@@ -851,6 +851,9 @@ fn persist_usage(
     let delta = zen_core::UsageStats {
         input_tokens: after.input_tokens.saturating_sub(before.input_tokens),
         output_tokens: after.output_tokens.saturating_sub(before.output_tokens),
+        cache_read_input_tokens: after
+            .cache_read_input_tokens
+            .saturating_sub(before.cache_read_input_tokens),
     };
     if delta == zen_core::UsageStats::default() {
         return;

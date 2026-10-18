@@ -577,7 +577,7 @@ mod tests {
             result: "ok".into(),
             session_id: "sid".into(),
             total_cost_usd: 0.0,
-            usage: zen_core::UsageStats { input_tokens: 5, output_tokens: 2 },
+            usage: zen_core::UsageStats { input_tokens: 5, output_tokens: 2, cache_read_input_tokens: 0 },
             model: "m".into(),
             permission_denials: vec![],
         };

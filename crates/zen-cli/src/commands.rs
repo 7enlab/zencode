@@ -131,7 +131,17 @@ pub fn cost_report(usage: &zen_core::UsageStats, model: &str, base_url: &str) ->
         timestamp: String::new(),
     };
     let summary = crate::cost::summarize("current session", std::slice::from_ref(&entry));
-    crate::cost::render_text(&summary)
+    let mut s = crate::cost::render_text(&summary);
+    // Cache-hit observability (#49): on paid models cached input tokens are billed at
+    // ~10% of the normal price (Anthropic `cache_control`, OpenAI automatic caching).
+    if usage.input_tokens > 0 && usage.cache_read_input_tokens > 0 {
+        s.push_str(&format!(
+            "\nPrompt cache: {} tokens served from cache ({:.0}% of input) — ~90% cheaper on paid models",
+            usage.cache_read_input_tokens,
+            usage.cache_hit_rate() * 100.0
+        ));
+    }
+    s
 }
 
 /// `/export`: the conversation as markdown (system messages left out).
@@ -683,4 +693,21 @@ mod tests {
         assert_eq!(cmds[0].name, "test");
         assert_eq!(cmds[0].body, "Run: $1");
     }
+
+    #[test]
+    fn cost_report_shows_cache_hit_rate_when_cached() {
+        let u = zen_core::UsageStats { input_tokens: 1000, output_tokens: 50, cache_read_input_tokens: 800 };
+        let r = cost_report(&u);
+        assert!(r.contains("1000 input"), "{}", r);
+        assert!(r.contains("Prompt cache: 800 tokens served from cache (80% of input)"), "{}", r);
+    }
+
+    #[test]
+    fn cost_report_omits_cache_line_when_unsupported() {
+        // Providers without prompt caching report 0 cached tokens: no noise.
+        let u = zen_core::UsageStats { input_tokens: 100, output_tokens: 5, cache_read_input_tokens: 0 };
+        let r = cost_report(&u);
+        assert!(!r.contains("Prompt cache"), "{}", r);
+    }
 }
+

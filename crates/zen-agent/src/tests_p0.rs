@@ -98,6 +98,8 @@ fn multi_call(calls: &[(&str, &str)]) -> ChatResponse {
             prompt_tokens: 20,
             completion_tokens: 8,
             total_tokens: 28,
+            cache_read_input_tokens: 0,
+            cache_creation_input_tokens: 0,
         },
         finish_reason: Some("tool_calls".into()),
     }

@@ -441,7 +441,7 @@ mod tests {
                     }]
                 }),
             ),
-            usage: Usage { prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 },
+            usage: Usage { prompt_tokens: 10, completion_tokens: 2, total_tokens: 12, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
             finish_reason: Some("stop".into()),
         }
     }

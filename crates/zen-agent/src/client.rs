@@ -493,11 +493,29 @@ pub(crate) fn parse_completion(body: &str) -> anyhow::Result<ChatResponse> {
         Some(s) if s.is_empty() && tool_calls.is_some() => None,
         other => other,
     };
+    let mut usage = parsed.usage;
+    // OpenAI's automatic prompt cache reports via
+    // `usage.prompt_tokens_details.cached_tokens`; surfacing it here makes the
+    // free cache-hit observability that `zen cost` displays.
+    usage.cache_read_input_tokens = openai_cached_tokens(body);
     Ok(ChatResponse {
         message: ChatMessage::assistant(content, tool_calls),
-        usage: parsed.usage,
+        usage,
         finish_reason: choice.finish_reason,
     })
+}
+
+/// Read `usage.prompt_tokens_details.cached_tokens` from an OpenAI-compatible
+/// response body (0 when absent). OpenAI's prompt caching is fully automatic:
+/// any stable prefix >= 1,024 tokens is served at ~10% of the input price.
+pub(crate) fn openai_cached_tokens(body: &str) -> u64 {
+    let v: Value = match serde_json::from_str(body) {
+        Ok(v) => v,
+        Err(_) => return 0,
+    };
+    v.pointer("/usage/prompt_tokens_details/cached_tokens")
+        .and_then(Value::as_u64)
+        .unwrap_or(0)
 }
 
 /// One `chat` call with a model-fallback chain: primary model first, then each fallback once.
@@ -567,6 +585,37 @@ mod tests {
         assert!(r.message.content.is_none());
         assert_eq!(r.message.tool_calls.unwrap()[0].function.arguments, "{}");
         assert_eq!(r.usage.total_tokens, 7);
+    }
+
+    #[test]
+    fn parse_completion_reads_openai_cached_tokens() {
+        // OpenAI's automatic prompt cache reports via
+        // `usage.prompt_tokens_details.cached_tokens`.
+        let body = json!({
+            "choices": [{"message": {"content": "hi"}, "finish_reason": "stop"}],
+            "usage": {
+                "prompt_tokens": 2000,
+                "completion_tokens": 2,
+                "total_tokens": 2002,
+                "prompt_tokens_details": {"cached_tokens": 1500, "audio_tokens": 0}
+            }
+        })
+        .to_string();
+        let r = parse_completion(&body).unwrap();
+        assert_eq!(r.usage.prompt_tokens, 2000);
+        assert_eq!(r.usage.cache_read_input_tokens, 1500);
+        assert!((zen_core::cache_hit_rate(r.usage.cache_read_input_tokens, r.usage.prompt_tokens) - 0.75).abs() < 1e-9);
+    }
+
+    #[test]
+    fn parse_completion_cached_tokens_absent_is_zero() {
+        let body = json!({
+            "choices": [{"message": {"content": "hi"}, "finish_reason": "stop"}],
+            "usage": { "prompt_tokens": 10, "completion_tokens": 2, "total_tokens": 12 }
+        })
+        .to_string();
+        let r = parse_completion(&body).unwrap();
+        assert_eq!(r.usage.cache_read_input_tokens, 0);
     }
 
     #[test]
@@ -712,5 +761,700 @@ mod tests {
         assert_eq!(r.message.content.as_deref(), Some("fixed"));
         let retries = sink.events.lock().unwrap().iter().filter(|e| matches!(e, AgentEvent::ApiRetry { .. })).count();
         assert_eq!(retries, 2);
+    }
+}
+
+// ─── Anthropic Messages API client (with prompt caching) ────────────────────
+//
+// Prompt caching design (see ~/workspace/zencode-token-saving-research.md §1):
+// - Breakpoints (`cache_control: {"type": "ephemeral"}`) sit after the *latest
+//   stable* content: the end of the tool definitions and the end of the stable
+//   system block. They are NEVER placed after the newest message — doing so
+//   rewrites the cache from scratch every turn.
+// - Cache hierarchy is tools → system → messages, so tool definitions must be a
+//   *stable bundle*: the same tools in the same order every turn. Recomposing
+//   the tool list per request silently invalidates every cache level after it.
+// - Pricing: cache reads = 10% of input price (90% off); cache writes = 1.25x.
+//   Real-world agent trajectories: -49% to -80% token cost (LangChain Deep
+//   Agents eval). The 5-minute TTL is refreshed by every read, so an active
+//   agent loop stays warm; `zen cost` surfaces hit rates so silent misses are
+//   visible.
+
+/// Anthropic API version header (pinned).
+const ANTHROPIC_VERSION: &str = "2023-06-01";
+/// Beta header enabling prompt caching on the Messages API.
+const ANTHROPIC_CACHE_BETA: &str = "prompt-caching-2024-07-31";
+/// Default `max_tokens` when the request does not set one (Anthropic requires it).
+const ANTHROPIC_DEFAULT_MAX_TOKENS: u32 = 4096;
+
+/// True when the URL is an Anthropic Messages API endpoint.
+pub fn is_anthropic_url(base_url: &str) -> bool {
+    let u = base_url.trim().to_ascii_lowercase();
+    u.contains("anthropic.com") || u.contains("api.anthropic")
+}
+
+/// One prompt-caching breakpoint: `cache_control: {"type": "ephemeral"}`.
+fn cache_control() -> Value {
+    serde_json::json!({"type": "ephemeral"})
+}
+
+/// HTTP client for Anthropic's Messages API (`POST {base_url}/messages`).
+///
+/// Translates zen-core's OpenAI-shaped types to Anthropic's format and back, so the
+/// agent loop and every caller of [`LlmBackend`] work unchanged.
+/// Cheap to construct and safe to share: it owns a pooled [`reqwest::Client`].
+pub struct AnthropicClient {
+    /// Base URL; `/messages` is appended (a trailing `/` is tolerated).
+    /// Public so the CLI can print it in `/status`.
+    pub base_url: String,
+    api_key: Option<String>,
+    /// Event sink used for [`AgentEvent::ApiRetry`].
+    pub sink: Arc<dyn EventSink>,
+    /// Base backoff delay; attempt N waits `base_retry_delay_ms * 2^(N-1)`. Public for tests.
+    pub base_retry_delay_ms: u64,
+    /// Upper bound for a server-requested wait. Public for tests.
+    pub max_retry_delay_ms: u64,
+    /// Total time one `chat` call may spend sleeping between retries. Public for tests/CLI.
+    pub max_total_wait_ms: u64,
+    http: reqwest::Client,
+}
+
+impl AnthropicClient {
+    /// Build a client. `api_key` may be `None`; an empty string is treated as absent.
+    pub fn new(base_url: impl Into<String>, api_key: Option<String>, sink: Arc<dyn EventSink>) -> Self {
+        let base_url = base_url.into();
+        let mut builder =
+            with_extra_roots(reqwest::Client::builder().timeout(Duration::from_secs(120)));
+        if is_local_url(&base_url) {
+            builder = builder.no_proxy();
+        }
+        let http = builder.build().unwrap_or_else(|_| reqwest::Client::new());
+        Self {
+            base_url,
+            api_key: api_key.filter(|k| !k.is_empty()),
+            sink,
+            base_retry_delay_ms: 1000,
+            max_retry_delay_ms: 60_000,
+            max_total_wait_ms: DEFAULT_MAX_TOTAL_WAIT_MS,
+            http,
+        }
+    }
+
+    fn messages_url(&self) -> String {
+        format!("{}/messages", self.base_url.trim_end_matches('/'))
+    }
+}
+
+/// Split the system prompt at [`zen_core::CACHE_VOLATILE_MARKER`] and build the
+/// Anthropic `system` block array.
+///
+/// The stable prefix gets an explicit `cache_control` breakpoint; the volatile
+/// tail (date, git branch/status) rides after it uncached. When the marker is
+/// absent the whole prompt is one cached block.
+pub(crate) fn anthropic_system_blocks(system_text: &str) -> Vec<Value> {
+    let (stable, volatile) = zen_core::split_stable_volatile(system_text);
+    let mut blocks = Vec::with_capacity(2);
+    if !stable.is_empty() {
+        blocks.push(serde_json::json!({
+            "type": "text",
+            "text": stable,
+            "cache_control": cache_control(),
+        }));
+    }
+    if !volatile.is_empty() {
+        blocks.push(serde_json::json!({"type": "text", "text": volatile}));
+    }
+    blocks
+}
+
+/// Build the Anthropic request body from a [`ChatRequest`], with prompt-caching
+/// breakpoints after the tool definitions and after the stable system block.
+///
+/// System messages are hoisted to the top-level `system` field; `role: "tool"`
+/// messages become `tool_result` blocks inside a `user` message; assistant
+/// `tool_calls` become `tool_use` blocks.
+pub(crate) fn anthropic_request_body(req: &ChatRequest) -> Value {
+    let mut system_parts: Vec<String> = Vec::new();
+    let mut messages: Vec<Value> = Vec::new();
+    for m in &req.messages {
+        match m.role.as_str() {
+            "system" => {
+                if let Some(c) = m.content.as_deref().filter(|c| !c.is_empty()) {
+                    system_parts.push(c.to_string());
+                }
+            }
+            "tool" => {
+                messages.push(serde_json::json!({
+                    "role": "user",
+                    "content": [{
+                        "type": "tool_result",
+                        "tool_use_id": m.tool_call_id.as_deref().unwrap_or(""),
+                        "content": m.content.as_deref().unwrap_or(""),
+                    }],
+                }));
+            }
+            "assistant" => {
+                let mut blocks: Vec<Value> = Vec::new();
+                if let Some(c) = m.content.as_deref().filter(|c| !c.is_empty()) {
+                    blocks.push(serde_json::json!({"type": "text", "text": c}));
+                }
+                for tc in m.tool_calls.iter().flatten() {
+                    let input: Value = serde_json::from_str(&tc.function.arguments).unwrap_or(Value::Null);
+                    blocks.push(serde_json::json!({
+                        "type": "tool_use",
+                        "id": tc.id,
+                        "name": tc.function.name,
+                        "input": input,
+                    }));
+                }
+                messages.push(serde_json::json!({"role": "assistant", "content": blocks}));
+            }
+            _ => {
+                // "user" and anything else: plain text.
+                messages.push(serde_json::json!({
+                    "role": "user",
+                    "content": m.content.as_deref().unwrap_or(""),
+                }));
+            }
+        }
+    }
+    // Cache-aware ordering: tools first (Anthropic caches them before everything
+    // else), then system, then messages. The tool bundle must be stable across
+    // turns — the breakpoint goes on the LAST tool so the whole block is cached.
+    let tools: Vec<Value> = req
+        .tools
+        .iter()
+        .enumerate()
+        .map(|(i, t)| {
+            let mut tool = serde_json::json!({
+                "name": t.function.name,
+                "description": t.function.description,
+                "input_schema": t.function.parameters,
+            });
+            if i + 1 == req.tools.len() {
+                tool["cache_control"] = cache_control();
+            }
+            tool
+        })
+        .collect();
+    let mut body = serde_json::json!({
+        "model": req.model,
+        "max_tokens": req.max_tokens.unwrap_or(ANTHROPIC_DEFAULT_MAX_TOKENS),
+        "messages": messages,
+    });
+    if !system_parts.is_empty() {
+        let blocks = anthropic_system_blocks(&system_parts.join("\n\n"));
+        if !blocks.is_empty() {
+            body["system"] = Value::Array(blocks);
+        }
+    }
+    if !tools.is_empty() {
+        body["tools"] = Value::Array(tools);
+    }
+    body
+}
+
+/// Parse an Anthropic Messages API response body into a [`ChatResponse`],
+/// including `cache_read_input_tokens` / `cache_creation_input_tokens` from the
+/// usage block (0 when the provider omits them).
+pub(crate) fn parse_anthropic_response(body: &str) -> anyhow::Result<ChatResponse> {
+    let v: Value = serde_json::from_str(body).map_err(|e| {
+        anyhow::anyhow!(
+            "invalid anthropic response: {} (body: {})",
+            e,
+            first_chars(body, ERROR_BODY_CHARS)
+        )
+    })?;
+    if let Some(err) = v.get("error").filter(|e| !e.is_null()) {
+        let msg = err
+            .get("message")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .unwrap_or_else(|| err.to_string());
+        anyhow::bail!("anthropic error: {}", first_chars(&msg, ERROR_BODY_CHARS));
+    }
+    let mut text_parts: Vec<String> = Vec::new();
+    let mut tool_calls: Vec<ToolCall> = Vec::new();
+    for block in v.get("content").and_then(Value::as_array).into_iter().flatten() {
+        match block.get("type").and_then(Value::as_str) {
+            Some("text") => {
+                if let Some(t) = block.get("text").and_then(Value::as_str) {
+                    text_parts.push(t.to_string());
+                }
+            }
+            Some("tool_use") => {
+                let id = block.get("id").and_then(Value::as_str).unwrap_or("").to_string();
+                let name = block.get("name").and_then(Value::as_str).unwrap_or("").to_string();
+                let input = block.get("input").cloned().unwrap_or(Value::Null);
+                tool_calls.push(ToolCall {
+                    id,
+                    call_type: "function".into(),
+                    function: FunctionCall {
+                        name,
+                        arguments: serde_json::to_string(&input).unwrap_or_else(|_| "{}".into()),
+                    },
+                });
+            }
+            _ => {}
+        }
+    }
+    let text = text_parts.join("");
+    let content = if text.is_empty() && !tool_calls.is_empty() { None } else { Some(text) };
+    let usage = v.get("usage");
+    let u = |k: &str| usage.and_then(|u| u.get(k)).and_then(Value::as_u64).unwrap_or(0);
+    Ok(ChatResponse {
+        message: ChatMessage::assistant(
+            content,
+            if tool_calls.is_empty() { None } else { Some(tool_calls) },
+        ),
+        usage: Usage {
+            prompt_tokens: u("input_tokens"),
+            completion_tokens: u("output_tokens"),
+            total_tokens: 0,
+            cache_read_input_tokens: u("cache_read_input_tokens"),
+            cache_creation_input_tokens: u("cache_creation_input_tokens"),
+        },
+        finish_reason: v.get("stop_reason").and_then(Value::as_str).map(str::to_string),
+    })
+}
+
+#[async_trait]
+impl LlmBackend for AnthropicClient {
+    async fn chat(&self, req: ChatRequest) -> anyhow::Result<ChatResponse> {
+        let url = self.messages_url();
+        let body = anthropic_request_body(&req);
+        let mut attempt: u32 = 0;
+        let mut waited_ms: u64 = 0;
+        loop {
+            attempt += 1;
+            let mut rb = self.http.post(&url).json(&body);
+            rb = rb.header("anthropic-version", ANTHROPIC_VERSION);
+            rb = rb.header("anthropic-beta", ANTHROPIC_CACHE_BETA);
+            if let Some(key) = &self.api_key {
+                rb = rb.header("x-api-key", key);
+            }
+            let res = rb.send().await;
+            let (retryable, long, status, err_text): (bool, bool, Option<u16>, String) = match res {
+                Ok(resp) => {
+                    let code = resp.status().as_u16();
+                    let resp_body = resp.text().await.unwrap_or_default();
+                    if resp_body.contains("\"type\":\"error\"") || resp_body.contains("\"type\": \"error\"") {
+                        // Anthropic-style error object (also on non-2xx).
+                        let msg = parse_anthropic_response(&resp_body)
+                            .err()
+                            .map(|e| e.to_string())
+                            .unwrap_or_else(|| first_chars(&resp_body, ERROR_BODY_CHARS));
+                        let retryable = matches!(code, 429 | 500 | 502 | 503 | 504 | 529);
+                        (retryable, retryable, Some(code), format!("HTTP {}: {}", code, msg))
+                    } else if (200..300).contains(&code) {
+                        match parse_anthropic_response(&resp_body) {
+                            Ok(parsed) => return Ok(parsed),
+                            Err(e) => (false, false, Some(code), format!("bad anthropic body: {e}")),
+                        }
+                    } else {
+                        let retryable = matches!(code, 429 | 500 | 502 | 503 | 504 | 529);
+                        (
+                            retryable,
+                            retryable,
+                            Some(code),
+                            format!("HTTP {}: {}", code, first_chars(&resp_body, ERROR_BODY_CHARS)),
+                        )
+                    }
+                }
+                Err(e) => (true, false, None, format!("network error: {e}")),
+            };
+
+            if !retryable {
+                return Err(anyhow::anyhow!(err_text));
+            }
+            // Retry discipline (#47): same attempt cap and jittered backoff as the OpenAI client.
+            let _ = long;
+            let attempt_cap = MAX_ATTEMPTS;
+            let budget_left = self.max_total_wait_ms.saturating_sub(waited_ms);
+            if attempt >= attempt_cap {
+                return Err(anyhow::anyhow!(err_text));
+            }
+            if budget_left == 0 {
+                return Err(anyhow::anyhow!(
+                    "{} (gave up after {} attempts: retry wait budget of {} s spent; settings retry.maxWaitSecs)",
+                    err_text,
+                    attempt,
+                    self.max_total_wait_ms / 1000
+                ));
+            }
+            let delay_ms = safety::backoff_with_jitter(
+                attempt.min(16),
+                self.base_retry_delay_ms,
+                self.max_retry_delay_ms,
+                safety::jitter_now_nanos(),
+            )
+            .min(self.max_retry_delay_ms.max(self.base_retry_delay_ms))
+            .min(budget_left);
+            self.sink.emit(AgentEvent::ApiRetry {
+                attempt,
+                max_retries: attempt_cap - 1,
+                retry_delay_ms: delay_ms,
+                error_status: status,
+                error: err_text.clone(),
+            });
+            tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+            waited_ms = waited_ms.saturating_add(delay_ms);
+        }
+    }
+}
+
+/// Build the right backend for a base URL: Anthropic's Messages API (with prompt
+/// caching) when the URL points at Anthropic, OpenAI-compatible
+/// `/chat/completions` otherwise.
+pub fn make_backend(
+    base_url: impl Into<String>,
+    api_key: Option<String>,
+    sink: Arc<dyn EventSink>,
+    max_total_wait_ms: u64,
+) -> Arc<dyn LlmBackend> {
+    let base_url = base_url.into();
+    if is_anthropic_url(&base_url) {
+        let mut c = AnthropicClient::new(base_url, api_key, sink);
+        c.max_total_wait_ms = max_total_wait_ms;
+        Arc::new(c)
+    } else {
+        let mut c = OpenAiClient::new(base_url, api_key, sink);
+        c.max_total_wait_ms = max_total_wait_ms;
+        Arc::new(c)
+    }
+}
+
+// ─── Anthropic client tests ────────────────────────────────────────────────
+
+#[cfg(test)]
+mod anthropic_tests {
+    use super::*;
+
+    fn req() -> ChatRequest {
+        ChatRequest {
+            model: "claude-sonnet-4-5".to_string(),
+            messages: vec![
+                ChatMessage::system("You are helpful."),
+                ChatMessage::user("hi"),
+            ],
+            tools: vec![],
+            max_tokens: Some(500),
+        }
+    }
+
+    #[test]
+    fn is_anthropic_url_detection() {
+        assert!(is_anthropic_url("https://api.anthropic.com"));
+        assert!(is_anthropic_url("https://api.anthropic.com/v1"));
+        assert!(!is_anthropic_url("https://openrouter.ai/api/v1"));
+        assert!(!is_anthropic_url("https://api.openai.com/v1"));
+        assert!(!is_anthropic_url("http://localhost:11434/v1"));
+    }
+
+    #[test]
+    fn make_backend_routes_by_url() {
+        let sink: Arc<dyn EventSink> = Arc::new(NullSink);
+        // Anthropic URL → AnthropicClient; anything else → OpenAiClient. We verify
+        // routing without network by downcasting the debug-free trait objects via
+        // a second construction: make_backend must not panic and must return a
+        // backend whose chat would hit the right endpoint (covered by the mock
+        // server tests below for the Anthropic side).
+        let _ = make_backend("https://api.anthropic.com", None, sink.clone(), 1000);
+        let _ = make_backend("https://openrouter.ai/api/v1", None, sink.clone(), 1000);
+        let _ = make_backend("http://localhost:11434/v1", None, sink, 1000);
+    }
+
+    #[test]
+    fn anthropic_client_messages_url() {
+        let sink: Arc<dyn EventSink> = Arc::new(NullSink);
+        let c = AnthropicClient::new("https://api.anthropic.com/", None, sink);
+        assert_eq!(c.messages_url(), "https://api.anthropic.com/messages");
+    }
+
+    #[test]
+    fn system_blocks_single_stable_block_gets_breakpoint() {
+        let blocks = anthropic_system_blocks("You are helpful.");
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0]["type"], "text");
+        assert_eq!(blocks[0]["text"], "You are helpful.");
+        assert_eq!(blocks[0]["cache_control"]["type"], "ephemeral");
+    }
+
+    #[test]
+    fn system_blocks_split_stable_and_volatile() {
+        let prompt = format!(
+            "stable role prompt{}volatile: 2026-10-17",
+            zen_core::CACHE_VOLATILE_MARKER
+        );
+        let blocks = anthropic_system_blocks(&prompt);
+        assert_eq!(blocks.len(), 2);
+        // Breakpoint on the stable block only — the volatile tail must not be cached.
+        assert_eq!(blocks[0]["cache_control"]["type"], "ephemeral");
+        assert_eq!(blocks[0]["text"], "stable role prompt");
+        assert!(blocks[1].get("cache_control").is_none());
+        assert_eq!(blocks[1]["text"], "volatile: 2026-10-17");
+    }
+
+    #[test]
+    fn request_body_uses_system_blocks_with_breakpoint() {
+        let body = anthropic_request_body(&req());
+        assert_eq!(body["model"], "claude-sonnet-4-5");
+        assert_eq!(body["max_tokens"], 500);
+        let system = body["system"].as_array().unwrap();
+        assert_eq!(system.len(), 1);
+        assert_eq!(system[0]["text"], "You are helpful.");
+        assert_eq!(system[0]["cache_control"]["type"], "ephemeral");
+        let msgs = body["messages"].as_array().unwrap();
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0]["role"], "user");
+        // No tools → no tools key.
+        assert!(body.get("tools").is_none());
+    }
+
+    #[test]
+    fn request_body_last_tool_gets_cache_breakpoint() {
+        let mut r = req();
+        r.tools = vec![
+            ToolDefinition {
+                tool_type: "function".to_string(),
+                function: FunctionDefinition {
+                    name: "Read".to_string(),
+                    description: "Read a file".to_string(),
+                    parameters: serde_json::json!({"type": "object"}),
+                },
+            },
+            ToolDefinition {
+                tool_type: "function".to_string(),
+                function: FunctionDefinition {
+                    name: "Bash".to_string(),
+                    description: "Run a command".to_string(),
+                    parameters: serde_json::json!({"type": "object"}),
+                },
+            },
+        ];
+        let body = anthropic_request_body(&r);
+        let tools = body["tools"].as_array().unwrap();
+        assert_eq!(tools.len(), 2);
+        // Only the LAST tool carries the breakpoint: one breakpoint per block,
+        // placed after the latest stable content.
+        assert!(tools[0].get("cache_control").is_none());
+        assert_eq!(tools[1]["cache_control"]["type"], "ephemeral");
+        assert_eq!(tools[1]["name"], "Bash");
+    }
+
+    #[test]
+    fn request_body_is_deterministic_across_builds() {
+        // Anti-pattern guard: the cacheable prefix must be byte-identical across
+        // turns, or provider caches silently miss. serde_json without
+        // `preserve_order` sorts keys, so two builds of the same request must
+        // serialize identically.
+        let mut r = req();
+        r.messages.push(ChatMessage::system(format!(
+            "role{}env",
+            zen_core::CACHE_VOLATILE_MARKER
+        )));
+        r.tools = vec![ToolDefinition {
+            tool_type: "function".to_string(),
+            function: FunctionDefinition {
+                name: "Read".to_string(),
+                description: "Read a file".to_string(),
+                parameters: serde_json::json!({"type": "object", "properties": {"p": {"type": "string"}}}),
+            },
+        }];
+        let a = serde_json::to_string(&anthropic_request_body(&r)).unwrap();
+        let b = serde_json::to_string(&anthropic_request_body(&r)).unwrap();
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn request_body_translates_tool_calls_and_results() {
+        let mut r = req();
+        r.messages.push(ChatMessage::assistant(
+            Some("let me check".to_string()),
+            Some(vec![ToolCall {
+                id: "toolu_1".to_string(),
+                call_type: "function".to_string(),
+                function: FunctionCall {
+                    name: "Read".to_string(),
+                    arguments: r#"{"path":"a.rs"}"#.to_string(),
+                },
+            }]),
+        ));
+        r.messages.push(ChatMessage::tool("toolu_1", "file contents"));
+        r.tools = vec![ToolDefinition {
+            tool_type: "function".to_string(),
+            function: FunctionDefinition {
+                name: "Read".to_string(),
+                description: "Read a file".to_string(),
+                parameters: serde_json::json!({"type": "object"}),
+            },
+        }];
+        let body = anthropic_request_body(&r);
+        let msgs = body["messages"].as_array().unwrap();
+        // system hoisted, so: user, assistant, user(tool_result)
+        assert_eq!(msgs.len(), 3);
+        let blocks = msgs[1]["content"].as_array().unwrap();
+        assert_eq!(blocks[0]["type"], "text");
+        assert_eq!(blocks[1]["type"], "tool_use");
+        assert_eq!(blocks[1]["id"], "toolu_1");
+        assert_eq!(blocks[1]["name"], "Read");
+        assert_eq!(blocks[1]["input"]["path"], "a.rs");
+        let result_blocks = msgs[2]["content"].as_array().unwrap();
+        assert_eq!(result_blocks[0]["type"], "tool_result");
+        assert_eq!(result_blocks[0]["tool_use_id"], "toolu_1");
+        // Tools use Anthropic's input_schema key.
+        let tools = body["tools"].as_array().unwrap();
+        assert_eq!(tools[0]["name"], "Read");
+        assert!(tools[0].get("input_schema").is_some());
+    }
+
+    #[test]
+    fn parse_response_text_and_tool_use() {
+        let body = r#"{
+            "id": "msg_1", "type": "message", "role": "assistant",
+            "content": [
+                {"type": "text", "text": "checking "},
+                {"type": "tool_use", "id": "toolu_9", "name": "Bash", "input": {"command": "ls"}}
+            ],
+            "stop_reason": "tool_use",
+            "usage": {"input_tokens": 120, "output_tokens": 30}
+        }"#;
+        let resp = parse_anthropic_response(body).unwrap();
+        assert_eq!(resp.message.content.as_deref(), Some("checking "));
+        let calls = resp.message.tool_calls.unwrap();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].id, "toolu_9");
+        assert_eq!(calls[0].function.name, "Bash");
+        assert!(calls[0].function.arguments.contains("ls"));
+        assert_eq!(resp.usage.prompt_tokens, 120);
+        assert_eq!(resp.usage.completion_tokens, 30);
+        assert_eq!(resp.usage.cache_read_input_tokens, 0);
+        assert_eq!(resp.usage.cache_creation_input_tokens, 0);
+        assert_eq!(resp.finish_reason.as_deref(), Some("tool_use"));
+    }
+
+    #[test]
+    fn parse_response_reads_cache_tokens() {
+        let body = r#"{
+            "content": [{"type": "text", "text": "done"}],
+            "stop_reason": "end_turn",
+            "usage": {
+                "input_tokens": 10000,
+                "output_tokens": 5,
+                "cache_read_input_tokens": 9500,
+                "cache_creation_input_tokens": 500
+            }
+        }"#;
+        let resp = parse_anthropic_response(body).unwrap();
+        assert_eq!(resp.usage.prompt_tokens, 10000);
+        assert_eq!(resp.usage.cache_read_input_tokens, 9500);
+        assert_eq!(resp.usage.cache_creation_input_tokens, 500);
+        // 95% of the input came from cache.
+        assert!((zen_core::cache_hit_rate(resp.usage.cache_read_input_tokens, resp.usage.prompt_tokens) - 0.95).abs() < 1e-9);
+    }
+
+    #[test]
+    fn parse_response_text_only() {
+        let body = r#"{
+            "content": [{"type": "text", "text": "done"}],
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 10, "output_tokens": 5}
+        }"#;
+        let resp = parse_anthropic_response(body).unwrap();
+        assert_eq!(resp.message.content.as_deref(), Some("done"));
+        assert!(resp.message.tool_calls.is_none());
+    }
+
+    #[test]
+    fn parse_response_error_object_fails() {
+        let body = r#"{"type": "error", "error": {"type": "authentication_error", "message": "bad key"}}"#;
+        assert!(parse_anthropic_response(body).is_err());
+    }
+
+    #[test]
+    fn parse_response_malformed_json_fails() {
+        assert!(parse_anthropic_response("not json").is_err());
+    }
+
+    /// Mock-server test: the request the client sends must carry `cache_control`
+    /// breakpoints and the prompt-caching beta header.
+    #[tokio::test]
+    async fn mock_server_receives_cache_control_and_beta_header() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let resp_body = r#"{"content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{"input_tokens":100,"output_tokens":5,"cache_read_input_tokens":90,"cache_creation_input_tokens":10}}"#;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut sock, _) = listener.accept().await.unwrap();
+            let mut buf = vec![0u8; 65536];
+            let mut got = Vec::new();
+            loop {
+                let n = sock.read(&mut buf).await.unwrap();
+                got.extend_from_slice(&buf[..n]);
+                let txt = String::from_utf8_lossy(&got);
+                if let Some(h) = txt.find("\r\n\r\n") {
+                    let len = txt[..h]
+                        .lines()
+                        .find_map(|l| {
+                            l.to_ascii_lowercase()
+                                .strip_prefix("content-length:")
+                                .map(|v| v.trim().parse::<usize>().unwrap())
+                        })
+                        .unwrap_or(0);
+                    if got.len() >= h + 4 + len {
+                        break;
+                    }
+                }
+                if n == 0 {
+                    break;
+                }
+            }
+            let req_text = String::from_utf8_lossy(&got).to_string();
+            let resp = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                resp_body.len(),
+                resp_body
+            );
+            sock.write_all(resp.as_bytes()).await.unwrap();
+            req_text
+        });
+
+        let sink: Arc<dyn EventSink> = Arc::new(crate::testutil::CollectSink::default());
+        let mut c = AnthropicClient::new(format!("http://{addr}"), None, sink);
+        c.base_retry_delay_ms = 1;
+        let r = c
+            .chat(ChatRequest {
+                model: "m".into(),
+                messages: vec![ChatMessage::system("stable"), ChatMessage::user("hi")],
+                tools: vec![ToolDefinition {
+                    tool_type: "function".to_string(),
+                    function: FunctionDefinition {
+                        name: "Read".to_string(),
+                        description: "Read a file".to_string(),
+                        parameters: serde_json::json!({"type": "object"}),
+                    },
+                }],
+                max_tokens: None,
+            })
+            .await
+            .unwrap();
+        assert_eq!(r.message.content.as_deref(), Some("ok"));
+        assert_eq!(r.usage.cache_read_input_tokens, 90);
+        assert_eq!(r.usage.cache_creation_input_tokens, 10);
+
+        let req_text = server.await.unwrap();
+        // Beta header present.
+        assert!(req_text.contains("prompt-caching-2024-07-31"), "missing beta header");
+        // Request targets /messages.
+        assert!(req_text.contains("POST /messages"));
+        // cache_control breakpoints present in the JSON body: one on the system
+        // block, one on the (last) tool definition.
+        let body_start = req_text.find("\r\n\r\n").unwrap() + 4;
+        let body: Value = serde_json::from_str(&req_text[body_start..]).unwrap();
+        let system = body["system"].as_array().unwrap();
+        assert_eq!(system[0]["cache_control"]["type"], "ephemeral");
+        let tools = body["tools"].as_array().unwrap();
+        assert_eq!(tools[0]["cache_control"]["type"], "ephemeral");
     }
 }

@@ -376,7 +376,7 @@ pub fn append_usage(path: &Path, session_id: &str, usage: &zen_core::UsageStats)
             "subtype": "usage",
             "sessionId": session_id,
             "timestamp": chrono::Utc::now().to_rfc3339(),
-            "usage": {"input_tokens": usage.input_tokens, "output_tokens": usage.output_tokens},
+            "usage": {"input_tokens": usage.input_tokens, "output_tokens": usage.output_tokens, "cache_read_input_tokens": usage.cache_read_input_tokens},
         }),
     )
 }
@@ -390,6 +390,7 @@ pub fn load_usage(path: &Path) -> zen_core::UsageStats {
             let n = |k: &str| v["usage"][k].as_u64().unwrap_or(0);
             total.input_tokens += n("input_tokens");
             total.output_tokens += n("output_tokens");
+            total.cache_read_input_tokens += n("cache_read_input_tokens");
         }
     }
     total

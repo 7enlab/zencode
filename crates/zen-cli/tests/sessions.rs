@@ -323,10 +323,10 @@ async fn c9_3_usage_accumulates_across_resume() {
             .run_output()
     };
     let (o1, _, _) = run("u1", &["--session-id", "00000000-0000-4000-8000-0000000000c9"], "a");
-    assert_eq!(last_result(&o1)["usage"], serde_json::json!({"input_tokens": 7, "output_tokens": 3}));
+    assert_eq!(last_result(&o1)["usage"], serde_json::json!({"input_tokens": 7, "output_tokens": 3, "cache_read_input_tokens": 0}));
     let (o2, e2, c2) = run("u2", &["--resume", "00000000-0000-4000-8000-0000000000c9"], "b");
     assert_eq!(c2, 0, "{}", e2);
-    assert_eq!(last_result(&o2)["usage"], serde_json::json!({"input_tokens": 14, "output_tokens": 6}));
+    assert_eq!(last_result(&o2)["usage"], serde_json::json!({"input_tokens": 14, "output_tokens": 6, "cache_read_input_tokens": 0}));
 }
 
 /// p0b 3: the session file is a complete event log. Two real runs (the second resumes the

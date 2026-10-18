@@ -63,7 +63,7 @@ impl LlmBackend for MockLlm {
 pub fn resp(text: &str) -> ChatResponse {
     ChatResponse {
         message: ChatMessage::assistant(Some(text.into()), None),
-        usage: Usage { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+        usage: Usage { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
         finish_reason: Some("stop".into()),
     }
 }
@@ -80,7 +80,7 @@ pub fn resp_tool(name: &str, args: &str, id: &str) -> ChatResponse {
                 function: FunctionCall { name: name.into(), arguments: args.into() },
             }]),
         ),
-        usage: Usage { prompt_tokens: 20, completion_tokens: 8, total_tokens: 28 },
+        usage: Usage { prompt_tokens: 20, completion_tokens: 8, total_tokens: 28, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
         finish_reason: Some("tool_calls".into()),
     }
 }
