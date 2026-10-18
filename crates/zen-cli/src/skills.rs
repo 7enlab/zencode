@@ -1273,9 +1273,17 @@ pub async fn skill_command(
             cmd_install(&home, source, *yes, registry.as_deref())?;
             Ok(0)
         }
-        crate::cli::SkillSubcommand::Search { query, registry } => {
-            crate::skill_registry::cmd_search(query, registry.as_deref())?;
-            Ok(0)
+        crate::cli::SkillSubcommand::Search {
+            query,
+            registry,
+            curated,
+        } => {
+            if *curated {
+                crate::curation::run_skill_search(query, true, Some(&home))
+            } else {
+                crate::skill_registry::cmd_search(query, registry.as_deref())?;
+                Ok(0)
+            }
         }
         crate::cli::SkillSubcommand::Info { name, registry } => {
             crate::skill_registry::cmd_info(name, registry.as_deref())?;

@@ -522,13 +522,16 @@ pub enum SkillSubcommand {
         #[arg(long)]
         registry: Option<String>,
     },
-    /// Search the community skill registry
+    /// Search the community skill registry (or only maintainer-reviewed skills with --curated)
     Search {
         /// Search query (matches name, tags, description)
         query: String,
         /// Use a custom community registry file instead of the bundled one
         #[arg(long)]
         registry: Option<String>,
+        /// Only show curated (maintainer-reviewed) skills from the curated registry
+        #[arg(long)]
+        curated: bool,
     },
     /// Show details for a skill in the community registry
     Info {
@@ -864,6 +867,11 @@ mod tests {
         assert!(matches!(
             cli.subcommand,
             Some(Commands::Skill(s)) if matches!(s.command, SkillSubcommand::Search{..})
+        ));
+        let cli = parse(&["skill", "search", "tdd", "--curated"]);
+        assert!(matches!(
+            cli.subcommand,
+            Some(Commands::Skill(s)) if matches!(s.command, SkillSubcommand::Search { curated: true, .. })
         ));
         let cli = parse(&["skill", "info", "tdd"]);
         assert!(matches!(

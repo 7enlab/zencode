@@ -493,6 +493,18 @@ grow scope. The done-guard gives you three tools:
   reminds the model to run the checks after file changes (`verify.command` in settings
   makes the harness run them automatically).
 
+### Curated plugin registry
+
+The skill registry has two tiers: `curated` (maintainer-reviewed, badge `[curated ✓]`)
+and `community` (unreviewed). Every curated entry carries public review metadata —
+reviewer, date, and notes covering security, quality, documentation, and maintenance —
+and the badge is version-scoped. See `docs/plugin-curation.md` for the full process.
+
+```sh
+zen skill search tdd              # community registry
+zen skill search tdd --curated    # curated (maintainer-reviewed) only
+```
+
 ## Layout
 
 | Crate | What it owns |

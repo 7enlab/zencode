@@ -1,0 +1,62 @@
+{
+  "entries": [
+    {
+      "author": "ZenCode",
+      "curation": {
+        "review_date": "2026-10-17",
+        "review_notes": "Security: PASS. No network access, no credential handling; SKILL.md is pure process guidance (RED-GREEN-REFACTOR) with no executable payload beyond declared tools. Quality: PASS. Ships deterministic eval via test.md CHECK lines; every rule is concrete and falsifiable (e.g. 'watch it fail for the right reason'). Documentation: PASS. Self-contained SKILL.md with explicit definition of done; zen-plugin.json manifest accurate. Maintenance: PASS. Maintained in-repo by ZenCode, versioned with the CLI. Note: the permission set (bash+write+edit) is the broadest of the three builtins but justified — TDD requires running tests. Install still shows the permission diff for user approval.",
+        "reviewed_version": "1.0.0",
+        "reviewer": "Muse (ZenCode maintainer)"
+      },
+      "description": "Test-driven development workflow — write the failing test first, then minimal code, then refactor",
+      "name": "tdd",
+      "permissions": [
+        "read",
+        "write",
+        "edit",
+        "bash"
+      ],
+      "source": "builtin:tdd",
+      "trust_tier": "curated",
+      "version": "1.0.0"
+    },
+    {
+      "author": "ZenCode",
+      "curation": {
+        "review_date": "2026-10-17",
+        "review_notes": "Security: PASS. Read-only skill (allowed-tools: read), no network, no exec, no file writes. Lowest-risk of the three builtins — advisory content only, cannot take actions itself. Quality: PASS. Habits are specific and non-conflicting (batch reads, grep-before-read, stop-early); compatible with all other skills. Documentation: PASS. Clear do/don't structure; zen-plugin.json manifest accurate. Maintenance: PASS. Maintained in-repo by ZenCode, versioned with the CLI. Safe to install without reviewing the permission diff.",
+        "reviewed_version": "1.0.0",
+        "reviewer": "Muse (ZenCode maintainer)"
+      },
+      "description": "Token-efficiency habits — keep every model call lean without losing correctness",
+      "name": "token-diet",
+      "permissions": [
+        "read"
+      ],
+      "source": "builtin:token-diet",
+      "trust_tier": "curated",
+      "version": "1.0.0"
+    },
+    {
+      "author": "ZenCode",
+      "curation": {
+        "review_date": "2026-10-17",
+        "review_notes": "Security: PASS. Read/grep/glob only; no network, no exec, no writes. The checklist itself targets secrets, injection, auth bypass, dependency and PII risks — the skill's content is defensive, with no prompt-injection vectors (no instructions to ignore safety boundaries). Quality: PASS. Severity guide (BLOCKER/WARN/OK) makes findings actionable; checklist items map to concrete grep-able patterns (sk-, AKIA, -----BEGIN, eval/exec sinks). Documentation: PASS. Five-section checklist is complete and self-contained; zen-plugin.json manifest accurate. Maintenance: PASS. Maintained in-repo by ZenCode, versioned with the CLI. Note: the checklist is a heuristic aid, not a guarantee — pairs well with `zen audit` for pre-run scanning.",
+        "reviewed_version": "1.0.0",
+        "reviewer": "Muse (ZenCode maintainer)"
+      },
+      "description": "Pre-commit security checklist — secrets, injection, auth, and dependency risks before code ships",
+      "name": "security-review",
+      "permissions": [
+        "read",
+        "grep",
+        "glob"
+      ],
+      "source": "builtin:security-review",
+      "trust_tier": "curated",
+      "version": "1.0.0"
+    }
+  ],
+  "format_version": 1,
+  "updated": "2026-10-17"
+}
