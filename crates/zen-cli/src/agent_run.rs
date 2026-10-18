@@ -699,8 +699,13 @@ pub(crate) async fn run_agent_with_result(
 
     let assembly = assemble(cli, cwd, home, cfg, session_id, transcript_path).await?;
 
-    let buf = Arc::new(Buffered::new());
-    // text/json modes print only the final result; stream-json needs every event line.
+    // text/json modes print only the final result; stream-json writes and flushes every event
+    // line to stdout as it is produced (the trailing `print!("{}", buf.text())` is then a no-op).
+    let buf = Arc::new(if cli.output_format == OutputFormat::StreamJson {
+        Buffered::stdout()
+    } else {
+        Buffered::new()
+    });
     let mut stream_sink: Option<Arc<StreamJsonSink>> = None;
     let sink: Arc<dyn EventSink> = match cli.output_format {
         OutputFormat::StreamJson => {

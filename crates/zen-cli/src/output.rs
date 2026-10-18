@@ -4,24 +4,46 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use zen_core::{AgentEvent, RunResult};
 
-/// Shared buffered writer used by sinks that print incrementally.
+/// Shared writer used by the output sinks.
+///
+/// [`Buffered::new`] collects output in memory (text/json modes print it once at the end).
+/// [`Buffered::stdout`] writes every line straight to stdout and flushes it, so stream-json
+/// consumers read each record as soon as it is produced; `text()` is then always empty.
 pub struct Buffered {
     pub out: Arc<Mutex<Vec<u8>>>,
+    passthrough: bool,
 }
 impl Buffered {
     pub fn new() -> Self {
-        Self { out: Arc::new(Mutex::new(Vec::new())) }
+        Self { out: Arc::new(Mutex::new(Vec::new())), passthrough: false }
+    }
+    /// Line-flushed stdout writer (stream-json): nothing is kept in memory.
+    pub fn stdout() -> Self {
+        Self { out: Arc::new(Mutex::new(Vec::new())), passthrough: true }
     }
     pub fn text(&self) -> String {
         String::from_utf8_lossy(&self.out.lock().unwrap()).to_string()
     }
     pub fn write_str(&self, s: &str) {
-        self.out.lock().unwrap().write_all(s.as_bytes()).unwrap();
+        self.write_bytes(s.as_bytes());
     }
     pub fn write_line(&self, s: &str) {
+        let mut line = Vec::with_capacity(s.len() + 1);
+        line.extend_from_slice(s.as_bytes());
+        line.push(b'\n');
+        self.write_bytes(&line);
+    }
+    fn write_bytes(&self, bytes: &[u8]) {
+        // The mutex also serialises passthrough writes, so concurrent emitters (sub-agents,
+        // tool progress) never interleave inside one line.
         let mut g = self.out.lock().unwrap();
-        g.write_all(s.as_bytes()).unwrap();
-        g.write_all(b"\n").unwrap();
+        if self.passthrough {
+            let mut so = std::io::stdout().lock();
+            // A closed pipe (consumer went away) must not panic the agent.
+            let _ = so.write_all(bytes).and_then(|_| so.flush());
+        } else {
+            g.write_all(bytes).unwrap();
+        }
     }
 }
 impl Default for Buffered {
@@ -151,7 +173,8 @@ impl zen_core::EventSink for CapturingSink {
 /// so downstream consumers (Desktop, other UIs) can gate on it (issue #19).
 pub const STREAM_JSON_VERSION: u32 = 1;
 
-/// Prints stream-json NDJSON lines (SPEC §14) to a buffer / writer.
+/// Prints stream-json NDJSON lines (SPEC §14) to a buffer / writer; with [`Buffered::stdout`]
+/// each record is flushed as one line the moment it is emitted.
 pub struct StreamJsonSink {
     pub buf: Arc<Buffered>,
     pub session_id: String,

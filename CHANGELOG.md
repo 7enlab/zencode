@@ -24,6 +24,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Fixes session lookup/resume failures on Windows (issue #6).
 - Folder trust: in an untrusted folder, project baseUrl and apiKeyEnv are ignored
   (user-level values apply) so a repo cannot redirect requests carrying your API key (PR #7).
+### Changed
+- stream-json: records are now flushed to stdout one line at a time as they are emitted,
+  instead of all at once when the run ends. Record shapes are unchanged (`v` stays `1`).
 ### Added
 - stream-json: every record now carries a top-level `v` (schema version, currently `1`),
   so downstream consumers can detect schema drift and gate on breaking changes (issue #19).

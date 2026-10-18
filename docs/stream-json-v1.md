@@ -19,9 +19,10 @@ Regenerate after an intended change with
   (issue #19). Bump it on any breaking change to the stream-json shape and note it in the
   CHANGELOG so downstream consumers (Desktop, other UIs) can gate on it. Additive-only
   changes (new records, new optional fields) do not bump `v`.
-- **Buffering:** the CLI collects the lines in memory and writes the whole stream to stdout when the
-  run ends (see `print!("{}", buf.text())` in `agent_run.rs`). Consumers get every line, in order,
-  but not incrementally. Do not build progress UI on line arrival timing.
+- **Flushing:** each record is written to stdout as one complete line and flushed the moment it
+  is emitted (`Buffered::stdout` in `output.rs`). Consumers can read line by line and act on each
+  record as it arrives (e.g. show `init`, `assistant`, `tool_progress` live). Lines from
+  concurrent emitters (sub-agents, tool heartbeats) never interleave inside a line.
 - Order: the `init` line first, then events in the order the agent loop reports them, then exactly
   one `result` line last (on a normal end, an error, or SIGINT). Exceptions: a run killed by
   SIGTERM exits 143 and prints nothing; a built-in slash command that is not available in `-p`
