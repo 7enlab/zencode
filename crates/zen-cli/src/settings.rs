@@ -596,6 +596,20 @@ mod tests {
     }
 
     #[test]
+    fn config_default_mode_plan_from_settings_file() {
+        let _env = env_lock();
+        let dir = std::env::temp_dir().join(format!("zen_cfg_test_plan_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join(".zen")).unwrap();
+        fs::write(dir.join(".zen/settings.json"), r#"{"permissions":{"defaultMode":"plan"}}"#)
+            .unwrap();
+
+        let cli = Cli::parse_from(["zen", "--setting-sources", "project", "--trust-folder"]);
+        let cfg = resolve_config(&cli, &dir).unwrap();
+        assert_eq!(cfg.permission_mode, PermissionMode::Plan);
+    }
+
+    #[test]
     fn config_settings_file_merge() {
         let _env = env_lock();
         let dir = std::env::temp_dir().join(format!("zen_cfg_test_{}", std::process::id()));

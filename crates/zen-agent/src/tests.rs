@@ -1237,3 +1237,40 @@ async fn no_budget_config_means_no_checks() {
     assert_eq!(r.subtype, "success");
     assert!(!agent.budget_warned);
 }
+
+#[tokio::test]
+async fn plan_mode_rejects_hallucinated_mutating_call_by_the_harness() {
+    // The model never sees Write in plan mode (tools are withheld), but if it hallucinates
+    // the call anyway the *harness* must reject it: the tool never executes, no permission
+    // denial is recorded, and the turn stays a clean plan.
+    let llm = MockLlm::new(vec![resp_tool("Write", r#"{"path":"x"}"#, "w1"), resp("plan done")]);
+    let reg = registry_with(vec![fake("Read", true, "r"), fake("Write", false, "MUTATED")]);
+    let cfg = AgentConfig { permission_mode: PermissionMode::Plan, ..base_cfg() };
+    let (mut agent, _s, _h) = build_agent(llm, reg, allow(), cfg);
+    let r = agent.run_turn("go").await;
+    let tool_contents: Vec<&str> = agent
+        .messages()
+        .iter()
+        .filter(|m| m.role == "tool")
+        .filter_map(|m| m.content.as_deref())
+        .collect();
+    assert_eq!(tool_contents.len(), 1, "one tool result expected");
+    assert!(
+        tool_contents[0].contains("not available in plan mode"),
+        "harness must reject with a clear error, got: {}",
+        tool_contents[0]
+    );
+    assert!(
+        !agent
+            .messages()
+            .iter()
+            .any(|m| m.content.as_deref().unwrap_or("").contains("MUTATED")),
+        "the mutating tool must never execute in plan mode"
+    );
+    assert!(
+        r.permission_denials.is_empty(),
+        "plan-mode rejection is not a permission denial"
+    );
+    assert_eq!(r.result, "plan done");
+    assert_paired(agent.messages());
+}

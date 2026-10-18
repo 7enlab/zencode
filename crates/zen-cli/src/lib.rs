@@ -15,6 +15,7 @@ pub mod ollama;
 pub mod models;
 pub mod mentions;
 pub mod output;
+pub mod planmode;
 pub mod repl;
 pub mod safety;
 pub mod session;

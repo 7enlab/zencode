@@ -58,6 +58,17 @@ pub async fn run_repl(cli: &Cli, cwd: &Path, home: Option<&Path>) -> Result<()> 
 
     let mut config = build_repl_config(cli, &cfg, cwd);
     let _ = &mut config;
+    // The base prompt (without the plan-mode instruction) is kept so /plan can toggle
+    // cleanly at runtime.
+    let base_system_prompt = config.system_prompt.clone();
+    if config.permission_mode == zen_core::PermissionMode::Plan {
+        // Started in plan mode via `permissions.defaultMode: "plan"`: the model must be
+        // told the rules, not just have its tools hidden.
+        config.system_prompt = zen_agent::plan::system_prompt_for_mode(
+            &base_system_prompt,
+            config.permission_mode,
+        );
+    }
 
     let mut agent = zen_agent::Agent::new(
         llm,
@@ -75,6 +86,10 @@ pub async fn run_repl(cli: &Cli, cwd: &Path, home: Option<&Path>) -> Result<()> 
     );
     agent.journal = assembly.recorder.clone().map(|r| r as Arc<dyn zen_core::ToolJournal>);
 
+    if agent.config.permission_mode == zen_core::PermissionMode::Plan {
+        println!("Plan mode is ON (read-only). Research, then present a plan. /plan toggles it.");
+    }
+
     // SessionStart hooks (C3.2/C3.11): their context goes in ahead of the first prompt.
     repl_session_start(&mut agent, &session_id, cwd, &cfg, "startup").await;
 
@@ -86,10 +101,13 @@ pub async fn run_repl(cli: &Cli, cwd: &Path, home: Option<&Path>) -> Result<()> 
         mcp_status: assembly.mcp_status.clone(),
         interrupts: interrupts.as_mut(),
         recorder: assembly.recorder.clone(),
+        base_system_prompt,
+        pre_plan_mode: zen_core::PermissionMode::Default,
+        pending_plan: None,
     };
 
     loop {
-        print!("> ");
+        print!("{}", crate::planmode::prompt_for(agent.config.permission_mode));
         std::io::stdout().flush().ok();
         // One read per line (no long-lived stdin lock), so the permission prompter can read
         // its answer from stdin too.
@@ -143,6 +161,12 @@ struct ReplState<'a> {
     interrupts: Option<&'a mut ReplInterrupts>,
     /// Session event log (p0b); re-pointed when /clear or /resume switches the transcript.
     recorder: Option<Arc<crate::eventlog::Recorder>>,
+    /// System prompt without the plan-mode instruction, for clean /plan toggling.
+    base_system_prompt: String,
+    /// Permission mode to restore when /plan toggles plan mode off.
+    pre_plan_mode: zen_core::PermissionMode,
+    /// Plan text awaiting approval (armed when a plan-mode turn ends with ExitPlanMode).
+    pending_plan: Option<String>,
 }
 
 /// SIGINT handling for the REPL. A background task owns the signal stream: during a turn it
@@ -262,6 +286,28 @@ async fn handle_line(
         return action;
     }
 
+    // Plan-mode approval: after the model presents a plan, `approve`/`yes` accepts it,
+    // records it in the session transcript, and exits plan mode into acceptEdits
+    // (Claude Code parity: approving exits plan mode).
+    if repl.pending_plan.is_some() && crate::planmode::is_approve_word(line) {
+        let plan = repl.pending_plan.take().unwrap_or_default();
+        if let Err(e) = repl.writer.record_plan_approved(&plan) {
+            eprintln!("warning: could not record approved plan: {}", e);
+        }
+        crate::planmode::set_permission_mode(
+            &mut agent.config,
+            zen_core::PermissionMode::AcceptEdits,
+            &repl.base_system_prompt,
+        );
+        println!("plan approved and recorded — permission mode is now acceptEdits.");
+        return Ok(LineAction::Continue);
+    }
+    // Any other prompt while a plan is pending means the user is refining it; the stale
+    // approval offer is dropped (a fresh plan re-arms it).
+    if repl.pending_plan.is_some() {
+        repl.pending_plan = None;
+    }
+
     // Normal prompt: expand `@file` mentions first, then run the agent turn
     // (prompt, tool calls, tool results and answer are persisted).
     let usage_before = agent.usage.clone();
@@ -283,6 +329,18 @@ async fn handle_line(
     let result = run_turn_interruptible(agent, &prompt, repl.interrupts.as_deref_mut()).await;
     persist(repl.writer, &before, agent);
     record_turn_cost(home, repl.session_id.as_str(), cfg, agent, &usage_before);
+    // A plan-mode turn ending with the ExitPlanMode marker arms the approval offer.
+    if agent.config.permission_mode == zen_core::PermissionMode::Plan {
+        if let Some(r) = &result {
+            if zen_agent::plan::looks_like_plan_exit(&r.result) {
+                repl.pending_plan = Some(crate::planmode::strip_plan_exit_markers(&r.result));
+                println!(
+                    "Plan ready. Reply `approve` to accept it (exits plan mode → acceptEdits), \
+                     or keep chatting to refine."
+                );
+            }
+        }
+    }
     print_turn(result);
     Ok(LineAction::Continue)
 }
@@ -473,6 +531,30 @@ async fn handle_slash(
                 for s in &cfg.loaded_sources {
                     println!("settings: {}", s);
                 }
+            }
+        }
+        "/plan" => {
+            if agent.config.permission_mode == zen_core::PermissionMode::Plan {
+                let restore = repl.pre_plan_mode;
+                crate::planmode::set_permission_mode(
+                    &mut agent.config,
+                    restore,
+                    &repl.base_system_prompt,
+                );
+                repl.pending_plan = None;
+                println!("plan mode OFF — permission mode: {}", restore.as_str());
+            } else {
+                repl.pre_plan_mode = agent.config.permission_mode;
+                crate::planmode::set_permission_mode(
+                    &mut agent.config,
+                    zen_core::PermissionMode::Plan,
+                    &repl.base_system_prompt,
+                );
+                repl.pending_plan = None;
+                println!(
+                    "plan mode ON — read-only. Research with the available tools, then present \
+                     a plan ending with `ExitPlanMode`. /plan again to exit without approving."
+                );
             }
         }
         "/permissions" => {

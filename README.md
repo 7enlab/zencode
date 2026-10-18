@@ -221,6 +221,16 @@ once, output prints, and stdout/stderr is appended to the conversation as a
   runs directly.
 - Cheaper than asking the agent to run Bash: zero input/output tokens for the command
   itself.
+### Plan mode
+
+Plan mode is **mechanically** enforced read-only — the harness withholds `Write`/`Edit`/state-changing
+`Bash`/… from the model, and rejects any mutating call that slips through with a tool error
+(the tool never executes). It is not model politeness.
+
+- REPL: `/plan` toggles plan mode; the prompt shows a `[PLAN]` badge while active.
+- Research, then present a plan ending with `ExitPlanMode`. Reply `approve` (or `yes`) to accept it:
+  the plan is recorded in the session transcript and plan mode exits into `acceptEdits`.
+- Start the REPL in plan mode: `"permissions": { "defaultMode": "plan" }` in `.zen/settings.json`.
 
 ## Layout
 

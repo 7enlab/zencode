@@ -7,9 +7,9 @@ use std::path::Path;
 
 pub const BUILTIN_COMMANDS: &[&str] = &[
     "/help", "/clear", "/compact", "/model", "/resume", "/cost", "/status",
-    "/permissions", "/config", "/memory", "/init", "/todos", "/agents",
-    "/mcp", "/hooks", "/skills", "/exit", "/context", "/add-dir", "/export", "/review",
-    "/rename", "/quota", "/diff",
+    "/permissions", "/config", "/memory", "/init", "/todos", "/agents", "/mcp", "/hooks",
+    "/skills", "/exit", "/context", "/add-dir", "/export", "/review", "/rename", "/quota",
+    "/diff", "/plan",
 ];
 
 /// Built-ins that also work as the whole prompt of `-p` (SPEC C5.4). The rest are terminal-only.

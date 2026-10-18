@@ -186,7 +186,7 @@ pub fn load_messages(path: &Path) -> Result<Vec<Value>> {
     };
     for v in &records[start..] {
         let typ = v.get("type").and_then(|t| t.as_str()).unwrap_or("");
-        if typ == "system" || typ == "summary" {
+        if typ == "system" || typ == "summary" || typ == "plan_approved" {
             continue;
         }
         if let Some(msg) = v.get("message") {
@@ -310,6 +310,12 @@ impl TranscriptWriter {
             self.write(kind, Some(serde_json::to_value(m)?), None)?;
         }
         Ok(())
+    }
+
+    /// Record an approved plan (plan-mode approval flow) as a typed transcript record.
+    /// Skipped by [`load_messages`]: it is session metadata, not conversation.
+    pub fn record_plan_approved(&mut self, plan: &str) -> Result<()> {
+        self.write("plan_approved", Some(serde_json::json!({ "plan": plan })), None)
     }
 }
 
