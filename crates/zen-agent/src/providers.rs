@@ -13,6 +13,11 @@
 //!   Anthropic-compatible endpoint at `https://api.moonshot.ai/anthropic`.
 //! - [`deepseek`](https://api-docs.deepseek.com/) — DeepSeek, Anthropic-format
 //!   endpoint at `https://api.deepseek.com/anthropic`; the $0.14/1M price floor.
+//! - `cloudflare` — Cloudflare Workers AI, OpenAI-compatible endpoint at
+//!   `https://api.cloudflare.com/client/v4/accounts/{ACCOUNT_ID}/ai/v1` with
+//!   a genuine free tier (10,000 Neurons/day). The `{ACCOUNT_ID}` placeholder
+//!   is interpolated from `CLOUDFLARE_ACCOUNT_ID` — see
+//!   [`ProviderInfo::endpoint_resolved`].
 //!
 //! Integration points for in-flight PRs:
 //! - PR #44 (fallback chains): [`provider_registry`] matches its registry shape;
@@ -51,6 +56,9 @@ pub struct ProviderInfo {
     /// Human-readable name, e.g. `Z.ai (Zhipu)`.
     pub display_name: &'static str,
     /// OpenAI-compatible base URL, if the provider offers one.
+    /// May contain `{ACCOUNT_ID}`, interpolated from `CLOUDFLARE_ACCOUNT_ID`
+    /// by [`ProviderInfo::endpoint_resolved`] (Cloudflare Workers AI embeds
+    /// the account id in the URL path).
     pub openai_base_url: Option<&'static str>,
     /// Anthropic-compatible base URL, if the provider offers one.
     pub anthropic_base_url: Option<&'static str>,
@@ -95,6 +103,38 @@ impl ProviderInfo {
             .find(|(m, _, _)| *m == model)
             .map(|(_, i, o)| (*i, *o))
     }
+
+    /// Pick the best endpoint with URL templates resolved (see
+    /// [`resolve_url_template`]).
+    ///
+    /// Returns `None` when the provider offers no usable endpoint, or when a
+    /// template placeholder cannot be resolved (e.g. Cloudflare without
+    /// `CLOUDFLARE_ACCOUNT_ID` set) — callers then fall back to the default
+    /// endpoint, mirroring the Anthropic-only-provider path.
+    pub fn endpoint_resolved(
+        &self,
+        anthropic_available: bool,
+    ) -> Option<(ApiStandard, String)> {
+        let (standard, url) = self.endpoint(anthropic_available)?;
+        Some((standard, resolve_url_template(url)?))
+    }
+}
+
+/// Resolve `{PLACEHOLDER}` markers in a registry base URL from the environment.
+///
+/// The only marker in use today is `{ACCOUNT_ID}`, read from
+/// `CLOUDFLARE_ACCOUNT_ID` (Cloudflare Workers AI embeds the account id in
+/// the URL path). URLs without markers pass through unchanged. Returns `None`
+/// when a required variable is missing or empty, so callers can fall back
+/// instead of sending a request to a malformed URL.
+pub fn resolve_url_template(url: &str) -> Option<String> {
+    if !url.contains('{') {
+        return Some(url.to_string());
+    }
+    let account_id = std::env::var("CLOUDFLARE_ACCOUNT_ID")
+        .ok()
+        .filter(|v| !v.is_empty())?;
+    Some(url.replace("{ACCOUNT_ID}", &account_id))
 }
 
 /// The full named-provider registry.
@@ -205,6 +245,31 @@ pub fn provider_registry() -> Vec<ProviderInfo> {
             featured: &["deepseek-v4-flash"],
             rate_limit_notes: "Aggressive rate limits on lower tiers; 429s are common — \
                 back off with jitter, never hammer (account-safety PR #47 applies).",
+        },
+        // --- Cloudflare Workers AI (free-tier inference) ---
+        ProviderInfo {
+            key: "cloudflare",
+            display_name: "Cloudflare Workers AI",
+            // `{ACCOUNT_ID}` is interpolated from CLOUDFLARE_ACCOUNT_ID by
+            // `endpoint_resolved` — Workers AI embeds the account id in the path.
+            openai_base_url: Some(
+                "https://api.cloudflare.com/client/v4/accounts/{ACCOUNT_ID}/ai/v1",
+            ),
+            anthropic_base_url: None,
+            api_key_env: Some("CLOUDFLARE_API_TOKEN"),
+            docs_url: "https://developers.cloudflare.com/workers-ai/",
+            model_ids: &["@cf/meta/llama-3.1-8b-instruct", "@cf/cloudflare/clef-flash"],
+            // Verified paid pricing per zencode-cloudflare-research-2026-10-17.md
+            // (08/2026). clef-flash output is genuinely free ($0). The free
+            // tier (10,000 Neurons/day, resets 00:00 UTC) makes usage $0
+            // regardless of the table below — see rate_limit_notes.
+            pricing: &[("@cf/cloudflare/clef-flash", 0.09, 0.0)],
+            // clef-flash first: free output = the most free-first option in
+            // the registry. Feeds `zen models` discovery (PR #41).
+            featured: &["@cf/cloudflare/clef-flash", "@cf/meta/llama-3.1-8b-instruct"],
+            rate_limit_notes: "Free tier: 10,000 Neurons/day (resets 00:00 UTC), \
+                then $0.011/1K Neurons. Best for small tasks (classification, \
+                routing, summarisation) — not a coding-model replacement.",
         },
         // --- remainder of PR #44's registry ---
         ProviderInfo {
@@ -317,12 +382,12 @@ impl ModelSpec {
             Some((provider, model)) => {
                 let key = provider.to_ascii_lowercase();
                 if let Some(info) = find_provider(&key) {
-                    if let Some((standard, url)) = info.endpoint(anthropic_available) {
+                    if let Some((standard, url)) = info.endpoint_resolved(anthropic_available) {
                         return Self {
                             provider: key,
                             model: model.to_string(),
                             api_standard: standard,
-                            base_url: url.to_string(),
+                            base_url: url,
                             api_key_env: info.api_key_env.map(str::to_string),
                         };
                     }
@@ -394,8 +459,8 @@ pub fn featured_models() -> Vec<(String, String)> {
 /// per the price-floor strategy, then the usual suspects).
 pub fn authable_providers() -> Vec<ProviderInfo> {
     let preferred_order = [
-        "deepseek", "zai", "moonshot", "openrouter", "groq", "anthropic", "openai", "google",
-        "together", "mistral", "cerebras", "fireworks",
+        "deepseek", "zai", "moonshot", "cloudflare", "openrouter", "groq", "anthropic",
+        "openai", "google", "together", "mistral", "cerebras", "fireworks",
     ];
     let reg: HashMap<&str, ProviderInfo> = provider_registry()
         .into_iter()
@@ -435,8 +500,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn registry_has_fourteen_providers() {
-        assert_eq!(provider_registry().len(), 14);
+    fn registry_has_fifteen_providers() {
+        assert_eq!(provider_registry().len(), 15);
     }
 
     #[test]
@@ -606,9 +671,12 @@ mod tests {
     }
 
     #[test]
-    fn cheap_first_order_puts_deepseek_first() {
+    fn cheap_first_order_puts_cloudflare_first() {
         let order = cheap_first_order();
-        assert_eq!(order[0], "deepseek"); // $0.14/1M — the price floor
+        // clef-flash at $0.09/1M in undercuts the old $0.14 floor; its output
+        // is genuinely free, and the 10K Neurons/day free tier is $0 anyway.
+        assert_eq!(order[0], "cloudflare");
+        assert_eq!(order[1], "deepseek"); // $0.14/1M — the old price floor
         // moonshot's cheapest ($0.95) sorts before zai's ($1.40).
         let zi = order.iter().position(|k| k == "zai").unwrap();
         let mi = order.iter().position(|k| k == "moonshot").unwrap();
@@ -621,5 +689,123 @@ mod tests {
         // ZAI_API_KEY is (almost certainly) unset in test envs.
         assert_eq!(s.api_key(Some("ambient-key")), Some("ambient-key".to_string()));
         assert_eq!(s.api_key(None), None);
+    }
+
+    /// Run `f` with `CLOUDFLARE_ACCOUNT_ID` set to `value` (removed when
+    /// `None`), restoring the previous value afterwards. The Cloudflare tests run in
+    /// parallel, so a process-wide lock serializes every access to the variable.
+    fn with_account_id_env(value: Option<&str>, f: impl FnOnce()) {
+        static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let saved = std::env::var("CLOUDFLARE_ACCOUNT_ID").ok();
+        match value {
+            Some(v) => std::env::set_var("CLOUDFLARE_ACCOUNT_ID", v),
+            None => std::env::remove_var("CLOUDFLARE_ACCOUNT_ID"),
+        }
+        f();
+        match saved {
+            Some(v) => std::env::set_var("CLOUDFLARE_ACCOUNT_ID", v),
+            None => std::env::remove_var("CLOUDFLARE_ACCOUNT_ID"),
+        }
+    }
+
+    #[test]
+    fn cloudflare_entry_is_correct() {
+        let p = find_provider("cloudflare").unwrap();
+        assert_eq!(p.display_name, "Cloudflare Workers AI");
+        assert_eq!(p.api_key_env, Some("CLOUDFLARE_API_TOKEN"));
+        assert!(p.anthropic_base_url.is_none());
+        // The raw endpoint keeps the {ACCOUNT_ID} template; resolution
+        // happens in `endpoint_resolved`.
+        let (std, url) = p.endpoint(false).unwrap();
+        assert_eq!(std, ApiStandard::OpenAi);
+        assert!(
+            url.contains("{ACCOUNT_ID}"),
+            "Workers AI embeds the account id in the URL path"
+        );
+    }
+
+    #[test]
+    fn cloudflare_template_resolves_with_account_id() {
+        with_account_id_env(Some("test-acct-123"), || {
+            let p = find_provider("cloudflare").unwrap();
+            let (std, url) = p.endpoint_resolved(false).expect("must resolve");
+            assert_eq!(std, ApiStandard::OpenAi);
+            assert_eq!(
+                url,
+                "https://api.cloudflare.com/client/v4/accounts/test-acct-123/ai/v1"
+            );
+            // ModelSpec::parse resolves the template too.
+            let s = ModelSpec::parse(
+                "cloudflare/@cf/meta/llama-3.1-8b-instruct",
+                "http://default/v1",
+                false,
+            );
+            assert_eq!(s.provider, "cloudflare");
+            assert_eq!(s.model, "@cf/meta/llama-3.1-8b-instruct");
+            assert_eq!(
+                s.base_url,
+                "https://api.cloudflare.com/client/v4/accounts/test-acct-123/ai/v1"
+            );
+            assert_eq!(s.api_key_env.as_deref(), Some("CLOUDFLARE_API_TOKEN"));
+        });
+    }
+
+    #[test]
+    fn cloudflare_without_account_id_falls_back_to_default() {
+        // Missing CLOUDFLARE_ACCOUNT_ID must not produce a malformed URL:
+        // resolution returns None and parsing falls back to the default
+        // endpoint, mirroring the Anthropic-only-provider path.
+        with_account_id_env(None, || {
+            let p = find_provider("cloudflare").unwrap();
+            assert!(p.endpoint_resolved(false).is_none());
+            let s = ModelSpec::parse("cloudflare/some-model", "http://default/v1", false);
+            assert_eq!(s.provider, "default");
+            assert_eq!(s.base_url, "http://default/v1");
+        });
+    }
+
+    #[test]
+    fn resolve_url_template_passes_plain_urls_through() {
+        assert_eq!(
+            resolve_url_template("https://api.deepseek.com/v1"),
+            Some("https://api.deepseek.com/v1".to_string())
+        );
+        // Empty account id counts as missing.
+        with_account_id_env(Some(""), || {
+            assert_eq!(resolve_url_template("https://x/{ACCOUNT_ID}/y"), None);
+        });
+    }
+
+    #[test]
+    fn cloudflare_clef_flash_pricing_is_verified() {
+        // Per zencode-cloudflare-research-2026-10-17.md: $0.09/1M in,
+        // output genuinely free.
+        let p = model_pricing("cloudflare", "@cf/cloudflare/clef-flash").unwrap();
+        assert_eq!(p, (0.09, 0.0));
+        // llama-3.1-8b-instruct has no verified *output* price: absent.
+        assert_eq!(
+            model_pricing("cloudflare", "@cf/meta/llama-3.1-8b-instruct"),
+            None
+        );
+    }
+
+    #[test]
+    fn featured_models_lead_with_cloudflare_free_tier() {
+        let f = featured_models();
+        assert!(f.contains(&(
+            "cloudflare".to_string(),
+            "@cf/cloudflare/clef-flash".to_string()
+        )));
+        assert!(f.contains(&(
+            "cloudflare".to_string(),
+            "@cf/meta/llama-3.1-8b-instruct".to_string()
+        )));
+    }
+
+    #[test]
+    fn authable_providers_include_cloudflare_after_moonshot() {
+        let keys: Vec<&str> = authable_providers().iter().map(|p| p.key).collect();
+        assert_eq!(&keys[..4], &["deepseek", "zai", "moonshot", "cloudflare"]);
     }
 }
