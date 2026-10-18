@@ -78,6 +78,11 @@ async fn run_subcommand(
             for s in &cfg.trust_skipped {
                 println!("    skipped: {}", s);
             }
+            // RateGate quota (g3): per-provider daily usage for `:free` tiers.
+            let store = home.map(zen_agent::RateGate::default_store_path);
+            for line in zen_agent::rategate::quota_report_for(store.as_deref()).lines() {
+                println!("  {line}");
+            }
             if cfg.loaded_sources.is_empty() {
                 println!("  settings_sources: (none)");
             } else {

@@ -54,7 +54,7 @@ pub async fn run_repl(cli: &Cli, cwd: &Path, home: Option<&Path>) -> Result<()> 
     )
     .await?;
 
-    let llm = crate::eventlog::wrap(Arc::new(cfg.llm_client(Arc::new(zen_core::NullSink))), assembly.recorder.as_ref());
+    let llm = crate::eventlog::wrap(cfg.gated_llm_client(Arc::new(zen_core::NullSink), home), assembly.recorder.as_ref());
 
     let mut config = build_repl_config(cli, &cfg, cwd);
     let _ = &mut config;
@@ -336,6 +336,10 @@ async fn handle_slash(
             }
         }
         "/cost" => println!("{}", commands::cost_report(&agent.usage)),
+        "/quota" => {
+            let store = home.map(zen_agent::RateGate::default_store_path);
+            println!("{}", zen_agent::rategate::quota_report_for(store.as_deref()));
+        }
         "/context" => println!(
             "{}",
             commands::context_report(

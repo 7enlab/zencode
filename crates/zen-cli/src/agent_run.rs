@@ -288,7 +288,7 @@ pub async fn assemble(
         // Forwarding sink: the run's real sink is attached once it exists (C6.4).
         let fwd: Arc<dyn EventSink> = subagent_sink.clone();
         let executor = zen_agent::SubAgentExecutor::new(
-            crate::eventlog::wrap(Arc::new(cfg.llm_client(fwd.clone())), recorder.as_ref()),
+            crate::eventlog::wrap(cfg.gated_llm_client(fwd.clone(), home), recorder.as_ref()),
             registry.clone(),
             assembly_permissions.clone(),
             hooks.clone(),
@@ -583,7 +583,7 @@ pub async fn run_agent_headless(
     };
     assembly.subagent_sink.set(sink.clone());
 
-    let llm = crate::eventlog::wrap(Arc::new(cfg.llm_client(sink.clone())), assembly.recorder.as_ref());
+    let llm = crate::eventlog::wrap(cfg.gated_llm_client(sink.clone(), home), assembly.recorder.as_ref());
 
     let mut config = base_agent_config(cfg, cli, system_prompt);
     config.model = effective_model.clone();

@@ -22,6 +22,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - docs: `--include-partial-messages` consumer contract in `docs/stream-json-v1.md` —
   deltas are provisional, the following full `assistant` record is authoritative; UIs must
   replace (not append) accumulated deltas (issue #20).
+### Added
+- RateGate (roadmap g3, atzenn/zencode#10): per-provider daily request quota for `:free`
+  LLM tiers, implemented as an `LlmBackend` wrapper in `zen-agent` so it composes with the
+  existing retry/fallback logic. Counts every `chat` call per provider host (including
+  failures) in `~/.zen/rategate.json`, rolling over each UTC day; local gateways are never
+  gated. When a provider's quota is exhausted the gate fails fast and the agent loop's
+  model-fallback moves to the next configured model automatically. Configurable via
+  settings `rateGate: {"enabled", "dailyLimit", "limits"}` (defaults: enabled, 50/day). Only
+  `:free` model ids are gated, and only on openrouter.ai or hosts listed in `limits`; paid
+  models and the default gateway are never throttled.
+  Quota status is shown in `zen doctor` and via the new REPL `/quota` command.
 
 ## [0.1.0] - 2026-10-17
 

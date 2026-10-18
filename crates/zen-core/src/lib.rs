@@ -513,14 +513,30 @@ pub struct Settings {
     /// Default false: SSRF guard refuses non-public addresses (LOW-1).
     #[serde(default)]
     pub allow_private_network: bool,
+    /// RateGate settings (`rateGate: {"enabled", "dailyLimit", "limits"}`), g3.
+    #[serde(default)]
+    pub rate_gate: RateGateFileConfig,
     #[serde(flatten)]
     pub extra: HashMap<String, Value>,
 }
 
+/// File-level `rateGate` settings (`{"enabled": bool, "dailyLimit": n, "limits": {host: n}}`).
+/// All fields optional; absent values fall back to the RateGate defaults
+/// (enabled, 50 requests/day per provider).
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 #[serde(rename_all = "camelCase")]
-pub struct PermissionSettings {
+pub struct RateGateFileConfig {
     #[serde(default)]
+    pub enabled: Option<bool>,
+    #[serde(default)]
+    pub daily_limit: Option<u64>,
+    #[serde(default)]
+    pub limits: HashMap<String, u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PermissionSettings {    #[serde(default)]
     pub allow: Vec<String>,
     #[serde(default)]
     pub ask: Vec<String>,

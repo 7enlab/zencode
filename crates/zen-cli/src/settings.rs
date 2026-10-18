@@ -46,6 +46,8 @@ pub struct ResolvedConfig {
     pub folder_trusted: bool,
     /// What the untrusted run skipped, e.g. `.zen/settings.json: hooks` or `.mcp.json`.
     pub trust_skipped: Vec<String>,
+    /// RateGate settings (g3): per-provider daily quota for `:free` tiers.
+    pub rate_gate: zen_agent::RateGateSettings,
 }
 
 impl ResolvedConfig {
@@ -58,6 +60,33 @@ impl ResolvedConfig {
         let mut c = zen_agent::OpenAiClient::new(self.base_url.clone(), self.api_key.clone(), sink);
         c.max_total_wait_ms = self.retry_max_wait_secs.saturating_mul(1000);
         c
+    }
+
+    /// Settings for a [`zen_agent::RateGate`] wrapping this config's client.
+    /// `home` is None → the gate counts in memory only (no persistence).
+    pub fn rate_gate_for(&self, home: Option<&std::path::Path>) -> (zen_agent::RateGateSettings, Option<std::path::PathBuf>) {
+        let store_path = home.map(zen_agent::RateGate::default_store_path);
+        (self.rate_gate.clone(), store_path)
+    }
+
+    /// The LLM backend for agent runs: an `OpenAiClient` wrapped in a RateGate
+    /// (per-provider daily quota, g3). When the quota for the configured provider is
+    /// exhausted the gate fails fast, and the agent loop's model-fallback logic moves
+    /// on to the next configured model automatically.
+    pub fn gated_llm_client(
+        &self,
+        sink: std::sync::Arc<dyn zen_core::EventSink>,
+        home: Option<&std::path::Path>,
+    ) -> std::sync::Arc<dyn zen_core::LlmBackend> {
+        let client = self.llm_client(sink);
+        let (settings, store_path) =
+            self.rate_gate_for(home);
+        std::sync::Arc::new(zen_agent::RateGate::new(
+            std::sync::Arc::new(client),
+            self.base_url.clone(),
+            settings,
+            store_path,
+        ))
     }
 }
 
@@ -85,6 +114,18 @@ pub fn retry_max_wait_secs(retry: Option<&serde_json::Value>) -> u64 {
         .and_then(|r| r.get("maxWaitSecs"))
         .and_then(|v| v.as_u64().or_else(|| v.as_f64().filter(|f| *f >= 0.0).map(|f| f as u64)))
         .unwrap_or(DEFAULT_RETRY_MAX_WAIT_SECS)
+}
+
+/// Resolve the file-level `rateGate` settings into runtime [`zen_agent::RateGateSettings`].
+/// `{"rateGate": {"enabled": bool, "dailyLimit": n, "limits": {"host": n}}}`; absent values
+/// fall back to the RateGate defaults (enabled, 50/day). A `dailyLimit` of 0 disables
+/// counting for every provider (equivalent to `enabled: false`).
+pub fn rate_gate_settings(cfg: &zen_core::RateGateFileConfig) -> zen_agent::RateGateSettings {
+    zen_agent::RateGateSettings {
+        enabled: cfg.enabled.unwrap_or(true),
+        daily_limit: cfg.daily_limit.unwrap_or(zen_agent::DEFAULT_DAILY_LIMIT),
+        limits: cfg.limits.clone(),
+    }
 }
 
 /// Deep merge `over` onto `base`. Objects merge recursively; arrays concatenate+dedupe;
@@ -134,6 +175,16 @@ pub fn merge_settings(base: &Settings, over: &Settings) -> Settings {
     }
     if over.context_window.is_some() {
         out.context_window = over.context_window;
+    }
+    // rateGate: `over` wins per-field when set; limits merge by provider host.
+    if over.rate_gate.enabled.is_some() {
+        out.rate_gate.enabled = over.rate_gate.enabled;
+    }
+    if over.rate_gate.daily_limit.is_some() {
+        out.rate_gate.daily_limit = over.rate_gate.daily_limit;
+    }
+    for (k, v) in &over.rate_gate.limits {
+        out.rate_gate.limits.insert(k.clone(), *v);
     }
     out
 }
@@ -446,6 +497,7 @@ pub fn resolve_config_with_home(
         bypass_forbidden: loaded.bypass_forbidden,
         folder_trusted,
         trust_skipped,
+        rate_gate: rate_gate_settings(&merged.rate_gate),
     })
 }
 

@@ -52,10 +52,12 @@ pub mod safety;
 mod subagent;
 
 pub mod agent;
+pub mod rategate;
 pub use agent::{Agent, AgentConfig, DEFAULT_MAX_CONTINUATIONS, DEFAULT_STOP_HOOK_CONTINUES, DEFAULT_TOOL_TIMEOUT_MS};
 pub use client::OpenAiClient;
 pub use safety::{user_agent, ErrorClass, classify_error};
 pub use providers::{ApiStandard, ModelSpec, ProviderInfo};
+pub use rategate::{RateGate, RateGateSettings, DEFAULT_DAILY_LIMIT};
 pub use subagent::SubAgentExecutor;
 
 #[cfg(test)]
