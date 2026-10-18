@@ -124,9 +124,19 @@ untracked files (parity with Claude Code and Codex CLI, which both ship `/diff`)
 - `/diff` — working tree vs HEAD (staged + unstaged), then untracked files
 - `/diff --staged` — staged changes only (`git diff --cached`)
 - `/diff --stat` — one-line summary per file instead of the full diff
+- `/diff --turn` — what the last file-changing turn did (from its checkpoint; no git needed)
 
 Output is colored when stdout is a terminal and `NO_COLOR` is unset. Outside a git repo it
-prints a hint instead of failing.
+prints a hint instead of failing (except `--turn`).
+
+### `/undo` (REPL)
+
+Before Write, Edit or MultiEdit first change a file in a turn, zen saves the old content in the
+session directory. `/undo` puts back every file the last file-changing turn touched (files it
+created are deleted) and adds a note to the conversation so the model re-reads them; run it
+again to step further back. If a file was changed outside zen after the turn, `/undo` refuses
+and lists it; `/undo --force` restores anyway. Files over 10 MB are not checkpointed (the tool
+result says so), and changes made through Bash are not undone. No git repository is needed.
 ### `/btw` side questions
 
 `/btw <question>` asks the model a quick side question without disturbing the main

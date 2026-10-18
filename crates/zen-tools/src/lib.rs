@@ -26,6 +26,7 @@
 
 pub mod atomic;
 pub mod builtin;
+pub mod checkpoint;
 pub mod edit_match;
 pub mod gitignore;
 pub mod jobs;
@@ -35,6 +36,8 @@ pub mod tool_docs;
 
 #[cfg(test)]
 mod tests_atomic;
+#[cfg(test)]
+mod tests_checkpoint;
 #[cfg(test)]
 mod tests_p0;
 #[cfg(test)]

@@ -403,12 +403,14 @@ impl Tool for WriteTool {
                 return ToolOutput::err(format!("Error creating directory {}: {}", parent.display(), e));
             }
         }
+        let ck_warning = checkpoint_before(ctx, &path);
         match crate::atomic::write_atomic_async(path.clone(), content.as_bytes().to_vec()).await {
             Ok(warning) => {
+                checkpoint_after(ctx, &path, content.as_bytes());
                 ctx.read_files.lock().unwrap().insert(path.clone(), content_stamp(content.as_bytes()));
                 ToolOutput::ok(with_warning(
-                    format!("Wrote {} bytes to {}", content.len(), path.display()),
-                    warning,
+                    with_warning(format!("Wrote {} bytes to {}", content.len(), path.display()), warning),
+                    ck_warning,
                 ))
             }
             Err(e) => ToolOutput::err(format!("Error writing {}: {}", path.display(), e)),
@@ -526,12 +528,29 @@ async fn save_edit(ctx: &ToolContext, path: &Path, old: &str, text: &str) -> Res
     if let Err(msg) = crate::syntax_guard::guard_write(path, Some(old), text).await {
         return Err(ToolOutput::err(msg));
     }
+    let ck_warning = checkpoint_before(ctx, path);
     let warning = match crate::atomic::write_atomic_async(path.to_path_buf(), text.as_bytes().to_vec()).await {
         Ok(w) => w,
         Err(e) => return Err(ToolOutput::err(format!("Error writing {}: {}", path.display(), e))),
     };
+    checkpoint_after(ctx, path, text.as_bytes());
     ctx.read_files.lock().unwrap().insert(path.to_path_buf(), content_stamp(text.as_bytes()));
-    Ok(warning)
+    Ok(match (warning, ck_warning) {
+        (Some(w), Some(c)) => Some(format!("{w}\n{c}")),
+        (w, c) => w.or(c),
+    })
+}
+
+/// P0-3: let the session's checkpoint store save `path` before this turn first changes it.
+fn checkpoint_before(ctx: &ToolContext, path: &Path) -> Option<String> {
+    ctx.checkpoints.as_ref().and_then(|c| c.before_write(path))
+}
+
+/// P0-3: record what was written, so `/undo` can tell later outside edits apart.
+fn checkpoint_after(ctx: &ToolContext, path: &Path, content: &[u8]) {
+    if let Some(c) = &ctx.checkpoints {
+        c.after_write(path, content);
+    }
 }
 
 fn with_warning(mut msg: String, warning: Option<String>) -> String {

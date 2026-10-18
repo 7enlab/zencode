@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (P0-3)
+- Per-turn checkpoints, no git needed: before Write/Edit/MultiEdit first change a file in a
+  REPL turn, its old content is saved in the session directory. `/undo` restores the last turn
+  that changed files (new files are deleted) and notes it in the history; repeat to walk back.
+  It refuses when a file was changed outside zen since the turn (`/undo --force` overrides).
+  Files over 10 MB are not saved (the tool result says so). Bash changes are not undone.
+- `/diff --turn` shows the last file-changing turn as a unified diff (works outside git).
+
 ### Changed (data safety, P0-1 / P0-2)
 - Write, Edit and MultiEdit write atomically: temp file in the same directory, fsync, rename.
   A kill or full disk mid-write no longer leaves a truncated file; file mode is kept; a

@@ -104,6 +104,13 @@ pub async fn run_repl(cli: &Cli, cwd: &Path, home: Option<&Path>) -> Result<()> 
         );
     }
 
+    let checkpoints = Arc::new(zen_tools::checkpoint::Checkpoints::new(
+        match &transcript_path {
+            Some(q) => crate::session::session_scratch_dir(q),
+            None => zen_core::ToolContext::new(cwd.to_path_buf(), session_id.clone()).scratch_dir(),
+        }
+        .join("checkpoints"),
+    ));
     let mut agent = zen_agent::Agent::new(
         llm,
         assembly.registry.clone(),
@@ -117,6 +124,8 @@ pub async fn run_repl(cli: &Cli, cwd: &Path, home: Option<&Path>) -> Result<()> 
             ctx.session_dir = transcript_path
                 .as_ref()
                 .map(|q| crate::session::session_scratch_dir(q));
+            // P0-3: per-turn checkpoints for /undo and /diff --turn (scratch dir of this run).
+            ctx.checkpoints = Some(checkpoints.clone());
             ctx
         },
         config,
@@ -147,6 +156,7 @@ pub async fn run_repl(cli: &Cli, cwd: &Path, home: Option<&Path>) -> Result<()> 
         pending_plan: None,
         scope: crate::doneguard::ScopeGuard::default(),
         scope_seeded: false,
+        checkpoints,
     };
 
     loop {
@@ -231,6 +241,8 @@ struct ReplState<'a> {
     scope: crate::doneguard::ScopeGuard,
     /// Whether the scope has been seeded from the first user prompt yet.
     scope_seeded: bool,
+    /// Per-turn file checkpoints behind /undo and /diff --turn (P0-3).
+    checkpoints: Arc<zen_tools::checkpoint::Checkpoints>,
 }
 
 /// SIGINT handling for the REPL. A background task owns the signal stream: during a turn it
@@ -283,6 +295,10 @@ async fn run_turn_interruptible(
     prompt: &str,
     interrupts: Option<&mut ReplInterrupts>,
 ) -> Option<RunResult> {
+    // P0-3: every REPL turn is one /undo step.
+    if let Some(c) = &agent.ctx.checkpoints {
+        c.begin_turn(prompt);
+    }
     let Some(intr) = interrupts else {
         return Some(agent.run_turn(prompt).await);
     };
@@ -553,7 +569,7 @@ async fn handle_slash(
         "/exit" | "/quit" => return Ok(LineAction::Exit),
         "/help" => {
             println!("Built-in commands:");
-            for c in commands::BUILTIN_COMMANDS {
+            for c in commands::BUILTIN_COMMANDS.iter().chain(commands::REPL_ONLY_COMMANDS) {
                 println!("  {}", c);
             }
             // Same discovery as expansion (zen-ext): commands + user-invocable skills (C5.2/C5.3).
@@ -722,20 +738,38 @@ async fn handle_slash(
                 agent.last_prompt_tokens,
             )
         ),
+        "/undo" => {
+            // P0-3: restore the files the last file-changing turn wrote (no git needed).
+            match arg.as_str() {
+                "" | "--force" => undo_last_turn(repl, agent, arg == "--force"),
+                _ => eprintln!("usage: /undo [--force]"),
+            }
+        }
         "/diff" => {
             // Parity H6 (Claude Code / Codex CLI): show uncommitted changes.
             let mut staged = false;
             let mut stat = false;
+            let mut turn = false;
             let mut unknown: Option<&str> = None;
             for tok in arg.split_whitespace() {
                 match tok {
                     "--staged" => staged = true,
                     "--stat" => stat = true,
+                    "--turn" | "--last" => turn = true,
                     _ => unknown = Some(tok),
                 }
             }
             if let Some(flag) = unknown {
-                eprintln!("unknown flag '{flag}'; usage: /diff [--staged] [--stat]");
+                eprintln!("unknown flag '{flag}'; usage: /diff [--staged] [--stat] [--turn]");
+            } else if turn {
+                // P0-3: what the last file-changing turn did, from its checkpoint (no git).
+                match repl.checkpoints.diff_last_turn(&zen_tools::canonicalize_lenient(cwd)) {
+                    None => println!("(no turn has changed files with Write/Edit/MultiEdit yet)"),
+                    Some((t, diff)) => {
+                        println!("Turn {} ({}): {} file(s)", t.id, t.label, t.entries.len());
+                        print!("{diff}");
+                    }
+                }
             } else if !crate::git::is_git_repo(cwd) {
                 eprintln!(
                     "not a git repository: {}\n/diff needs a git repo; read files directly or run `!git ...` instead.",
@@ -1386,6 +1420,43 @@ fn run_shell_passthrough(
                 crate::mentions::shell_passthrough_record(cmd, &out),
             ));
         }
+    }
+}
+
+/// `/undo [--force]`: restore the last turn that changed files and tell the model in history.
+fn undo_last_turn(repl: &mut ReplState<'_>, agent: &mut zen_agent::Agent, force: bool) {
+    use zen_tools::checkpoint::UndoError;
+    match repl.checkpoints.undo(force) {
+        Ok(r) => {
+            let mut lines = Vec::new();
+            for p in &r.restored {
+                lines.push(format!("restored {}", p.display()));
+            }
+            for p in &r.removed {
+                lines.push(format!("deleted {} (created in that turn)", p.display()));
+            }
+            for (p, why) in &r.skipped {
+                lines.push(format!("NOT restored {} ({})", p.display(), why));
+            }
+            let head = if r.label.is_empty() {
+                format!("Undid turn {}", r.turn_id)
+            } else {
+                format!("Undid turn {} \"{}\"", r.turn_id, r.label)
+            };
+            println!("{head}:");
+            for l in &lines {
+                println!("  {l}");
+            }
+            println!("(changes made through Bash are not undone)");
+            agent.messages.push(zen_core::ChatMessage::user(format!(
+                "[/undo] The user undid the file changes of an earlier turn ({}). Files are back \
+                 to their content before that turn; read them again before editing:\n{}",
+                if r.label.is_empty() { format!("turn {}", r.turn_id) } else { format!("\"{}\"", r.label) },
+                lines.join("\n")
+            )));
+        }
+        Err(e @ UndoError::Nothing) => println!("{e}"),
+        Err(e) => eprintln!("{e}"),
     }
 }
 

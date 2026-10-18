@@ -14,6 +14,10 @@ pub const BUILTIN_COMMANDS: &[&str] = &[
     "/scope", "/worktree", "/commit",
 ];
 
+/// Interactive-only built-ins, listed by `/help` but not in the stream-json `init` record
+/// (they act on REPL state that headless runs do not have).
+pub const REPL_ONLY_COMMANDS: &[&str] = &["/undo"];
+
 /// Built-ins that also work as the whole prompt of `-p` (SPEC C5.4). The rest are terminal-only.
 pub const HEADLESS_BUILTINS: &[&str] =
     &["compact", "model", "cost", "mcp", "context", "review", "init", "done"];

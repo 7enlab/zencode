@@ -210,6 +210,21 @@ pub struct ToolContext {
     /// Default timeout for this call from settings `toolTimeouts` (ms). The agent sets it on the
     /// per-call clone; Bash uses it when the call gives no `timeout_ms` (p0b).
     pub tool_timeout_ms: Option<u64>,
+    /// Per-turn file checkpoints (P0-3). Write/Edit/MultiEdit report each file before and after
+    /// they change it so `/undo` can restore the turn. `None` (headless, tests) records nothing.
+    pub checkpoints: Option<Arc<dyn FileCheckpoints>>,
+}
+
+/// Records files that Write/Edit/MultiEdit are about to change, so a turn can be undone (P0-3).
+/// Implementations never fail the write: a snapshot that cannot be taken becomes a warning.
+pub trait FileCheckpoints: Send + Sync {
+    /// A new user turn starts; later writes belong to it.
+    fn begin_turn(&self, prompt: &str);
+    /// Called before `path` is written. Returns a warning for the tool output when the old
+    /// content could not be saved (for example the file is too large).
+    fn before_write(&self, path: &Path) -> Option<String>;
+    /// Called after `path` was written with `content`.
+    fn after_write(&self, path: &Path, content: &[u8]);
 }
 
 impl ToolContext {
@@ -226,6 +241,7 @@ impl ToolContext {
             current_tool_use_id: None,
             session_dir: None,
             tool_timeout_ms: None,
+            checkpoints: None,
         }
     }
     pub fn cwd(&self) -> PathBuf {
