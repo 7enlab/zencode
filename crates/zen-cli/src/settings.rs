@@ -40,6 +40,8 @@ pub struct ResolvedConfig {
     pub max_continuations: usize,
     /// Settings `toolBundle`: all|core|read|write|exec (default all).
     pub tool_bundle: zen_agent::ToolBundle,
+    /// Settings `sessions.autoArchiveDays`: auto-archive sessions older than N days (0 = off).
+    pub auto_archive_days: u64,
     pub max_turns: usize,
     /// Config `maxBudgetUsd`: session spend cap in USD (flag/env take precedence).
     pub max_budget_usd: Option<f64>,
@@ -128,6 +130,14 @@ pub fn max_continuations(v: Option<&serde_json::Value>) -> usize {
 /// anything else -> All).
 fn tool_bundle(v: Option<&serde_json::Value>) -> zen_agent::ToolBundle {
     v.and_then(|v| v.as_str()).and_then(|s| s.parse().ok()).unwrap_or_default()
+}
+
+/// Settings `sessions.autoArchiveDays`: archive sessions older than N days (default 0 = off).
+/// A non-negative integer; anything else -> 0.
+pub fn sessions_auto_archive_days(v: Option<&serde_json::Value>) -> u64 {
+    v.and_then(|v| v.get("autoArchiveDays"))
+        .and_then(|n| n.as_u64())
+        .unwrap_or(0)
 }
 
 /// Default for settings `retry.maxWaitSecs`.
@@ -520,6 +530,7 @@ pub fn resolve_config_with_home(
         tool_timeouts: tool_timeouts(merged.extra.get("toolTimeouts")),
         max_continuations: max_continuations(merged.extra.get("maxContinuations")),
         tool_bundle: tool_bundle(merged.extra.get("toolBundle")),
+        auto_archive_days: sessions_auto_archive_days(merged.extra.get("sessions")),
         max_turns,
         max_budget_usd: merged.extra.get("maxBudgetUsd").and_then(|v| v.as_f64()),
         budget_warn_at: merged.extra.get("budgetWarnAt").and_then(|v| v.as_f64()),
@@ -749,6 +760,18 @@ mod tests {
         let cfg = resolve_config(&cli, &dir).unwrap();
         assert!(cfg.warnings.is_empty());
         assert!(cfg.loaded_sources.is_empty());
+    }
+
+    #[test]
+    fn sessions_auto_archive_days_parsing() {
+        use serde_json::json;
+        assert_eq!(sessions_auto_archive_days(None), 0);
+        assert_eq!(sessions_auto_archive_days(Some(&json!({}))), 0);
+        assert_eq!(sessions_auto_archive_days(Some(&json!({"autoArchiveDays": 30}))), 30);
+        assert_eq!(sessions_auto_archive_days(Some(&json!({"autoArchiveDays": 0}))), 0);
+        // invalid values fall back to 0 (off)
+        assert_eq!(sessions_auto_archive_days(Some(&json!({"autoArchiveDays": -5}))), 0);
+        assert_eq!(sessions_auto_archive_days(Some(&json!({"autoArchiveDays": "soon"}))), 0);
     }
 
     #[test]

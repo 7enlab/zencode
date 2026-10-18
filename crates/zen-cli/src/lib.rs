@@ -24,10 +24,11 @@ pub mod safety;
 pub mod repl_polish;
 pub mod repomap;
 pub mod session;
+pub mod session_mgmt;
 pub mod settings;
 pub mod system_prompt;
 
-pub use cli::{Cli, Commands, CostArgs, ExportArgs, ImportArgs, InputFormat, McpArgs, McpSubcommand, ModelsArgs, OutputFormat, PermissionMode};
+pub use cli::{Cli, Commands, CostArgs, ExportArgs, ImportArgs, InputFormat, McpArgs, McpSubcommand, ModelsArgs, OutputFormat, PermissionMode, SessionSubcommand, SessionsArgs};
 pub use settings::{resolve_config, ResolvedConfig};
 pub use system_prompt::build_system_prompt;
 
@@ -207,6 +208,10 @@ fn cost_subcommand(
                 v["budget_warn_at"] = serde_json::json!(policy.warn_at);
             }
             println!("{}", serde_json::to_string(&v)?)
+        }
+        Commands::Sessions(s) => {
+            commands::sessions_command(cli, cwd, home, s).await?;
+            Ok(0)
         }
     }
     Ok(())

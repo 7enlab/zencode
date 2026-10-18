@@ -608,6 +608,76 @@ pub async fn mcp_command(
     }
 }
 
+// ─── `zen sessions ...` subcommand (parity A14) ────────────────────────────────
+
+/// Handle `zen sessions list|archive|delete|restore`.
+///
+/// Before anything else, sessions older than `sessions.autoArchiveDays` (0 = off) are
+/// auto-archived, so the list the user sees already reflects the retention policy.
+pub async fn sessions_command(
+    cli: &crate::cli::Cli,
+    cwd: &Path,
+    home: Option<&Path>,
+    args: &crate::cli::SessionsArgs,
+) -> Result<()> {
+    use crate::cli::SessionSubcommand;
+    use crate::session_mgmt as sm;
+    let Some(home) = home else {
+        return Err(anyhow!("sessions need a home directory"));
+    };
+    let cfg = crate::settings::resolve_config_with_home(cli, cwd, Some(home))?;
+    if cfg.auto_archive_days > 0 {
+        for id in sm::auto_archive_old(home, cfg.auto_archive_days)? {
+            println!(
+                "auto-archived session {} (older than {}d)",
+                sm::short_id(&id),
+                cfg.auto_archive_days
+            );
+        }
+    }
+    match &args.command {
+        SessionSubcommand::List { all } => {
+            let sessions = sm::list_all_sessions(home, *all);
+            if sessions.is_empty() {
+                println!("no sessions yet");
+                return Ok(());
+            }
+            println!("ID         MODIFIED (UTC)    MSGS   TOKENS in/out  STATUS    TITLE");
+            for s in &sessions {
+                println!(
+                    "{:<10} {:<16} {:>5} {:>15}  {:<9} {}",
+                    sm::short_id(&s.id),
+                    sm::fmt_mtime(s.modified),
+                    s.message_count,
+                    format!("{}/{}", s.input_tokens, s.output_tokens),
+                    if s.archived { "archived" } else { "active" },
+                    s.title.as_deref().unwrap_or(""),
+                );
+            }
+            Ok(())
+        }
+        SessionSubcommand::Archive { id } => {
+            let dest = sm::archive_session(home, id)?;
+            println!("archived session {} -> {}", sm::short_id(id), dest.display());
+            Ok(())
+        }
+        SessionSubcommand::Delete { id, yes } => {
+            if !yes && !sm::confirm_delete_prompt(id)? {
+                println!("delete cancelled");
+                return Ok(());
+            }
+            sm::delete_session(home, id)?;
+            println!("deleted session {}", sm::short_id(id));
+            Ok(())
+        }
+        SessionSubcommand::Restore { id } => {
+            let dest = sm::restore_session(home, id)?;
+            println!("restored session {} -> {}", sm::short_id(id), dest.display());
+            Ok(())
+        }
+    }
+}
+
 // ─── Tests ─────────────────────────────────────────────────────────────────
 
 #[cfg(test)]

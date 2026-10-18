@@ -484,4 +484,26 @@ Small quality-of-life slash commands for the interactive REPL:
 /goal ship the v0.6 milestone
 /personality concise
 /theme light
+## Sessions
+
+Conversations persist as JSONL transcripts under `~/.zen/projects/<project>/`.
+Manage them with `zen sessions`:
+
+```bash
+zen sessions list               # active sessions: id, date, messages, tokens, title
+zen sessions list --all         # include archived sessions
+zen sessions archive <id>       # hide from the default list (restorable)
+zen sessions restore <id>       # bring an archived session back
+zen sessions delete <id>        # permanently delete (asks for confirmation; --yes to skip)
+```
+
+Archived sessions live in `<project>/archive/` — they stay out of `zen sessions list`
+and `--continue`, but `--resume <id>` and `restore` still work. Deleting removes the
+transcript and its scratch files; there is no undo.
+
+Auto-archive stale sessions with `sessions.autoArchiveDays` in `~/.zen/settings.json`
+(`0` = off, the default):
+
+```json
+{ "sessions": { "autoArchiveDays": 90 } }
 ```

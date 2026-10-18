@@ -355,6 +355,8 @@ pub enum Commands {
     Export(ExportArgs),
     /// Import a session from a JSON export file
     Import(ImportArgs),
+    /// Manage saved sessions (list, archive, restore, delete)
+    Sessions(SessionsArgs),
 }
 
 #[derive(Args, Debug, Clone)]
@@ -408,6 +410,41 @@ pub struct ExportArgs {
 pub struct ImportArgs {
     /// JSON export file produced by `zen export --format json`
     pub file: PathBuf,
+}
+
+
+#[derive(Args, Debug, Clone)]
+pub struct SessionsArgs {
+    #[command(subcommand)]
+    pub command: SessionSubcommand,
+}
+
+#[derive(Subcommand, Debug, Clone)]
+pub enum SessionSubcommand {
+    /// List saved sessions (active only unless --all)
+    List {
+        /// Include archived sessions
+        #[arg(long)]
+        all: bool,
+    },
+    /// Archive a session (hidden from the default list, restorable)
+    Archive {
+        /// Session id (or absolute path)
+        id: String,
+    },
+    /// Permanently delete a session (transcript + scratch files)
+    Delete {
+        /// Session id (or absolute path)
+        id: String,
+        /// Skip the confirmation prompt
+        #[arg(long)]
+        yes: bool,
+    },
+    /// Restore an archived session
+    Restore {
+        /// Session id (or absolute path)
+        id: String,
+    },
 }
 
 #[derive(Args, Debug, Clone)]
@@ -619,6 +656,44 @@ mod tests {
             }
             _ => panic!("expected Models with flags"),
         }
+    }
+
+    #[test]
+    fn parse_sessions_subcommands() {
+        let cli = parse(&["sessions", "list"]);
+        assert!(matches!(
+            cli.subcommand,
+            Some(Commands::Sessions(s)) if matches!(s.command, SessionSubcommand::List { all: false })
+        ));
+        let cli = parse(&["sessions", "list", "--all"]);
+        assert!(matches!(
+            cli.subcommand,
+            Some(Commands::Sessions(s)) if matches!(s.command, SessionSubcommand::List { all: true })
+        ));
+        let cli = parse(&["sessions", "archive", "abc123"]);
+        match cli.subcommand {
+            Some(Commands::Sessions(s)) => match s.command {
+                SessionSubcommand::Archive { id } => assert_eq!(id, "abc123"),
+                other => panic!("expected Archive, got {:?}", other),
+            },
+            _ => panic!("expected Sessions"),
+        }
+        let cli = parse(&["sessions", "delete", "abc123", "--yes"]);
+        match cli.subcommand {
+            Some(Commands::Sessions(s)) => match s.command {
+                SessionSubcommand::Delete { id, yes } => {
+                    assert_eq!(id, "abc123");
+                    assert!(yes);
+                }
+                other => panic!("expected Delete, got {:?}", other),
+            },
+            _ => panic!("expected Sessions"),
+        }
+        let cli = parse(&["sessions", "restore", "abc123"]);
+        assert!(matches!(
+            cli.subcommand,
+            Some(Commands::Sessions(s)) if matches!(s.command, SessionSubcommand::Restore { .. })
+        ));
     }
 
     #[test]
