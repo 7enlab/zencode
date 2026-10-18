@@ -365,6 +365,24 @@ pub enum Commands {
     Sessions(SessionsArgs),
     /// Run the 10-task benchmark harness (roadmap g5, v0.3.0 milestone)
     Eval(EvalArgs),
+    /// Review code changes (read-only; CI-friendly exit codes)
+    Review(ReviewArgs),
+    /// Show PR review comments via the gh CLI (read-only)
+    #[command(name = "pr-comments")]
+    PrComments {
+        /// PR number (default: PR for the current branch)
+        pr: Option<String>,
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Show failing CI checks for the current branch and propose fixes (read-only)
+    #[command(name = "ci-fix")]
+    CiFix {
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Args, Debug, Clone)]
@@ -524,8 +542,6 @@ pub enum SkillSubcommand {
         /// Skill name
         name: String,
     },
-    /// Review code changes (read-only; CI-friendly exit codes)
-    Review(ReviewArgs),
 }
 
 #[derive(Args, Debug, Clone)]

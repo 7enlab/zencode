@@ -672,7 +672,7 @@ pub async fn run_review(
         ..Default::default()
     };
     let mut agent = zen_agent::Agent::new(
-        Arc::new(llm),
+        llm,
         registry,
         Arc::new(ReviewPermissions),
         None,

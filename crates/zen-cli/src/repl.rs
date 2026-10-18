@@ -403,6 +403,36 @@ async fn handle_line(
     Ok(LineAction::Continue)
 }
 
+/// Permission-gated offer to dispatch an agent turn that applies fixes.
+/// Read-only in plan mode; asks first in default mode; proceeds directly in
+/// acceptEdits/bypassPermissions/dontAsk.
+async fn offer_fix_turn(
+    prompt: &str,
+    what: &str,
+    cfg: &crate::settings::ResolvedConfig,
+    repl: &mut ReplState<'_>,
+    agent: &mut zen_agent::Agent,
+) {
+    match crate::github::fix_offer_for_mode(cfg.permission_mode) {
+        crate::github::FixOffer::Never => {
+            println!("(plan mode is read-only: not offering to apply fixes)");
+        }
+        crate::github::FixOffer::Auto => {
+            print_turn(run_turn_interruptible(agent, prompt, repl.interrupts.as_deref_mut()).await);
+        }
+        crate::github::FixOffer::Ask => {
+            eprint!("Address {} with the agent? [y/N] ", what);
+            let _ = std::io::stderr().flush();
+            let mut answer = String::new();
+            if std::io::stdin().read_line(&mut answer).is_ok()
+                && matches!(answer.trim().to_ascii_lowercase().as_str(), "y" | "yes")
+            {
+                print_turn(run_turn_interruptible(agent, prompt, repl.interrupts.as_deref_mut()).await);
+            }
+        }
+    }
+}
+
 async fn handle_slash(
     line: &str,
     cli: &Cli,
@@ -811,6 +841,45 @@ async fn handle_slash(
                     };
                     println!("\n{report}");
                 }
+            }
+        }
+        "/pr_comments" => {
+            let pr_arg = if arg.is_empty() { None } else { Some(arg.as_str()) };
+            match crate::github::fetch_pr_comments(cwd, pr_arg) {
+                Ok(fetched) => {
+                    println!("{}", crate::github::format_comments_text(&fetched));
+                    if fetched.total() > 0 {
+                        offer_fix_turn(
+                            &crate::github::pr_fix_prompt(&fetched),
+                            "these comments",
+                            cfg,
+                            repl,
+                            agent,
+                        )
+                        .await;
+                    }
+                }
+                Err(e) => eprintln!("pr_comments failed: {:#}", e),
+            }
+        }
+        "/ci-fix" => {
+            match crate::github::fetch_ci_status(cwd) {
+                Ok(status) => {
+                    if status.failing.is_empty() {
+                        println!("all CI checks passing on branch {}", status.branch);
+                    } else {
+                        println!("{}", crate::github::format_ci_text(&status));
+                        offer_fix_turn(
+                            &crate::github::ci_fix_prompt(&status),
+                            "these failures",
+                            cfg,
+                            repl,
+                            agent,
+                        )
+                        .await;
+                    }
+                }
+                Err(e) => eprintln!("ci-fix failed: {:#}", e),
             }
         }
         "/status" => {

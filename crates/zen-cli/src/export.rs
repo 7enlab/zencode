@@ -849,7 +849,7 @@ mod tests {
             Some(serde_json::json!({"summary": "compacted earlier work"})),
         )
         .unwrap();
-        let usage = zen_core::UsageStats { input_tokens: 100, output_tokens: 50 };
+        let usage = zen_core::UsageStats { input_tokens: 100, output_tokens: 50, ..Default::default() };
         crate::session::append_usage(&path, sid, &usage).unwrap();
         path
     }

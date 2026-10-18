@@ -19,6 +19,7 @@ pub mod git;
 pub mod ollama;
 pub mod models;
 pub mod mentions;
+pub mod github;
 pub mod output;
 pub mod planmode;
 pub mod prompt_budget;
@@ -167,6 +168,52 @@ async fn run_subcommand(
         Commands::Review(args) => {
             return review::run_review(cli, cwd, home, args).await;
         }
+        Commands::Sessions(s) => {
+            commands::sessions_command(cli, cwd, home, s).await?;
+            Ok(0)
+        }
+        Commands::Eval(args) => {
+            let cfg = settings::resolve_config_with_home(cli, cwd, home)?;
+            let model = args.model.clone().unwrap_or_else(|| cfg.model.clone());
+            let opts = eval::EvalOptions {
+                model,
+                task_filter: args.task.clone(),
+                max_turns: args.max_turns,
+                base_url: cfg.base_url.clone(),
+                api_key: cfg.api_key().map(|s| s.to_string()),
+            };
+            let report = eval::run_eval(&opts).await?;
+            if args.json {
+                println!("{}", report.to_json()?);
+            } else {
+                println!("{}", report.to_markdown());
+            }
+            // Exit 0 when the v0.3.0 bar (>=5/10) is met, so CI can gate on it.
+            Ok(if report.passed_count * 2 >= report.task_count {
+                0
+            } else {
+                1
+            })
+        }
+        Commands::PrComments { pr, json } => {
+            let fetched = github::fetch_pr_comments(cwd, pr.as_deref())?;
+            if *json {
+                println!("{}", serde_json::to_string_pretty(&fetched)?);
+            } else {
+                println!("{}", github::format_comments_text(&fetched));
+            }
+            Ok(0)
+        }
+        Commands::CiFix { json } => {
+            let status = github::fetch_ci_status(cwd)?;
+            if *json {
+                println!("{}", serde_json::to_string_pretty(&status)?);
+            } else {
+                println!("{}", github::format_ci_text(&status));
+            }
+            // Non-zero when checks are failing, so `zen ci-fix` works as a CI gate.
+            Ok(if status.failing.is_empty() { 0 } else { 1 })
+        }
     }
 }
 
@@ -226,33 +273,6 @@ fn cost_subcommand(
                 v["budget_warn_at"] = serde_json::json!(policy.warn_at);
             }
             println!("{}", serde_json::to_string(&v)?)
-        }
-        Commands::Sessions(s) => {
-            commands::sessions_command(cli, cwd, home, s).await?;
-            Ok(0)
-        }
-        Commands::Eval(args) => {
-            let cfg = settings::resolve_config_with_home(cli, cwd, home)?;
-            let model = args.model.clone().unwrap_or_else(|| cfg.model.clone());
-            let opts = eval::EvalOptions {
-                model,
-                task_filter: args.task.clone(),
-                max_turns: args.max_turns,
-                base_url: cfg.base_url.clone(),
-                api_key: cfg.api_key().map(|s| s.to_string()),
-            };
-            let report = eval::run_eval(&opts).await?;
-            if args.json {
-                println!("{}", report.to_json()?);
-            } else {
-                println!("{}", report.to_markdown());
-            }
-            // Exit 0 when the v0.3.0 bar (>=5/10) is met, so CI can gate on it.
-            Ok(if report.passed_count * 2 >= report.task_count {
-                0
-            } else {
-                1
-            })
         }
     }
     Ok(())

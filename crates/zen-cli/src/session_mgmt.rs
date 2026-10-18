@@ -336,7 +336,7 @@ mod tests {
         crate::session::append_usage(
             &path,
             id,
-            &zen_core::UsageStats { input_tokens: 100, output_tokens: 50 },
+            &zen_core::UsageStats { input_tokens: 100, output_tokens: 50, ..Default::default() },
         )
         .unwrap();
         path
