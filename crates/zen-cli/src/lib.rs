@@ -28,6 +28,7 @@ pub mod repomap;
 pub mod session;
 pub mod session_mgmt;
 pub mod settings;
+pub mod skills;
 pub mod system_prompt;
 
 pub use cli::{Cli, Commands, CostArgs, EvalArgs, ExportArgs, ImportArgs, InputFormat, McpArgs, McpSubcommand, ModelsArgs, OutputFormat, PermissionMode, SessionSubcommand, SessionsArgs};
@@ -154,6 +155,10 @@ async fn run_subcommand(
         }
         Commands::Import(i) => {
             export::run_import(cwd, home, &i.file)?;
+            Ok(0)
+        }
+        Commands::Skill(skill) => {
+            skills::skill_command(cwd, home, &skill.command).await?;
             Ok(0)
         }
     }

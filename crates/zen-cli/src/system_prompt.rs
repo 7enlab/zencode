@@ -91,9 +91,10 @@ pub fn build_system_prompt(cli: &Cli, cwd: &Path, home: Option<&Path>) -> Result
             parts.push(mem);
         }
 
-        // Skills list (name + description only).
+        // Skills list (name + description only), annotated with trust-tier badges
+        // from the skills registry (verified/community/unverified).
         let skills = zen_ext::discover_skills(cwd, home);
-        let skills_txt = zen_ext::skills_prompt(&skills);
+        let skills_txt = crate::skills::skills_prompt_with_tiers(home, &skills);
         if !skills_txt.trim().is_empty() {
             parts.push(skills_txt);
         }

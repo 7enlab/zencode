@@ -548,3 +548,21 @@ Graceful degradation: if a server binary is missing from `PATH`, the tool fails 
 clear error naming the server and the exact install command — the agent never hangs.
 The tools honor `--tools` (allowlist and `+`/`-` delta forms) and `--disallowedTools`
 like built-in tools, and they are skipped by `--tools ""`.
+## Skills
+
+ZenCode skills are installable, permission-declared, trust-tiered bundles of
+instructions (methodology, checklists, habits). Format spec: [`docs/skills.md`](docs/skills.md).
+
+```bash
+zen skill list                        # installed skills with trust badges
+zen skill install builtin:tdd         # tdd | token-diet | security-review
+zen skill install https://github.com/you/skill.git --yes
+zen skill test tdd                    # run the skill's evals (free, deterministic)
+zen skill create my-skill             # scaffold a new skill
+```
+
+Trust tiers: `[✓ verified]` (ed25519-signed by ZenCode — nobody else in the
+industry ships a real verified tier), `[community]` (you approved the install,
+hash-pinned, never auto-updates), `[⚠ unverified]` (sandboxed: read-only, no
+network). Install always shows the permission diff first and requires `--yes`;
+there are no silent auto-updates.

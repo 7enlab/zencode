@@ -1,0 +1,21 @@
+{
+  "name": "security-review",
+  "version": "1.0.0",
+  "description": "Pre-commit security checklist",
+  "author": "ZenCode",
+  "permissions": {
+    "allowed_tools": [
+      "glob",
+      "grep",
+      "read"
+    ],
+    "network": false,
+    "file_write": false,
+    "exec": false,
+    "file_scope": "project"
+  },
+  "skills": [
+    "."
+  ],
+  "signature": "2aed7631b1d99a068f5e067c4b9b7372678a33640f5fc63367a7f5f7b733ffa900079aead45462c118b87f0413c183d7240bbd8ddfe97ac9ad164919c13f3f0b"
+}

@@ -341,6 +341,8 @@ pub struct Cli {
 pub enum Commands {
     /// Manage MCP servers
     Mcp(McpArgs),
+    /// Manage skills (install, test, trust tiers)
+    Skill(SkillArgs),
     /// Check loaded settings sources and model reachability
     Doctor,
     /// List and probe free models across configured providers
@@ -468,6 +470,41 @@ pub struct EvalArgs {
     /// Max agent turns per task
     #[arg(long, default_value_t = 25)]
     pub max_turns: usize,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct SkillArgs {
+    #[command(subcommand)]
+    pub command: SkillSubcommand,
+}
+
+#[derive(Subcommand, Debug, Clone)]
+pub enum SkillSubcommand {
+    /// List installed skills with trust tier badges
+    List,
+    /// Install a skill from a git URL, local path, or builtin:<name>
+    Install {
+        /// Source: git URL, local path, or builtin:<name>
+        source: String,
+        /// Approve the permission prompt and install
+        #[arg(long)]
+        yes: bool,
+    },
+    /// Remove an installed skill
+    Remove {
+        /// Skill name
+        name: String,
+    },
+    /// Run a skill's evals (from its test.md)
+    Test {
+        /// Skill name
+        name: String,
+    },
+    /// Scaffold a new skill under ~/.zen/skills/<name>
+    Create {
+        /// Skill name
+        name: String,
+    },
 }
 
 #[derive(Args, Debug, Clone)]
@@ -716,6 +753,41 @@ mod tests {
         assert!(matches!(
             cli.subcommand,
             Some(Commands::Sessions(s)) if matches!(s.command, SessionSubcommand::Restore { .. })
+        ));
+    }
+
+    #[test]
+    fn parse_skill_subcommands() {
+        let cli = parse(&["skill", "list"]);
+        assert!(matches!(
+            cli.subcommand,
+            Some(Commands::Skill(s)) if matches!(s.command, SkillSubcommand::List)
+        ));
+        let cli = parse(&["skill", "install", "builtin:tdd", "--yes"]);
+        match cli.subcommand {
+            Some(Commands::Skill(s)) => match s.command {
+                SkillSubcommand::Install { source, yes } => {
+                    assert_eq!(source, "builtin:tdd");
+                    assert!(yes);
+                }
+                other => panic!("expected Install, got {:?}", other),
+            },
+            _ => panic!("expected Skill"),
+        }
+        let cli = parse(&["skill", "test", "tdd"]);
+        assert!(matches!(
+            cli.subcommand,
+            Some(Commands::Skill(s)) if matches!(s.command, SkillSubcommand::Test{..})
+        ));
+        let cli = parse(&["skill", "remove", "tdd"]);
+        assert!(matches!(
+            cli.subcommand,
+            Some(Commands::Skill(s)) if matches!(s.command, SkillSubcommand::Remove{..})
+        ));
+        let cli = parse(&["skill", "create", "my-skill"]);
+        assert!(matches!(
+            cli.subcommand,
+            Some(Commands::Skill(s)) if matches!(s.command, SkillSubcommand::Create{..})
         ));
     }
 

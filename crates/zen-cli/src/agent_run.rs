@@ -174,10 +174,27 @@ pub async fn assemble(
     let mut mcp_status: Vec<(String, String)> = vec![];
     let mut mcp_errors: Vec<(String, String)> = vec![];
     let mut skills: Vec<zen_core::SkillInfo> = vec![];
+    // M1 (security): session-scoped gate enforcing installed skills' declared
+    // tool allowlists at runtime. Created here so the Skill tool keeps its
+    // registry position; the inner checker is refreshed to the final session
+    // permissions via shared() below. Active-skill state is shared, so
+    // sub-agents spawned from this session inherit the same enforcement.
+    let skill_gate = Arc::new(crate::skills::SkillPermissionGate::new(
+        build_permissions(cwd, cfg, cli),
+    ));
     if !cli.bare {
         skills = zen_ext::discover_skills(cwd, home);
         if cli.tools.as_deref() != Some("") {
-            registry.register(Arc::new(zen_ext::SkillTool::new(skills.clone())));
+            // Loading a skill records it in the gate so its declared
+            // allowlist is enforced on subsequent tool calls.
+            let installed = home
+                .map(crate::skills::load_enabled_skills)
+                .unwrap_or_default();
+            registry.register(Arc::new(crate::skills::GatedSkillTool::new(
+                zen_ext::SkillTool::new(skills.clone()),
+                skill_gate.clone(),
+                installed,
+            )));
         }
     }
 
@@ -290,7 +307,8 @@ pub async fn assemble(
         let executor = zen_agent::SubAgentExecutor::new(
             crate::eventlog::wrap(cfg.gated_llm_client(fwd.clone(), home), recorder.as_ref()),
             registry.clone(),
-            assembly_permissions.clone(),
+            // Sub-agents share the session's skill gate state (M1).
+            Arc::new(skill_gate.shared(assembly_permissions.clone())),
             hooks.clone(),
             fwd,
             ToolContext::new(cwd.to_path_buf(), session_id.to_string()),
@@ -300,7 +318,9 @@ pub async fn assemble(
             agents,
             Arc::new(executor),
         )));
-        assembly_permissions = build_permissions(cwd, cfg, cli);
+        // Fresh base checker, wrapped in the shared skill gate (M1) so
+        // sub-agent and main-agent enforcement stay in sync.
+        assembly_permissions = Arc::new(skill_gate.shared(build_permissions(cwd, cfg, cli)));
     }
 
     // ── LSP code-intelligence tools (v0.7.0 #8): one manager per session, so
