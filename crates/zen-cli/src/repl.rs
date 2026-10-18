@@ -741,6 +741,78 @@ async fn handle_slash(
                 None => println!("no repo map (no Rust files found, or --repomap-budget 0)"),
             }
         }
+        "/deep-research" => {
+            use crate::deep_research as dr;
+            match dr::parse_deep_research_args(&arg) {
+                Err(e) => eprintln!("{e}"),
+                Ok(mut opts) => {
+                    if opts.max_budget_usd.is_none() {
+                        opts.max_budget_usd = dr::resolve_budget_usd(None);
+                    }
+                    if let Err(e) = dr::check_budget_usd(opts.max_budget_usd, opts.max_subagents) {
+                        eprintln!("deep-research: {e}");
+                        return Ok(LineAction::Continue);
+                    }
+                    let Some(task) = agent.tools.get("Task") else {
+                        eprintln!(
+                            "deep-research needs the Task tool (sub-agents are disabled in this session)"
+                        );
+                        return Ok(LineAction::Continue);
+                    };
+                    let angles = dr::research_angles(opts.max_subagents);
+                    println!(
+                        "deep-research: spawning {} researcher(s) on \"{}\"",
+                        angles.len(),
+                        opts.topic
+                    );
+                    let ctx = agent.ctx.clone();
+                    let model = agent.config.model.clone();
+                    let findings = dr::fan_out_research(
+                        &task,
+                        &ctx,
+                        &opts.topic,
+                        &opts,
+                        &(|s: String| println!("deep-research {s}")),
+                    )
+                    .await;
+                    let ok_count = findings.iter().filter(|f| f.ok).count();
+                    println!(
+                        "deep-research: {ok_count}/{} researchers finished ok; synthesizing…",
+                        findings.len()
+                    );
+                    let synth_prompt = dr::synthesis_prompt(&opts.topic, &findings);
+                    let turn = run_turn_interruptible(
+                        agent,
+                        &synth_prompt,
+                        repl.interrupts.as_deref_mut(),
+                    )
+                    .await;
+                    let report = match turn {
+                        Some(r) if !r.is_error && !r.result.trim().is_empty() => {
+                            dr::render_report(&opts.topic, &model, &opts, &findings, &r.result)
+                        }
+                        Some(r) => dr::render_fallback_report(
+                            &opts.topic,
+                            &model,
+                            &opts,
+                            &findings,
+                            &format!(
+                                "synthesis turn failed: {}",
+                                r.result.chars().take(160).collect::<String>()
+                            ),
+                        ),
+                        None => dr::render_fallback_report(
+                            &opts.topic,
+                            &model,
+                            &opts,
+                            &findings,
+                            "interrupted",
+                        ),
+                    };
+                    println!("\n{report}");
+                }
+            }
+        }
         "/status" => {
             println!("model: {}", agent.config.model);
             println!("base_url: {}", cfg.base_url);

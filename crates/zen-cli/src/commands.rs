@@ -10,7 +10,7 @@ pub const BUILTIN_COMMANDS: &[&str] = &[
     "/permissions", "/config", "/memory", "/init", "/todos", "/agents", "/mcp", "/hooks",
     "/skills", "/exit", "/context", "/add-dir", "/export", "/review", "/rename", "/quota",
     "/diff", "/plan", "/memories", "/loop", "/goal", "/personality", "/vim", "/theme", "/btw",
-    "/terse", "/map", "/map-refresh",
+    "/terse", "/map", "/map-refresh", "/deep-research",
 ];
 
 /// Built-ins that also work as the whole prompt of `-p` (SPEC C5.4). The rest are terminal-only.
@@ -737,6 +737,7 @@ mod tests {
             parse_builtin("/loop 3 do x"),
             Some(("loop".to_string(), "3 do x".to_string()))
         );
+        assert!(BUILTIN_COMMANDS.contains(&"/deep-research"));
     }
 
     #[test]

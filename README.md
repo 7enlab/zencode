@@ -459,6 +459,20 @@ missing API key, unparseable model output). Example pre-commit hook:
 ```bash
 zen review --fail-on high || echo "review found blocking issues"
 ```
+### `/deep-research` (REPL)
+
+Fan out parallel research sub-agents over a topic, then synthesize a cited markdown report
+(Summary / Findings / Sources / Confidence / Open questions, plus a raw-findings appendix).
+
+```
+/deep-research "prompt caching" --max-subagents 4 --timeout-secs 600 --max-budget-usd 2
+```
+
+- Four angles: official docs, codebase exploration, web research, alternatives & comparison.
+- Researchers run through the `Task` tool with isolated context; progress prints as each finishes.
+- Budget: `--max-subagents` (default 4, hard cap 8), per-researcher timeout, and a
+  `--max-budget-usd` pre-flight check (or `ZEN_MAX_BUDGET_USD`). The dollar estimate is
+  conservative until the cost ledger lands; the subagent count and timeout are the hard guard.
 
 ## Layout
 

@@ -10,6 +10,7 @@ pub mod cli;
 pub mod commands;
 pub mod cost;
 pub mod context;
+pub mod deep_research;
 pub mod envsnap;
 pub mod eval;
 pub mod eventlog;
