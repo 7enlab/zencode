@@ -180,6 +180,47 @@ Top token consumers — where did your tokens go?
 
 Large tool results that no later message references are flagged `[PRUNABLE?]`
 (heuristic). Compactions show what each summary kept versus dropped.
+### `@file` mentions and `!shell` passthrough (REPL)
+
+Two Claude Code-style shortcuts keep you in flow without spending a model round-trip:
+
+**`@<glob>` — attach file contents to your prompt.** Mentions are expanded before the
+prompt is sent; each file is wrapped in a `<file path="..." tokens="~N">` block with a
+path header and token count.
+
+```
+> review @src/main.rs
+@src/main.rs (42 tokens)
+
+> what changed in @src/**/*.test.ts since yesterday?
+@src/a.test.ts (120 tokens)
+@src/b.test.ts (88 tokens)
+```
+
+- Multiple `@` mentions per prompt; globs (`*`, `**`, `?`, `[...]`) supported.
+- `.gitignore` is respected (ignored files never match).
+- A pattern that matches nothing is an error naming the pattern (`@nope/*.rs matched
+  no files`) — the turn is not sent.
+- Binary files become a `[binary file — contents not included]` placeholder; files over
+  512 KiB are truncated.
+- Token budget: expansions over the budget only warn. Configure with
+  `{"mentions": {"tokenBudget": 20000}}` in settings (default 10 000).
+
+**`!cmd` — run a shell command immediately.** No model round-trip: the command runs at
+once, output prints, and stdout/stderr is appended to the conversation as a
+`shell_passthrough` record so the *next* turn sees it.
+
+```
+> !npm test
+...output...
+> why did that test fail?
+```
+
+- Runs under the current permission mode: deny rules and plan mode refuse up front,
+  `Ask` prompts `[y]es / [a]lways / [n]o` (same as the `Bash` tool), `bypassPermissions`
+  runs directly.
+- Cheaper than asking the agent to run Bash: zero input/output tokens for the command
+  itself.
 
 ## Layout
 

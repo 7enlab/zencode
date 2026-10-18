@@ -42,7 +42,7 @@ pub async fn run_repl(cli: &Cli, cwd: &Path, home: Option<&Path>) -> Result<()> 
         cfg.model,
         cwd.display()
     );
-    println!("Type /help for commands, !cmd for shell, #note to remember, Ctrl-D to exit.");
+    println!("Type /help for commands, !cmd for shell, @file to attach files, #note to remember, Ctrl-D to exit.");
 
     let assembly = crate::agent_run::assemble(
         cli,
@@ -240,8 +240,13 @@ async fn handle_line(
     repl: &mut ReplState<'_>,
     agent: &mut zen_agent::Agent,
 ) -> Result<LineAction> {
+    // `!cmd` appends its output to the history, so the pre-command snapshot is taken
+    // up front. After /clear the history starts over in a new transcript.
+    let clearing = line == "/clear" || line.starts_with("/clear ");
+    let before = if clearing { vec![] } else { agent.messages().to_vec() };
     if let Some(rest) = line.strip_prefix('!') {
-        run_shell(rest, cwd, cfg);
+        run_shell_passthrough(rest, cwd, cfg, agent);
+        persist(repl.writer, &before, agent);
         return Ok(LineAction::Continue);
     }
     if let Some(note) = line.strip_prefix('#') {
@@ -251,18 +256,31 @@ async fn handle_line(
         }
         return Ok(LineAction::Continue);
     }
-    // After /clear the history starts over in a new transcript.
-    let clearing = line == "/clear" || line.starts_with("/clear ");
-    let before = if clearing { vec![] } else { agent.messages().to_vec() };
     if line.starts_with('/') {
         let action = handle_slash(line, cli, cwd, home, cfg, repl, agent).await;
         persist(repl.writer, &before, agent);
         return action;
     }
 
-    // Normal prompt → agent turn (prompt, tool calls, tool results and answer are persisted).
+    // Normal prompt: expand `@file` mentions first, then run the agent turn
+    // (prompt, tool calls, tool results and answer are persisted).
     let usage_before = agent.usage.clone();
-    let result = run_turn_interruptible(agent, line, repl.interrupts.as_deref_mut()).await;
+    let prompt = match crate::mentions::expand_mentions(line, cwd, cfg.mention_token_budget) {
+        Ok(exp) => {
+            for f in &exp.files {
+                println!("@{} ({} tokens)", f.path, f.tokens);
+            }
+            for w in &exp.warnings {
+                eprintln!("warning: {}", w);
+            }
+            exp.prompt
+        }
+        Err(e) => {
+            eprintln!("error: {}", e);
+            return Ok(LineAction::Continue);
+        }
+    };
+    let result = run_turn_interruptible(agent, &prompt, repl.interrupts.as_deref_mut()).await;
     persist(repl.writer, &before, agent);
     record_turn_cost(home, repl.session_id.as_str(), cfg, agent, &usage_before);
     print_turn(result);
@@ -661,26 +679,40 @@ fn build_repl_config(
     config
 }
 
-fn run_shell(cmd: &str, cwd: &Path, cfg: &crate::settings::ResolvedConfig) {
-    let sh = zen_core::resolve_shell("bash");
-    let mut command = std::process::Command::new(&sh.program);
-    command.args(sh.args(cmd)).current_dir(cwd);
-    for (k, v) in &cfg.env {
-        command.env(k, v);
+/// `!cmd` shell passthrough: permission-checked exactly like the `Bash` tool (deny rules
+/// and plan mode refuse up front, `Ask` prompts via the REPL prompter), run directly with
+/// no model round-trip, and the output appended to the conversation as a
+/// `shell_passthrough` record so the next turn sees it.
+fn run_shell_passthrough(
+    cmd: &str,
+    cwd: &Path,
+    cfg: &crate::settings::ResolvedConfig,
+    agent: &mut zen_agent::Agent,
+) {
+    let cmd = cmd.trim();
+    if cmd.is_empty() {
+        eprintln!("usage: !<shell command>");
+        return;
     }
-    match command.output() {
-        Ok(out) => {
-            let text = format!(
-                "{}{}",
-                String::from_utf8_lossy(&out.stdout),
-                String::from_utf8_lossy(&out.stderr)
-            );
-            print!("{}", text);
-            if !out.status.success() {
-                eprintln!("(exit {})", out.status.code().unwrap_or(-1));
-            }
+    match crate::mentions::decide_shell(
+        &agent.permissions,
+        agent.prompter.as_ref(),
+        &agent.ctx,
+        cmd,
+    ) {
+        crate::mentions::ShellDecision::Denied(reason) => {
+            eprintln!("!{}: {}", cmd, reason);
         }
-        Err(e) => eprintln!("failed to run command: {}", e),
+        crate::mentions::ShellDecision::Run => {
+            let out = crate::mentions::run_shell_command(cmd, cwd, &cfg.env);
+            print!("{}", out.combined);
+            if !out.success {
+                eprintln!("(exit {})", out.exit_code);
+            }
+            agent.messages.push(zen_core::ChatMessage::user(
+                crate::mentions::shell_passthrough_record(cmd, &out),
+            ));
+        }
     }
 }
 

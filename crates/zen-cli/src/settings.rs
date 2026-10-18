@@ -52,6 +52,8 @@ pub struct ResolvedConfig {
     pub trust_skipped: Vec<String>,
     /// RateGate settings (g3): per-provider daily quota for `:free` tiers.
     pub rate_gate: zen_agent::RateGateSettings,
+    /// Token budget for `@` mention expansion (settings `mentions.tokenBudget`, default 10 000).
+    pub mention_token_budget: u64,
 }
 
 impl ResolvedConfig {
@@ -504,6 +506,7 @@ pub fn resolve_config_with_home(
         folder_trusted,
         trust_skipped,
         rate_gate: rate_gate_settings(&merged.rate_gate),
+        mention_token_budget: crate::mentions::mention_token_budget(merged.extra.get("mentions")),
     })
 }
 

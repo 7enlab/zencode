@@ -1872,6 +1872,7 @@ dependencies = [
  "chrono",
  "clap",
  "dirs",
+ "globset",
  "reqwest",
  "serde",
  "serde_json",

@@ -13,6 +13,7 @@ pub mod eventlog;
 pub mod git;
 pub mod ollama;
 pub mod models;
+pub mod mentions;
 pub mod output;
 pub mod repl;
 pub mod safety;
