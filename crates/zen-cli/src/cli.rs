@@ -266,6 +266,23 @@ pub struct Cli {
     #[arg(long = "budget-warn-at")]
     pub budget_warn_at: Option<f64>,
 
+    /// After each successful turn, run this shell command; on non-zero exit, feed its output
+    /// back to the agent and retry (up to --max-verify-retries times)
+    #[arg(long = "until")]
+    pub until: Option<String>,
+
+    /// How many times to retry after a failing --until command (default 3)
+    #[arg(long = "max-verify-retries", default_value_t = 3)]
+    pub max_verify_retries: usize,
+
+    /// Plan first: run in plan mode, show the plan, ask for approval, then execute
+    #[arg(long = "plan")]
+    pub plan: bool,
+
+    /// Auto-approve the --plan plan without asking
+    #[arg(short = 'y', long = "yes")]
+    pub yes: bool,
+
     /// Skip ZEN.md, hooks, skills, custom commands, agents, MCP auto-discovery
     #[arg(long = "bare")]
     pub bare: bool,
@@ -652,6 +669,27 @@ mod tests {
         // Defaults: no cap unless configured.
         let cli = parse(&[] as &[&str]);
         assert_eq!(cli.max_budget_usd, None);
+    }
+
+    #[test]
+    fn parse_until_and_max_verify_retries() {
+        let cli = parse(&["-p", "--until", "cargo test -q", "go"]);
+        assert_eq!(cli.until.as_deref(), Some("cargo test -q"));
+        // Default is 3 retries.
+        assert_eq!(cli.max_verify_retries, 3);
+        let cli = parse(&["-p", "--until", "make check", "--max-verify-retries", "0", "go"]);
+        assert_eq!(cli.max_verify_retries, 0);
+    }
+
+    #[test]
+    fn parse_plan_and_yes() {
+        let cli = parse(&["-p", "--plan", "go"]);
+        assert!(cli.plan);
+        assert!(!cli.yes);
+        let cli = parse(&["-p", "--plan", "--yes", "go"]);
+        assert!(cli.plan && cli.yes);
+        let cli = parse(&["-p", "--plan", "-y", "go"]);
+        assert!(cli.yes);
     }
 
     #[test]

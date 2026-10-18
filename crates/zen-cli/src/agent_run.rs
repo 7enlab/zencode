@@ -444,7 +444,11 @@ fn base_agent_config(cfg: &ResolvedConfig, cli: &Cli, system_prompt: &str) -> ze
     let mut config = zen_agent::AgentConfig {
         model: cfg.model.clone(),
         fallback_models: cfg.fallback_models.clone(),
-        system_prompt: system_prompt.to_string(),
+        // Plan mode appends the plan instruction (SPEC §5/B4); idempotent.
+        system_prompt: zen_agent::plan::system_prompt_for_mode(
+            system_prompt,
+            core_mode(cfg.permission_mode),
+        ),
         max_turns: cfg.max_turns.max(1),
         max_output_tokens: cli.max_output_tokens,
         permission_mode: core_mode(cfg.permission_mode),
@@ -556,6 +560,35 @@ pub async fn run_agent_headless(
     transcript_path: Option<&Path>,
     history_from: Option<&Path>,
 ) -> Result<i32> {
+    let (code, _) = run_agent_with_result(
+        cli,
+        cwd,
+        home,
+        cfg,
+        system_prompt,
+        prompt,
+        session_id,
+        transcript_path,
+        history_from,
+    )
+    .await?;
+    Ok(code)
+}
+
+/// Same as [`run_agent_headless`], but also returns the final [`RunResult`].
+/// Used by `--plan`, which needs the plan text, and by the `--until` verify loop.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn run_agent_with_result(
+    cli: &Cli,
+    cwd: &Path,
+    home: Option<&Path>,
+    cfg: &ResolvedConfig,
+    system_prompt: &str,
+    prompt: &str,
+    session_id: &str,
+    transcript_path: Option<&Path>,
+    history_from: Option<&Path>,
+) -> Result<(i32, RunResult)> {
     let resume = history_from.is_some();
     // Install SIGTERM/SIGINT handlers before anything slow (MCP start-up) so a signal that
     // arrives early is queued and handled when the turn starts (SPEC C8.9).
@@ -572,7 +605,7 @@ pub async fn run_agent_headless(
             if cli.output_format == OutputFormat::Text {
                 println!();
             }
-            return Ok(1);
+            return Ok((1, result));
         }
     }
     // Expand a leading `/custom-command` in -p mode (SPEC §6); `/review` and `/init` become
@@ -634,10 +667,13 @@ pub async fn run_agent_headless(
     config.model = effective_model.clone();
     // `--agent <name>` replaces the main system prompt with the definition body (B1); the
     // environment block is still appended so the agent knows where it is running.
-    config.system_prompt = match &assembly.agent_system_prompt {
+    // Plan mode appends the plan instruction on top (idempotent).
+    let base_prompt = match &assembly.agent_system_prompt {
         Some(body) => format!("{}\n\n{}", body, crate::system_prompt::environment_block(cwd)),
         None => system_prompt.to_string(),
     };
+    config.system_prompt =
+        zen_agent::plan::system_prompt_for_mode(&base_prompt, config.permission_mode);
 
     let mut ctx = tool_context(cwd, cfg, cli, session_id);
     ctx.session_dir = transcript_path.map(crate::session::session_scratch_dir);
@@ -721,7 +757,7 @@ pub async fn run_agent_headless(
             if cli.output_format == OutputFormat::Text {
                 println!();
             }
-            return Ok(0);
+            return Ok((0, result));
         }
     }
 
@@ -765,7 +801,7 @@ pub async fn run_agent_headless(
         if cli.output_format == OutputFormat::Text {
             println!();
         }
-        return Ok(if is_error { 1 } else { 0 });
+        return Ok((if is_error { 1 } else { 0 }, result));
     }
 
     // SessionStart hook: exit-0 stdout becomes additional context (SPEC §13).
@@ -787,71 +823,117 @@ pub async fn run_agent_headless(
         s.set_prompt_input(prompt.clone());
     }
 
-    let before = agent.messages().to_vec();
-    let started = std::time::Instant::now();
-    let outcome = {
-        let turn = agent.run_turn(&prompt);
-        tokio::pin!(turn);
-        match signals.as_mut() {
-            Some(sig) => tokio::select! {
-                r = &mut turn => Ok(r),
-                i = sig.recv() => {
-                    // Stop the whole process tree while the turn (and its bash child) is still
-                    // alive: dropping it first would SIGKILL only bash and orphan e.g. `sleep`.
-                    kill_descendants();
-                    Err(i)
-                }
-            },
-            None => Ok(turn.await),
-        }
-    };
-    let result: RunResult = match outcome {
-        Ok(r) => r,
-        Err(interrupt) => {
-            // The interrupted turn is not persisted: it may end in a tool call without a
-            // result, which would leave an orphaned tool message on resume (C10.3).
-            run_session_end(&assembly.hooks, session_id, cwd, cfg, "other").await;
-            if interrupt == Interrupt::Term {
-                return Ok(143);
-            }
-            let result = RunResult {
-                record_type: "result".into(),
-                subtype: "error_during_execution".into(),
-                is_error: true,
-                duration_ms: started.elapsed().as_millis() as u64,
-                duration_api_ms: 0,
-                num_turns: 0,
-                result: "Interrupted by user".into(),
-                session_id: session_id.into(),
-                total_cost_usd: 0.0,
-                usage: agent.usage.clone(),
-                model: cfg.model.clone(),
-                permission_denials: vec![],
-            };
-            print_result(&result, &cli.output_format, &buf, false);
-            print!("{}", buf.text());
-            if cli.output_format == OutputFormat::Text {
-                println!();
-            }
-            return Ok(130);
-        }
-    };
+    let verify = verify_config(cli);
+    // The verify loop re-runs the turn with failure feedback; `prompt` holds the next turn's
+    // user message (the original prompt first, verify feedback afterwards).
+    let mut usage_before = usage_before;
+    let mut verify_attempt: usize = 0;
 
-    // Persist the whole exchange of this turn (prompt, tool calls, tool results, answer).
-    if let Some(w) = writer.as_mut() {
-        if let Err(e) = w.persist_turn(&before, agent.messages()) {
-            eprintln!("warning: could not write transcript: {}", e);
+    let result: RunResult = loop {
+        let before = agent.messages().to_vec();
+        let started = std::time::Instant::now();
+        let outcome = {
+            let turn = agent.run_turn(&prompt);
+            tokio::pin!(turn);
+            match signals.as_mut() {
+                Some(sig) => tokio::select! {
+                    r = &mut turn => Ok(r),
+                    i = sig.recv() => {
+                        // Stop the whole process tree while the turn (and its bash child) is still
+                        // alive: dropping it first would SIGKILL only bash and orphan e.g. `sleep`.
+                        kill_descendants();
+                        Err(i)
+                    }
+                },
+                None => Ok(turn.await),
+            }
+        };
+        let turn_result: RunResult = match outcome {
+            Ok(r) => r,
+            Err(interrupt) => {
+                // The interrupted turn is not persisted: it may end in a tool call without a
+                // result, which would leave an orphaned tool message on resume (C10.3).
+                run_session_end(&assembly.hooks, session_id, cwd, cfg, "other").await;
+                let result = RunResult {
+                    record_type: "result".into(),
+                    subtype: "error_during_execution".into(),
+                    is_error: true,
+                    duration_ms: started.elapsed().as_millis() as u64,
+                    duration_api_ms: 0,
+                    num_turns: 0,
+                    result: "Interrupted by user".into(),
+                    session_id: session_id.into(),
+                    total_cost_usd: 0.0,
+                    usage: agent.usage.clone(),
+                    model: cfg.model.clone(),
+                    permission_denials: vec![],
+                };
+                if interrupt != Interrupt::Term {
+                    // SIGTERM: exit 143 after the SessionEnd hook, no result line.
+                    print_result(&result, &cli.output_format, &buf, false);
+                    print!("{}", buf.text());
+                    if cli.output_format == OutputFormat::Text {
+                        println!();
+                    }
+                }
+                return Ok((
+                    if interrupt == Interrupt::Term { 143 } else { 130 },
+                    result,
+                ));
+            }
+        };
+
+        // Persist the whole exchange of this turn (prompt, tool calls, tool results, answer).
+        if let Some(w) = writer.as_mut() {
+            if let Err(e) = w.persist_turn(&before, agent.messages()) {
+                eprintln!("warning: could not write transcript: {}", e);
+            }
         }
-    }
-    persist_usage(
-        transcript_path,
-        session_id,
-        &usage_before,
-        &agent.usage,
-        home,
-        &agent.config.model,
-        &cfg.base_url,
-    );
+        persist_usage(
+            transcript_path,
+            session_id,
+            &usage_before,
+            &agent.usage,
+            home,
+            &agent.config.model,
+            &cfg.base_url,
+        );
+        usage_before = agent.usage.clone();
+
+        // Verify loop (--until): after each successful turn, run the command; on failure feed
+        // its output back to the agent and run another turn, up to --max-verify-retries.
+        // Emits a `system` record with hook_event_name "verify" per attempt (additive).
+        let Some(v) = verify.as_ref() else {
+            break turn_result;
+        };
+        if turn_result.is_error {
+            break turn_result;
+        }
+        let vo = run_verify_command(&v.command, cwd, &agent.ctx.env).await;
+        let attempt_no = verify_attempt + 1;
+        let total = v.max_retries + 1;
+        let status = if vo.success() {
+            "passed".to_string()
+        } else if vo.timed_out {
+            "timed out".to_string()
+        } else {
+            format!("failed with exit {}", vo.exit_code)
+        };
+        sink.emit(AgentEvent::SystemMessage {
+            event: "verify".into(),
+            text: format!("verify: `{}` {status} (attempt {attempt_no}/{total})", v.command),
+        });
+        match decide_verify(&vo, &v.command, attempt_no, v.max_retries) {
+            VerifyDecision::Done => break turn_result,
+            VerifyDecision::Retry(feedback) => {
+                verify_attempt = attempt_no;
+                prompt = feedback;
+            }
+            VerifyDecision::Failed => {
+                break verify_failed_result(&turn_result, &vo, &v.command, v.max_retries, session_id)
+            }
+        }
+    };
 
     // SessionEnd hook.
     run_session_end(&assembly.hooks, session_id, cwd, cfg, "other").await;
@@ -863,7 +945,88 @@ pub async fn run_agent_headless(
         println!();
     }
 
-    Ok(if result.is_error { 1 } else { 0 })
+    Ok((if result.is_error { 1 } else { 0 }, result))
+}
+
+/// `--plan`: run one turn in plan mode, show the plan, ask for approval, then execute.
+///
+/// The plan turn and the execution turn share the session id so the transcript stays in one
+/// place; the execution prompt carries the approved plan as context. `--yes` skips the prompt.
+#[allow(clippy::too_many_arguments)]
+pub async fn run_plan_flow(
+    cli: &Cli,
+    cwd: &Path,
+    home: Option<&Path>,
+    cfg: &ResolvedConfig,
+    system_prompt: &str,
+    prompt: &str,
+    session_id: &str,
+    transcript_path: Option<&Path>,
+    history_from: Option<&Path>,
+) -> Result<i32> {
+    // 1. Plan turn: same flags, but forced plan permission mode (mutating tools hidden, plan
+    //    instruction appended) and no --until: a plan is not something to verify.
+    let mut plan_cli = cli.clone();
+    plan_cli.plan = false;
+    plan_cli.until = None;
+    plan_cli.permission_mode = Some(crate::cli::PermissionMode::Plan);
+    let plan_cfg = crate::settings::resolve_config_with_home(&plan_cli, cwd, home)?;
+    let (plan_code, plan_result) = run_agent_with_result(
+        &plan_cli,
+        cwd,
+        home,
+        &plan_cfg,
+        system_prompt,
+        prompt,
+        session_id,
+        transcript_path,
+        history_from,
+    )
+    .await?;
+    if plan_result.is_error {
+        return Ok(plan_code);
+    }
+    // 2. Approval.
+    let approved = if cli.yes {
+        eprintln!("--yes: plan auto-approved.");
+        true
+    } else {
+        ask_plan_approval()
+    };
+    if !approved {
+        eprintln!("Plan rejected; nothing was executed.");
+        return Ok(1);
+    }
+    // 3. Execute with the approved plan in context.
+    let exec_prompt = format!("{prompt}\n\n## Approved plan\n\n{}", plan_result.result);
+    run_agent_headless(
+        cli,
+        cwd,
+        home,
+        cfg,
+        system_prompt,
+        &exec_prompt,
+        session_id,
+        transcript_path,
+        history_from,
+    )
+    .await
+}
+
+/// Ask on stderr whether the shown plan may be executed. False when stdin is not a terminal.
+fn ask_plan_approval() -> bool {
+    use std::io::{IsTerminal, Write};
+    if !std::io::stdin().is_terminal() {
+        eprintln!("--plan needs an interactive terminal to approve the plan (pass --yes to skip).");
+        return false;
+    }
+    eprint!("\nExecute this plan? [y/N] ");
+    let _ = std::io::stderr().flush();
+    let mut line = String::new();
+    if std::io::stdin().read_line(&mut line).is_err() {
+        return false;
+    }
+    matches!(line.trim().to_lowercase().as_str(), "y" | "yes")
 }
 
 /// Record the usage this run added (if any) in the transcript (C9.3) and in the
@@ -1153,6 +1316,374 @@ pub fn denied_result(session_id: &str, model: &str, denials: Vec<PermissionDenia
 
 /// Emit an event without a sink (used by the REPL for simple notices).
 pub fn emit_notice(_ev: AgentEvent) {}
+
+/// Default `--until` timeout in seconds (overridable with `VERIFY_TIMEOUT_SECS`).
+const VERIFY_TIMEOUT_SECS: u64 = 300;
+/// Cap on the verify output kept for the retry prompt / event text.
+const VERIFY_OUTPUT_CAP: usize = 6000;
+
+/// Resolved `--until` configuration: run `command` after each successful turn.
+#[derive(Debug, Clone)]
+pub struct VerifyConfig {
+    pub command: String,
+    pub max_retries: usize,
+}
+
+/// `None` when `--until` was not given (or is blank).
+pub fn verify_config(cli: &Cli) -> Option<VerifyConfig> {
+    cli.until
+        .as_ref()
+        .map(|c| c.trim())
+        .filter(|c| !c.is_empty())
+        .map(|c| VerifyConfig {
+            command: c.to_string(),
+            max_retries: cli.max_verify_retries,
+        })
+}
+
+/// Outcome of one `--until` command run.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VerifyOutcome {
+    /// Process exit code; -1 when the command could not be spawned or timed out.
+    pub exit_code: i32,
+    pub stdout: String,
+    pub stderr: String,
+    pub timed_out: bool,
+}
+
+impl VerifyOutcome {
+    pub fn success(&self) -> bool {
+        self.exit_code == 0
+    }
+
+    /// stdout + stderr merged, head+tail truncated for retry prompts and event text.
+    pub fn combined_output(&self) -> String {
+        let mut out = String::new();
+        if !self.stdout.trim().is_empty() {
+            out.push_str(self.stdout.trim_end());
+        }
+        if !self.stderr.trim().is_empty() {
+            if !out.is_empty() {
+                out.push('\n');
+            }
+            out.push_str(self.stderr.trim_end());
+        }
+        truncate_head_tail(&out, VERIFY_OUTPUT_CAP)
+    }
+}
+
+/// Keep the head and the tail of `s`, eliding the middle (mirrors the Bash tool, SPEC §4).
+fn truncate_head_tail(s: &str, max_chars: usize) -> String {
+    let len = s.chars().count();
+    if len <= max_chars {
+        return s.to_string();
+    }
+    let head = max_chars * 2 / 3;
+    let tail = max_chars - head;
+    let h: String = s.chars().take(head).collect();
+    let t: String = s.chars().rev().take(tail).collect::<String>().chars().rev().collect();
+    format!("{h}\n…[truncated {} chars]…\n{t}", len - max_chars)
+}
+
+/// What the verify loop should do after one `--until` run.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum VerifyDecision {
+    /// Command passed: finish with the turn's result.
+    Done,
+    /// Command failed and retries remain: run another turn with this feedback prompt.
+    Retry(String),
+    /// Command failed and retries are exhausted: finish with a verify-failure error.
+    Failed,
+}
+
+/// Pure decision logic for the verify loop (`attempt` = failures so far, 1-based).
+pub fn decide_verify(
+    outcome: &VerifyOutcome,
+    command: &str,
+    attempt: usize,
+    max_retries: usize,
+) -> VerifyDecision {
+    if outcome.success() {
+        return VerifyDecision::Done;
+    }
+    if attempt > max_retries {
+        return VerifyDecision::Failed;
+    }
+    VerifyDecision::Retry(verify_feedback_prompt(command, outcome, attempt, max_retries))
+}
+
+/// Feedback prompt for the retry turn after a failed `--until` command.
+pub fn verify_feedback_prompt(
+    command: &str,
+    outcome: &VerifyOutcome,
+    attempt: usize,
+    max_retries: usize,
+) -> String {
+    let reason = if outcome.timed_out {
+        "timed out".to_string()
+    } else {
+        format!("exited with code {}", outcome.exit_code)
+    };
+    format!(
+        "The verification command `{command}` {reason} (verify attempt {attempt} of {}).\n\n\
+         Command output:\n```\n{output}\n```\n\n\
+         Fix whatever failed and complete the original task. Do not change unrelated files.",
+        max_retries + 1,
+        output = outcome.combined_output(),
+    )
+}
+
+/// Run the `--until` shell command in `cwd` with the tool env. A non-zero exit, a spawn failure
+/// or a timeout (default 300s, `VERIFY_TIMEOUT_SECS`) all count as failure.
+pub async fn run_verify_command(
+    command: &str,
+    cwd: &Path,
+    env: &std::collections::HashMap<String, String>,
+) -> VerifyOutcome {
+    let shell = zen_core::pick_shell(
+        "sh",
+        cfg!(windows),
+        std::env::var("ZEN_SHELL").ok().as_deref(),
+        &zen_core::program_on_path,
+    );
+    let mut cmd = tokio::process::Command::new(&shell.program);
+    cmd.args(shell.args(command))
+        .current_dir(cwd)
+        .envs(env.iter())
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true);
+    let timeout_secs: u64 = std::env::var("VERIFY_TIMEOUT_SECS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(VERIFY_TIMEOUT_SECS)
+        .max(1);
+    let child = match cmd.spawn() {
+        Ok(c) => c,
+        Err(e) => {
+            return VerifyOutcome {
+                exit_code: -1,
+                stdout: String::new(),
+                stderr: format!("failed to spawn verify command: {e}"),
+                timed_out: false,
+            }
+        }
+    };
+    match tokio::time::timeout(
+        std::time::Duration::from_secs(timeout_secs),
+        child.wait_with_output(),
+    )
+    .await
+    {
+        Ok(Ok(out)) => VerifyOutcome {
+            exit_code: out.status.code().unwrap_or(-1),
+            stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
+            stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
+            timed_out: false,
+        },
+        _ => VerifyOutcome {
+            exit_code: -1,
+            stdout: String::new(),
+            stderr: format!("verify command timed out after {timeout_secs}s"),
+            timed_out: true,
+        },
+    }
+}
+
+/// Final result when the `--until` command kept failing past `--max-verify-retries`.
+fn verify_failed_result(
+    base: &RunResult,
+    outcome: &VerifyOutcome,
+    command: &str,
+    max_retries: usize,
+    session_id: &str,
+) -> RunResult {
+    let mut r = base.clone();
+    r.is_error = true;
+    r.subtype = "error_during_execution".into();
+    r.result = format!(
+        "{}\n\nVerify failed: command `{command}` {} after {} attempt(s) \
+         (1 initial run + {max_retries} retries).\nOutput:\n```\n{output}\n```",
+        base.result,
+        if outcome.timed_out {
+            "timed out".to_string()
+        } else {
+            format!("exited with code {}", outcome.exit_code)
+        },
+        max_retries + 1,
+        output = outcome.combined_output(),
+    );
+    r.session_id = session_id.to_string();
+    r
+}
+
+#[cfg(test)]
+mod verify_tests {
+    use super::*;
+    use clap::Parser;
+
+    fn fail(exit_code: i32) -> VerifyOutcome {
+        VerifyOutcome {
+            exit_code,
+            stdout: "some stdout".into(),
+            stderr: "some stderr".into(),
+            timed_out: false,
+        }
+    }
+
+    fn pass() -> VerifyOutcome {
+        VerifyOutcome {
+            exit_code: 0,
+            stdout: String::new(),
+            stderr: String::new(),
+            timed_out: false,
+        }
+    }
+
+    #[test]
+    fn decide_verify_success_is_done() {
+        assert_eq!(decide_verify(&pass(), "true", 1, 3), VerifyDecision::Done);
+        // Even a late success ends the loop.
+        assert_eq!(decide_verify(&pass(), "true", 4, 3), VerifyDecision::Done);
+    }
+
+    #[test]
+    fn decide_verify_retries_until_max_then_fails() {
+        let f = fail(2);
+        match decide_verify(&f, "make check", 1, 3) {
+            VerifyDecision::Retry(prompt) => {
+                assert!(prompt.contains("make check"), "{prompt}");
+                assert!(prompt.contains("exited with code 2"), "{prompt}");
+                assert!(prompt.contains("some stdout"), "{prompt}");
+                assert!(prompt.contains("attempt 1 of 4"), "{prompt}");
+            }
+            other => panic!("expected Retry, got {other:?}"),
+        }
+        // Attempt == max still retries; attempt == max+1 fails.
+        assert!(matches!(decide_verify(&f, "c", 3, 3), VerifyDecision::Retry(_)));
+        assert_eq!(decide_verify(&f, "c", 4, 3), VerifyDecision::Failed);
+    }
+
+    #[test]
+    fn decide_verify_zero_retries_fails_immediately() {
+        assert_eq!(decide_verify(&fail(1), "c", 1, 0), VerifyDecision::Failed);
+    }
+
+    #[test]
+    fn decide_verify_timeout_counts_as_failure() {
+        let to = VerifyOutcome {
+            exit_code: -1,
+            stdout: String::new(),
+            stderr: "timed out".into(),
+            timed_out: true,
+        };
+        match decide_verify(&to, "sleep 999", 1, 1) {
+            VerifyDecision::Retry(p) => assert!(p.contains("timed out"), "{p}"),
+            other => panic!("expected Retry, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn combined_output_truncates_middle() {
+        let big = "x".repeat(10_000);
+        let o = VerifyOutcome {
+            exit_code: 1,
+            stdout: big,
+            stderr: String::new(),
+            timed_out: false,
+        };
+        let c = o.combined_output();
+        assert!(c.len() < 10_000, "len {}", c.len());
+        assert!(c.contains("truncated"), "{c}");
+        assert!(c.starts_with("xxx") && c.ends_with("xxx"));
+        // Short output is untouched.
+        let o2 = VerifyOutcome {
+            exit_code: 1,
+            stdout: "a\n".into(),
+            stderr: "b\n".into(),
+            timed_out: false,
+        };
+        assert_eq!(o2.combined_output(), "a\nb");
+    }
+
+    #[test]
+    fn verify_config_none_when_flag_absent_or_blank() {
+        let cli = crate::cli::Cli::try_parse_from(["zen", "-p", "hi"]).unwrap();
+        assert!(verify_config(&cli).is_none());
+        let cli = crate::cli::Cli::try_parse_from(["zen", "-p", "--until", "   ", "hi"]).unwrap();
+        assert!(verify_config(&cli).is_none());
+        let cli = crate::cli::Cli::try_parse_from(["zen", "-p", "--until", "cargo test -q", "--max-verify-retries", "5", "hi"]).unwrap();
+        let v = verify_config(&cli).unwrap();
+        assert_eq!(v.command, "cargo test -q");
+        assert_eq!(v.max_retries, 5);
+    }
+
+    #[test]
+    fn verify_failed_result_marks_error() {
+        let base = RunResult {
+            record_type: "result".into(),
+            subtype: "success".into(),
+            is_error: false,
+            duration_ms: 1,
+            duration_api_ms: 0,
+            num_turns: 2,
+            result: "did the thing".into(),
+            session_id: "s1".into(),
+            total_cost_usd: 0.0,
+            usage: Default::default(),
+            model: "m".into(),
+            permission_denials: vec![],
+        };
+        let r = verify_failed_result(&base, &fail(3), "make check", 2, "s1");
+        assert!(r.is_error);
+        assert_eq!(r.subtype, "error_during_execution");
+        assert!(r.result.contains("did the thing"), "{}", r.result);
+        assert!(r.result.contains("make check"), "{}", r.result);
+        assert!(r.result.contains("exited with code 3"), "{}", r.result);
+        assert!(r.result.contains("3 attempt(s)"), "{}", r.result);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn run_verify_command_captures_exit_and_streams() {
+        let env = std::collections::HashMap::new();
+        let dir = std::env::temp_dir();
+        let ok = run_verify_command("exit 0", &dir, &env).await;
+        assert!(ok.success());
+        let f = run_verify_command("echo hello-out; echo hello-err >&2; exit 3", &dir, &env).await;
+        assert_eq!(f.exit_code, 3);
+        assert!(!f.success());
+        assert!(f.stdout.contains("hello-out"), "{:?}", f.stdout);
+        assert!(f.stderr.contains("hello-err"), "{:?}", f.stderr);
+        assert!(f.combined_output().contains("hello-out"));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn run_verify_command_runs_in_cwd() {
+        let env = std::collections::HashMap::new();
+        let dir = std::env::temp_dir().join("zen-verify-cwd-test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let o = run_verify_command("pwd", &dir, &env).await;
+        assert!(o.success());
+        assert!(o.stdout.trim_end().ends_with("zen-verify-cwd-test"), "{:?}", o.stdout);
+        let _ = std::fs::remove_dir(&dir);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn run_verify_command_timeout() {
+        let env = std::collections::HashMap::new();
+        // SAFETY: env var is process-global; this test file runs serially with the others here
+        // only by convention — keep the timeout tiny and restore afterwards.
+        std::env::set_var("VERIFY_TIMEOUT_SECS", "1");
+        let o = run_verify_command("sleep 30", &std::env::temp_dir(), &env).await;
+        std::env::remove_var("VERIFY_TIMEOUT_SECS");
+        assert!(o.timed_out);
+        assert!(!o.success());
+    }
+}
 
 #[cfg(test)]
 mod tools_flag_tests {

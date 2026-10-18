@@ -262,6 +262,22 @@ async fn run_headless(cli: &Cli, cwd: &Path, home: Option<&Path>) -> Result<i32>
     // Session id + transcript path.
     let (session_id, transcript_path, history_from) = resolve_session(cli, cwd, home)?;
 
+    // --plan: plan turn, approval, then execution.
+    if cli.plan {
+        return agent_run::run_plan_flow(
+            cli,
+            cwd,
+            home,
+            &cfg,
+            &system_prompt,
+            &full_prompt,
+            &session_id,
+            transcript_path.as_deref(),
+            history_from.as_deref(),
+        )
+        .await;
+    }
+
     let code = agent_run::run_agent_headless(
         cli,
         cwd,
