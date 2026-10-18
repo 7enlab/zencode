@@ -35,6 +35,40 @@ Configuration lives in `~/.zen/settings.json`, `.zen/settings.json`, `.zen/setti
 (see SPEC §12), project memory in `ZEN.md`, custom commands in `.zen/commands/`, skills in
 `.zen/skills/<name>/SKILL.md`, sub-agents in `.zen/agents/*.md`, MCP servers in `.mcp.json`.
 
+### Named providers
+
+`--model provider/model` routes directly to a named provider's API when that
+provider's key env var is set (the `provider/` prefix is stripped on the wire).
+Without the key, the value is treated as a gateway model ID on the default
+endpoint. An explicit `--base-url` / `ZEN_BASE_URL` / settings `baseUrl`
+always wins over the provider default.
+
+```bash
+ZAI_API_KEY=<key> ./target/release/zen -p "hi" --model zai/glm-5.2
+MOONSHOT_API_KEY=<key> ./target/release/zen -p "hi" --model moonshot/kimi-k2.7
+DEEPSEEK_API_KEY=<key> ./target/release/zen -p "hi" --model deepseek/deepseek-v4-flash
+```
+
+| Provider | Key env var | Models (examples) | Pricing/1M in/out |
+|---|---|---|---|
+| `zai` — Z.ai (Zhipu) | `ZAI_API_KEY` | `glm-5.2`, `glm-4.6` | $1.40 / $4.40 (glm-5.2) |
+| `moonshot` — Moonshot AI | `MOONSHOT_API_KEY` | `kimi-k2.7`, `kimi-k3` | $0.95 / $4.00 (k2.7) |
+| `deepseek` — DeepSeek | `DEEPSEEK_API_KEY` | `deepseek-v4-flash`, `deepseek-reasoner` | **$0.14 / $0.28** (v4-flash) |
+| `openrouter` | `OPENROUTER_API_KEY` | any | varies |
+| `groq` | `GROQ_API_KEY` | any | varies |
+| `anthropic` | `ANTHROPIC_API_KEY` | `claude-opus-4-6`, ... | varies |
+| `openai` | `OPENAI_API_KEY` | any | varies |
+| `ollama` | _(none — local)_ | any local model | $0.00 |
+| `together` / `mistral` / `cerebras` / `fireworks` / `google` | `<PROVIDER>_API_KEY` | any | varies |
+
+All three Chinese providers document Anthropic-compatible endpoints
+(`https://api.z.ai/api/anthropic`, `https://api.moonshot.ai/anthropic`,
+`https://api.deepseek.com/anthropic`); ZenCode uses their OpenAI-compatible
+endpoints today and switches to the Anthropic endpoint automatically once an
+Anthropic client is available. Pricing feeds the `zen cost` ledger; see
+`crates/zen-agent/src/providers.rs` for the registry, featured models for
+`zen models`, login order for `zen auth`, and cheap-first fallback order.
+
 ### Folder trust
 
 Project config that can run commands, widen permissions or redirect provider requests only loads in a folder you trust:

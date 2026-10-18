@@ -42,6 +42,7 @@
 #![allow(clippy::module_inception)]
 
 mod client;
+pub mod providers;
 pub mod compaction;
 pub mod finish;
 pub mod guard;
@@ -54,6 +55,7 @@ pub mod agent;
 pub use agent::{Agent, AgentConfig, DEFAULT_MAX_CONTINUATIONS, DEFAULT_STOP_HOOK_CONTINUES, DEFAULT_TOOL_TIMEOUT_MS};
 pub use client::OpenAiClient;
 pub use safety::{user_agent, ErrorClass, classify_error};
+pub use providers::{ApiStandard, ModelSpec, ProviderInfo};
 pub use subagent::SubAgentExecutor;
 
 #[cfg(test)]

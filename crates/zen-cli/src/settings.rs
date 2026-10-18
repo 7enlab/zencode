@@ -300,9 +300,56 @@ pub fn resolve_config_with_home(
         }
     }
 
-    let model = resolve_model(cli, merged.model.as_deref());
-    let base_url = resolve_base_url(cli, merged.base_url.as_deref());
-    let api_key = resolve_api_key(merged.api_key_env.as_deref());
+    let raw_model = resolve_model(cli, merged.model.as_deref());
+    // Named-provider routing: a `provider/model` value (e.g. `zai/glm-5.2`)
+    // routes directly to that provider's API (see zen_agent::providers) --
+    // but ONLY when the provider's key env var is set. Otherwise the `/`
+    // prefix is part of a gateway model ID (e.g. the default
+    // `google/gemini-4-argon:free` on the experientiallabs gateway) and the
+    // default flow is left untouched. This matches PR #45's semantics.
+    let spec = zen_agent::providers::ModelSpec::parse(&raw_model, DEFAULT_BASE_URL, false);
+    let provider_key = spec
+        .api_key_env
+        .as_deref()
+        .and_then(|e| std::env::var(e).ok())
+        .filter(|v| !v.is_empty());
+    let route_direct = spec.provider != "default" && provider_key.is_some();
+    let model = if route_direct {
+        spec.model.clone() // strip the `provider/` prefix on the wire
+    } else {
+        raw_model.clone()
+    };
+    let mut base_url = resolve_base_url(cli, merged.base_url.as_deref());
+    if route_direct {
+        let base_url_was_default = cli.base_url.is_none()
+            && std::env::var("ZEN_BASE_URL")
+                .map(|v| v.is_empty())
+                .unwrap_or(true)
+            && merged.base_url.as_deref().is_none_or(|u| u.is_empty())
+            && base_url == DEFAULT_BASE_URL;
+        if base_url_was_default {
+            base_url = spec.base_url.clone();
+        }
+    } else if spec.provider != "default"
+        && (cli.model.is_some()
+            || std::env::var("ZEN_MODEL").map(|v| !v.is_empty()).unwrap_or(false))
+    {
+        warnings.push(format!(
+            "provider '{}' recognized but {} is not set; sending '{}' to the default gateway",
+            spec.provider,
+            spec.api_key_env.as_deref().unwrap_or("its API key"),
+            raw_model,
+        ));
+        warnings.push(format!(
+            "set {} or run `zen auth login --provider {}` for direct routing",
+            spec.api_key_env.as_deref().unwrap_or("the API key"),
+            spec.provider,
+        ));
+    }
+    let api_key = match provider_key {
+        Some(k) => Some(k),
+        None => resolve_api_key(merged.api_key_env.as_deref()),
+    };
 
     let mut cli_allow = split_rules(&cli.allowed_tools);
     let mut cli_deny = split_rules(&cli.disallowed_tools);
@@ -671,5 +718,89 @@ mod tests {
         assert_eq!(retry_max_wait_secs(Some(&json!({"maxWaitSecs": 0}))), 0);
         assert_eq!(retry_max_wait_secs(Some(&json!({"maxWaitSecs": "x"}))), 300);
         assert_eq!(retry_max_wait_secs(Some(&json!({"maxWaitSecs": -5}))), 300);
+    }
+    #[test]
+    fn provider_routing_default_model_untouched_without_key() {
+        // The default `google/gemini-4-argon:free` is a gateway model ID, not a
+        // routing instruction: without GOOGLE_API_KEY the gateway flow stays.
+        let _env = env_lock();
+        let old = std::env::var("GOOGLE_API_KEY").ok();
+        std::env::remove_var("GOOGLE_API_KEY");
+        let old_m = std::env::var("ZEN_MODEL").ok();
+        std::env::remove_var("ZEN_MODEL");
+        let cli = base_cli();
+        let cfg = resolve_config(&cli, std::env::temp_dir().as_path()).unwrap();
+        assert_eq!(cfg.model, "google/gemini-4-argon:free");
+        assert_eq!(cfg.base_url, DEFAULT_BASE_URL);
+        assert!(cfg.warnings.iter().all(|w| !w.contains("provider 'google'")));
+        if let Some(o) = old {
+            std::env::set_var("GOOGLE_API_KEY", o);
+        }
+        if let Some(o) = old_m {
+            std::env::set_var("ZEN_MODEL", o);
+        }
+    }
+
+    #[test]
+    fn provider_routing_direct_when_key_set() {
+        // `--model zai/glm-5.2` + ZAI_API_KEY routes directly to Z.ai.
+        let _env = env_lock();
+        let old = std::env::var("ZAI_API_KEY").ok();
+        std::env::set_var("ZAI_API_KEY", "test-key-zai");
+        let cli = Cli::parse_from(["zen", "--model", "zai/glm-5.2"]);
+        let cfg = resolve_config(&cli, std::env::temp_dir().as_path()).unwrap();
+        assert_eq!(cfg.model, "glm-5.2", "prefix stripped on the wire");
+        assert_eq!(cfg.base_url, "https://api.z.ai/api/paas/v4");
+        assert_eq!(cfg.api_key.as_deref(), Some("test-key-zai"));
+        if let Some(o) = old {
+            std::env::set_var("ZAI_API_KEY", o);
+        } else {
+            std::env::remove_var("ZAI_API_KEY");
+        }
+    }
+
+    #[test]
+    fn provider_routing_warns_without_key() {
+        // Explicit `--model moonshot/kimi-k2.7` without the key: gateway flow +
+        // a warning pointing at `zen auth login`.
+        let _env = env_lock();
+        let old = std::env::var("MOONSHOT_API_KEY").ok();
+        std::env::remove_var("MOONSHOT_API_KEY");
+        let cli = Cli::parse_from(["zen", "--model", "moonshot/kimi-k2.7"]);
+        let cfg = resolve_config(&cli, std::env::temp_dir().as_path()).unwrap();
+        assert_eq!(cfg.model, "moonshot/kimi-k2.7", "full spec kept for gateway");
+        assert_eq!(cfg.base_url, DEFAULT_BASE_URL);
+        assert!(
+            cfg.warnings.iter().any(|w| w.contains("MOONSHOT_API_KEY")),
+            "expected key warning, got: {:?}",
+            cfg.warnings
+        );
+        if let Some(o) = old {
+            std::env::set_var("MOONSHOT_API_KEY", o);
+        }
+    }
+
+    #[test]
+    fn provider_routing_explicit_base_url_wins() {
+        // An explicit --base-url beats the provider default endpoint.
+        let _env = env_lock();
+        let old = std::env::var("DEEPSEEK_API_KEY").ok();
+        std::env::set_var("DEEPSEEK_API_KEY", "test-key-ds");
+        let cli = Cli::parse_from([
+            "zen",
+            "--model",
+            "deepseek/deepseek-v4-flash",
+            "--base-url",
+            "https://proxy.example.com/v1",
+        ]);
+        let cfg = resolve_config(&cli, std::env::temp_dir().as_path()).unwrap();
+        assert_eq!(cfg.model, "deepseek-v4-flash");
+        assert_eq!(cfg.base_url, "https://proxy.example.com/v1");
+        assert_eq!(cfg.api_key.as_deref(), Some("test-key-ds"));
+        if let Some(o) = old {
+            std::env::set_var("DEEPSEEK_API_KEY", o);
+        } else {
+            std::env::remove_var("DEEPSEEK_API_KEY");
+        }
     }
 }
