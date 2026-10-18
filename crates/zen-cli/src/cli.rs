@@ -258,6 +258,18 @@ pub enum Commands {
     Mcp(McpArgs),
     /// Check loaded settings sources and model reachability
     Doctor,
+    /// List and probe free models across configured providers
+    Models(ModelsArgs),
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct ModelsArgs {
+    /// Re-probe all candidate free models now (sequential, respectful of rate limits)
+    #[arg(long = "refresh")]
+    pub refresh: bool,
+    /// Print only the recommended model id (for scripting: zen --model $(zen models --best))
+    #[arg(long = "best")]
+    pub best: bool,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -422,6 +434,26 @@ mod tests {
     fn parse_doctor_subcommand() {
         let cli = parse(&["doctor"]);
         assert!(matches!(cli.subcommand, Some(Commands::Doctor)));
+    }
+
+    #[test]
+    fn parse_models_subcommand() {
+        let cli = parse(&["models"]);
+        match &cli.subcommand {
+            Some(Commands::Models(m)) => {
+                assert!(!m.refresh);
+                assert!(!m.best);
+            }
+            _ => panic!("expected Models"),
+        }
+        let cli = parse(&["models", "--refresh", "--best"]);
+        match &cli.subcommand {
+            Some(Commands::Models(m)) => {
+                assert!(m.refresh);
+                assert!(m.best);
+            }
+            _ => panic!("expected Models with flags"),
+        }
     }
 
     #[test]

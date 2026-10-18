@@ -101,6 +101,28 @@ project commands/skills. Everything from `~/.zen/` always loads; project deny ru
 - CI/scripts that rely on a repo's own hooks or MCP servers: add `--trust-folder` (or set
   `ZEN_TRUST_FOLDER=1`).
 
+## `zen models` — free-model auto-discovery
+
+Free-model catalogs rotate constantly, so `zen models` probes the configured
+provider and tells you which free model actually works *right now*:
+
+```bash
+./target/release/zen models              # list candidates (uses cache when fresh)
+./target/release/zen models --refresh    # re-probe every candidate free model
+./target/release/zen models --best       # print just the recommended model id
+```
+
+Probing runs 3 tiny micro-tasks per model (instruction following, arithmetic,
+code completion), sequentially with short timeouts — a few hundred tokens per
+model, respectful of free-tier rate limits. Results are cached in
+`~/.zen/models-cache.json` (re-probed when the cache is older than 24h or the
+provider changes). A model is only recommended when *every* probe succeeded.
+
+```bash
+# use the recommended model for a run
+./target/release/zen -p "hi" --model $(./target/release/zen models --best)
+```
+
 ## Layout
 
 | Crate | What it owns |

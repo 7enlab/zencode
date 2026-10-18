@@ -9,6 +9,7 @@ pub mod envsnap;
 pub mod eventlog;
 pub mod git;
 pub mod ollama;
+pub mod models;
 pub mod output;
 pub mod repl;
 pub mod safety;
@@ -16,7 +17,7 @@ pub mod session;
 pub mod settings;
 pub mod system_prompt;
 
-pub use cli::{Cli, Commands, InputFormat, McpArgs, McpSubcommand, OutputFormat, PermissionMode};
+pub use cli::{Cli, Commands, InputFormat, McpArgs, McpSubcommand, ModelsArgs, OutputFormat, PermissionMode};
 pub use settings::{resolve_config, ResolvedConfig};
 pub use system_prompt::build_system_prompt;
 
@@ -99,6 +100,10 @@ async fn run_subcommand(
         }
         Commands::Mcp(mcp) => {
             commands::mcp_command(cwd, home, mcp).await?;
+            Ok(0)
+        }
+        Commands::Models(args) => {
+            models::models_command(cli, cwd, home, args).await?;
             Ok(0)
         }
     }

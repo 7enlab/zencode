@@ -28,3 +28,4 @@ serde_json.workspace = true
 tokio.workspace = true
 walkdir.workspace = true
 uuid.workspace = true
+reqwest.workspace = true
