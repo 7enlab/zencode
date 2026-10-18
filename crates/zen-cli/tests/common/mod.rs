@@ -438,6 +438,8 @@ impl ZenRun {
         let mut cmd = Command::new(zen_bin());
         cmd.current_dir(&self.cwd)
             .env("HOME", &self.home)
+            // On Windows, dirs::home_dir() reads USERPROFILE, not HOME.
+            .env("USERPROFILE", &self.home)
             .env("ZEN_API_KEY", "dummy")
             .env_remove("ZEN_MODEL")
             .env_remove("ZEN_BASE_URL")
