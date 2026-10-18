@@ -3,6 +3,7 @@
 
 use crate::cli::Cli;
 use crate::commands;
+use crate::repl_polish;
 use anyhow::Result;
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -101,13 +102,25 @@ pub async fn run_repl(cli: &Cli, cwd: &Path, home: Option<&Path>) -> Result<()> 
         mcp_status: assembly.mcp_status.clone(),
         interrupts: interrupts.as_mut(),
         recorder: assembly.recorder.clone(),
+        goal: None,
+        personality: repl_polish::Personality::default(),
+        theme: repl_polish::Theme::default(),
+        vim_mode: false,
         base_system_prompt,
         pre_plan_mode: zen_core::PermissionMode::Default,
         pending_plan: None,
     };
 
     loop {
-        print!("{}", crate::planmode::prompt_for(agent.config.permission_mode));
+        {
+            let mut p = repl_polish::prompt_text(repl.theme, &repl.goal);
+            // Plan-mode badge (#56) goes in front of the themed "> " (#71).
+            let badge = crate::planmode::prompt_for(agent.config.permission_mode)
+                .trim_end_matches("> ");
+            let at = p.rfind('\n').map_or(0, |i| i + 1);
+            p.insert_str(at, badge);
+            print!("{}", p);
+        }
         std::io::stdout().flush().ok();
         // One read per line (no long-lived stdin lock), so the permission prompter can read
         // its answer from stdin too.
@@ -161,6 +174,14 @@ struct ReplState<'a> {
     interrupts: Option<&'a mut ReplInterrupts>,
     /// Session event log (p0b); re-pointed when /clear or /resume switches the transcript.
     recorder: Option<Arc<crate::eventlog::Recorder>>,
+    /// Session goal from `/goal` (shown above the prompt).
+    goal: Option<String>,
+    /// Response personality from `/personality`.
+    personality: repl_polish::Personality,
+    /// Color theme from `/theme`.
+    theme: repl_polish::Theme,
+    /// Vim keybinding preference from `/vim` (plain-stdin reader: recorded only).
+    vim_mode: bool,
     /// System prompt without the plan-mode instruction, for clean /plan toggling.
     base_system_prompt: String,
     /// Permission mode to restore when /plan toggles plan mode off.
@@ -415,6 +436,7 @@ async fn handle_slash(
             *repl.writer = crate::session::TranscriptWriter::new(path, &new_id, cwd);
             *repl.session_id = new_id.clone();
             agent.ctx.session_id = new_id.clone();
+            repl.goal = None;
             repl_session_start(agent, &new_id, cwd, cfg, "clear").await;
             println!("context cleared, new session: {}", new_id);
         }
@@ -532,6 +554,101 @@ async fn handle_slash(
                 }
             }
         }
+        "/loop" => {
+            match repl_polish::parse_loop_args(&arg) {
+                Ok((n, prompt)) => {
+                    for i in 1..=n {
+                        println!(
+                            "{}",
+                            repl.theme.paint(
+                                repl_polish::ColorRole::Accent,
+                                &format!("[loop {i}/{n}]")
+                            )
+                        );
+                        let result = run_turn_interruptible(
+                            agent,
+                            &prompt,
+                            repl.interrupts.as_deref_mut(),
+                        )
+                        .await;
+                        let failed = result.as_ref().map(|r| r.is_error).unwrap_or(true);
+                        print_turn(result);
+                        if failed {
+                            eprintln!("loop stopped: iteration {i} failed");
+                            break;
+                        }
+                    }
+                }
+                Err(e) => eprintln!("{e}"),
+            }
+        }
+        "/goal" => {
+            if arg.is_empty() {
+                match &repl.goal {
+                    Some(g) => println!("session goal: {g}"),
+                    None => println!("(no session goal; set one with /goal <text>)"),
+                }
+            } else if arg == "clear" {
+                repl.goal = None;
+                println!("session goal cleared");
+            } else {
+                repl.goal = Some(arg.clone());
+                println!("session goal set: {arg}");
+            }
+        }
+        "/personality" => {
+            if arg.is_empty() {
+                println!("personality: {}", repl.personality.name());
+            } else {
+                match repl_polish::Personality::parse(&arg) {
+                    Some(p) => {
+                        repl.personality = p;
+                        agent.config.system_prompt =
+                            format!("{}{}", repl.base_system_prompt, p.system_suffix());
+                        println!("personality set to {}", p.name());
+                    }
+                    None => eprintln!("unknown personality {arg:?} (concise | normal | detailed)"),
+                }
+            }
+        }
+        "/vim" => {
+            repl.vim_mode = !repl.vim_mode;
+            if repl.vim_mode {
+                println!(
+                    "vim keybindings: on (preference recorded; the REPL reads plain stdin \
+                     lines, so vi editing motions are not available yet)"
+                );
+            } else {
+                println!("vim keybindings: off");
+            }
+        }
+        "/theme" => {
+            if arg.is_empty() {
+                let note = if repl_polish::Theme::colors_disabled() {
+                    " (NO_COLOR is set: colors disabled)"
+                } else {
+                    ""
+                };
+                println!("theme: {}{}", repl.theme.name(), note);
+            } else {
+                match repl_polish::Theme::parse(&arg) {
+                    Some(t) => {
+                        repl.theme = t;
+                        if repl_polish::Theme::colors_disabled()
+                            && t != repl_polish::Theme::None
+                        {
+                            println!(
+                                "theme set to {}; note: NO_COLOR is set, colors stay disabled",
+                                t.name()
+                            );
+                        } else {
+                            println!("theme set to {}", t.name());
+                        }
+                    }
+                    None => eprintln!("unknown theme {arg:?} (dark | light | none)"),
+                }
+            }
+        }
         "/review" | "/init" => {
             let prompt = if cmd == "/review" {
                 commands::review_prompt(&arg)
@@ -548,6 +665,10 @@ async fn handle_slash(
             println!("base_url: {}", cfg.base_url);
             println!("permission_mode: {}", cfg.permission_mode);
             println!("session_id: {}", session_id);
+            println!("goal: {}", repl.goal.as_deref().unwrap_or("(none)"));
+            println!("personality: {}", repl.personality.name());
+            println!("theme: {}", repl.theme.name());
+            println!("vim_mode: {}", repl.vim_mode);
             if cfg.loaded_sources.is_empty() {
                 println!("settings: (none)");
             } else {

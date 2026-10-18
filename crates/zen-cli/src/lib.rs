@@ -18,6 +18,7 @@ pub mod output;
 pub mod planmode;
 pub mod repl;
 pub mod safety;
+pub mod repl_polish;
 pub mod session;
 pub mod settings;
 pub mod system_prompt;

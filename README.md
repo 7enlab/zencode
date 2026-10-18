@@ -283,3 +283,21 @@ ZenCode is designed to be a good API citizen so your accounts stay in good stand
 Providers suspend accounts for payment disputes, shared/resold keys, bot-like traffic, and ToS violations (e.g., model distillation, subscription-token relay) — not for normal coding-agent usage within rate limits. [Full details →](docs/account-safety.md)
 
 > No tool can guarantee your account won't be flagged — providers use automated systems with false positives. ZenCode minimizes the risk factors within its control and warns you about the rest.
+## REPL polish commands
+
+Small quality-of-life slash commands for the interactive REPL:
+
+| Command | What it does |
+|---|---|
+| `/loop <n> <prompt>` | Run a prompt `n` times in a row (batch operations). Shows `[loop i/n]` per iteration, stops on the first failed turn, capped at 100 iterations. |
+| `/goal <text>` | Set a session goal, shown on a dimmed line above the prompt and in `/status`. `/goal` shows it, `/goal clear` unsets it. Reset by `/clear`. |
+| `/personality <name>` | Switch response style: `concise`, `normal` (default), `detailed`. Adjusts the system prompt; `normal` leaves it byte-identical. |
+| `/vim` | Toggle the vim-keybinding preference. The REPL currently reads plain stdin lines, so vi editing motions are not available yet — the command records the preference and says so honestly. |
+| `/theme <name>` | Switch color theme: `dark` (default), `light`, `none`. `NO_COLOR` (any value) always disables colors regardless of theme. |
+
+```bash
+/loop 3 run cargo test and fix any failures
+/goal ship the v0.6 milestone
+/personality concise
+/theme light
+```

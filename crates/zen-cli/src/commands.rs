@@ -9,7 +9,7 @@ pub const BUILTIN_COMMANDS: &[&str] = &[
     "/help", "/clear", "/compact", "/model", "/resume", "/cost", "/status",
     "/permissions", "/config", "/memory", "/init", "/todos", "/agents", "/mcp", "/hooks",
     "/skills", "/exit", "/context", "/add-dir", "/export", "/review", "/rename", "/quota",
-    "/diff", "/plan", "/memories",
+    "/diff", "/plan", "/memories", "/loop", "/goal", "/personality", "/vim", "/theme",
 ];
 
 /// Built-ins that also work as the whole prompt of `-p` (SPEC C5.4). The rest are terminal-only.
@@ -594,6 +594,15 @@ mod tests {
         assert!(p.contains("incorporate"), "prompt: {}", p);
         // Base init instructions preserved.
         assert!(p.contains("write a concise"), "prompt: {}", p);
+        // REPL polish commands
+        for c in ["/loop", "/goal", "/personality", "/vim", "/theme"] {
+            assert!(BUILTIN_COMMANDS.contains(&c), "missing {c}");
+            assert!(parse_builtin(c).is_some(), "not parsed: {c}");
+        }
+        assert_eq!(
+            parse_builtin("/loop 3 do x"),
+            Some(("loop".to_string(), "3 do x".to_string()))
+        );
     }
 
     #[test]
