@@ -656,7 +656,7 @@ pub async fn run_agent_headless(
                 agent.config.model = args.clone();
                 Some(format!("Set model to {}", args))
             }
-            "cost" => Some(commands::cost_report(&agent.usage)),
+            "cost" => Some(commands::cost_report(&agent.usage, &agent.config.model, &cfg.base_url)),
             "mcp" => Some(commands::mcp_report(&assembly.mcp_status)),
             "context" => Some(commands::context_report(
                 &agent.config.system_prompt,
@@ -689,7 +689,15 @@ pub async fn run_agent_headless(
                 eprintln!("warning: could not write transcript: {}", e);
             }
         }
-        persist_usage(transcript_path, session_id, &usage_before, &agent.usage);
+        persist_usage(
+            transcript_path,
+            session_id,
+            &usage_before,
+            &agent.usage,
+            home,
+            &agent.config.model,
+            &cfg.base_url,
+        );
         run_session_end(&assembly.hooks, session_id, cwd, cfg, "other").await;
         let (is_error, text) = match outcome {
             Ok(()) if before.is_empty() => (false, "Nothing to compact.".to_string()),
@@ -790,7 +798,15 @@ pub async fn run_agent_headless(
             eprintln!("warning: could not write transcript: {}", e);
         }
     }
-    persist_usage(transcript_path, session_id, &usage_before, &agent.usage);
+    persist_usage(
+        transcript_path,
+        session_id,
+        &usage_before,
+        &agent.usage,
+        home,
+        &agent.config.model,
+        &cfg.base_url,
+    );
 
     // SessionEnd hook.
     run_session_end(&assembly.hooks, session_id, cwd, cfg, "other").await;
@@ -805,22 +821,37 @@ pub async fn run_agent_headless(
     Ok(if result.is_error { 1 } else { 0 })
 }
 
-/// Record the usage this run added (if any) in the transcript (C9.3).
+/// Record the usage this run added (if any) in the transcript (C9.3) and in the
+/// per-session cost ledger (`~/.zen/cost/<session-id>.json`).
 fn persist_usage(
     path: Option<&Path>,
     session_id: &str,
     before: &zen_core::UsageStats,
     after: &zen_core::UsageStats,
+    home: Option<&Path>,
+    model: &str,
+    base_url: &str,
 ) {
     let delta = zen_core::UsageStats {
         input_tokens: after.input_tokens.saturating_sub(before.input_tokens),
         output_tokens: after.output_tokens.saturating_sub(before.output_tokens),
     };
-    if let (Some(p), true) = (path, delta != zen_core::UsageStats::default()) {
+    if delta == zen_core::UsageStats::default() {
+        return;
+    }
+    if let Some(p) = path {
         if let Err(e) = crate::session::append_usage(p, session_id, &delta) {
             eprintln!("warning: could not write transcript: {}", e);
         }
     }
+    crate::cost::record(
+        home,
+        session_id,
+        model,
+        base_url,
+        delta.input_tokens,
+        delta.output_tokens,
+    );
 }
 
 /// A result for a built-in answered without a model turn.

@@ -5,6 +5,7 @@
 pub mod agent_run;
 pub mod cli;
 pub mod commands;
+pub mod cost;
 pub mod envsnap;
 pub mod eventlog;
 pub mod git;
@@ -17,7 +18,7 @@ pub mod session;
 pub mod settings;
 pub mod system_prompt;
 
-pub use cli::{Cli, Commands, InputFormat, McpArgs, McpSubcommand, ModelsArgs, OutputFormat, PermissionMode};
+pub use cli::{Cli, Commands, CostArgs, InputFormat, McpArgs, McpSubcommand, ModelsArgs, OutputFormat, PermissionMode};
 pub use settings::{resolve_config, ResolvedConfig};
 pub use system_prompt::build_system_prompt;
 
@@ -111,7 +112,45 @@ async fn run_subcommand(
             models::models_command(cli, cwd, home, args).await?;
             Ok(0)
         }
+        Commands::Cost(args) => {
+            cost_subcommand(home, args)?;
+            Ok(0)
+        }
     }
+}
+
+/// `zen cost [--session <id>]`: render the session's cost ledger as a dashboard.
+fn cost_subcommand(home: Option<&std::path::Path>, args: &CostArgs) -> anyhow::Result<()> {
+    let Some(home) = home else {
+        anyhow::bail!("cannot determine home directory");
+    };
+    // Resolve the session: explicit id/path, else the most recent session.
+    let session_id = match &args.session {
+        Some(s) => {
+            if let Some(p) = session::find_session_path(home, s) {
+                p.file_stem()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| s.clone())
+            } else {
+                s.clone()
+            }
+        }
+        None => cost::latest_session_id(home)
+            .ok_or_else(|| anyhow::anyhow!("no sessions found under ~/.zen/projects"))?,
+    };
+    let Some(ledger) = cost::load(home, &session_id) else {
+        println!("No cost data recorded for session {}.", session_id);
+        println!("Cost tracking starts with this version; run a session first.");
+        return Ok(());
+    };
+    let summary = cost::summarize(&ledger.session_id, &ledger.entries);
+    match args.output_format {
+        OutputFormat::Text => print!("{}", cost::render_text(&summary)),
+        OutputFormat::Json | OutputFormat::StreamJson => {
+            println!("{}", serde_json::to_string(&cost::to_json(&summary))?)
+        }
+    }
+    Ok(())
 }
 
 /// Interactive start: in an untrusted folder that has project config able to run commands, ask

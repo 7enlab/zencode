@@ -29,6 +29,11 @@ echo "explain this log" | ./target/release/zen -p --output-format text
 # any OpenAI-compatible endpoint + free model
 ZEN_BASE_URL=https://openrouter.ai/api/v1 ZEN_API_KEY=... \
   ./target/release/zen -p "hi" --model nvidia/nemotron-3-super-120b-a12b:free
+
+# cost dashboard: per-session token usage and estimated cost
+./target/release/zen cost                        # latest session
+./target/release/zen cost --session <id>         # a past session
+./target/release/zen cost --output-format json   # machine-readable
 ```
 
 ### Ollama (local models, $0)

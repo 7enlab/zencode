@@ -101,11 +101,18 @@ pub fn mcp_report(status: &[(String, String)]) -> String {
 }
 
 /// `/cost`: token usage of this session so far (zen uses free models: cost is always $0).
-pub fn cost_report(usage: &zen_core::UsageStats) -> String {
-    format!(
-        "Total cost: $0.0000\nUsage: {} input, {} output tokens",
-        usage.input_tokens, usage.output_tokens
-    )
+/// `/cost` (and the `-p` `cost` builtin): token usage and estimated cost for the
+/// current session, rendered from live usage figures.
+pub fn cost_report(usage: &zen_core::UsageStats, model: &str, base_url: &str) -> String {
+    let entry = crate::cost::CostEntry {
+        model: model.to_string(),
+        provider: crate::cost::provider_from_base_url(base_url),
+        input_tokens: usage.input_tokens,
+        output_tokens: usage.output_tokens,
+        timestamp: String::new(),
+    };
+    let summary = crate::cost::summarize("current session", std::slice::from_ref(&entry));
+    crate::cost::render_text(&summary)
 }
 
 /// `/export`: the conversation as markdown (system messages left out).

@@ -261,8 +261,10 @@ async fn handle_line(
     }
 
     // Normal prompt → agent turn (prompt, tool calls, tool results and answer are persisted).
+    let usage_before = agent.usage.clone();
     let result = run_turn_interruptible(agent, line, repl.interrupts.as_deref_mut()).await;
     persist(repl.writer, &before, agent);
+    record_turn_cost(home, repl.session_id.as_str(), cfg, agent, &usage_before);
     print_turn(result);
     Ok(LineAction::Continue)
 }
@@ -335,7 +337,7 @@ async fn handle_slash(
                 println!("model set to {}", arg);
             }
         }
-        "/cost" => println!("{}", commands::cost_report(&agent.usage)),
+        "/cost" => println!("{}", commands::cost_report(&agent.usage, &agent.config.model, &cfg.base_url)),
         "/quota" => {
             let store = home.map(zen_agent::RateGate::default_store_path);
             println!("{}", zen_agent::rategate::quota_report_for(store.as_deref()));
@@ -390,7 +392,10 @@ async fn handle_slash(
             } else {
                 commands::init_prompt()
             };
-            print_turn(run_turn_interruptible(agent, &prompt, repl.interrupts.as_deref_mut()).await);
+            let usage_before = agent.usage.clone();
+            let result = run_turn_interruptible(agent, &prompt, repl.interrupts.as_deref_mut()).await;
+            record_turn_cost(home, repl.session_id.as_str(), cfg, agent, &usage_before);
+            print_turn(result);
         }
         "/status" => {
             println!("model: {}", agent.config.model);
@@ -544,8 +549,10 @@ async fn handle_slash(
                             crate::agent_run::build_permissions_with(cwd, cfg, cli, &c.allowed_tools);
                     }
                 }
+                let usage_before = agent.usage.clone();
                 let result =
                     run_turn_interruptible(agent, &expanded, repl.interrupts.as_deref_mut()).await;
+                record_turn_cost(home, repl.session_id.as_str(), cfg, agent, &usage_before);
                 agent.config.model = saved_model;
                 agent.permissions = saved_perms;
                 print_turn(result);
@@ -637,3 +644,23 @@ fn persist(
 
 /// Unused sink alias kept for symmetry with headless mode.
 pub type ReplSink = Arc<dyn EventSink>;
+
+/// Append one REPL turn's token usage delta to the session cost ledger.
+fn record_turn_cost(
+    home: Option<&Path>,
+    session_id: &str,
+    cfg: &crate::settings::ResolvedConfig,
+    agent: &zen_agent::Agent,
+    before: &zen_core::UsageStats,
+) {
+    let delta_in = agent.usage.input_tokens.saturating_sub(before.input_tokens);
+    let delta_out = agent.usage.output_tokens.saturating_sub(before.output_tokens);
+    crate::cost::record(
+        home,
+        session_id,
+        &agent.config.model,
+        &cfg.base_url,
+        delta_in,
+        delta_out,
+    );
+}

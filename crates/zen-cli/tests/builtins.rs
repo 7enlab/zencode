@@ -36,7 +36,9 @@ async fn c5_4_headless_builtins_answer_locally() {
     assert_eq!(v["result"], "Current model: mock-model");
 
     let (v, _) = run_p("pb3", &home, &cwd, &server, "/cost");
-    assert!(v["result"].as_str().unwrap().contains("Usage: 0 input, 0 output tokens"), "{}", v);
+    let cost_text = v["result"].as_str().unwrap();
+    assert!(cost_text.contains("Session cost:"), "{}", v);
+    assert!(cost_text.contains("No token usage recorded yet"), "{}", v);
 
     let (v, _) = run_p("pb4", &home, &cwd, &server, "/mcp");
     assert_eq!(v["result"], "No MCP servers configured.");

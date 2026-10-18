@@ -260,6 +260,8 @@ pub enum Commands {
     Doctor,
     /// List and probe free models across configured providers
     Models(ModelsArgs),
+    /// Show token usage and cost for a session
+    Cost(CostArgs),
 }
 
 #[derive(Args, Debug, Clone)]
@@ -270,6 +272,16 @@ pub struct ModelsArgs {
     /// Print only the recommended model id (for scripting: zen --model $(zen models --best))
     #[arg(long = "best")]
     pub best: bool,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct CostArgs {
+    /// Session id (default: most recent session)
+    #[arg(long = "session")]
+    pub session: Option<String>,
+    /// Output format: text, json, stream-json
+    #[arg(long = "output-format", value_enum, default_value_t = OutputFormat::Text)]
+    pub output_format: OutputFormat,
 }
 
 #[derive(Args, Debug, Clone)]
