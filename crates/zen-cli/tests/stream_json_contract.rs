@@ -66,6 +66,17 @@ fn normalise(stdout: &str, subs: &[(String, &str)]) -> String {
 
 /// Run one scenario and compare (or rewrite) its fixture.
 async fn check(name: &str, replies: Vec<Reply>, extra_args: &[&str], setup: impl FnOnce(&TempDir)) {
+    check_with_prompt(name, replies, extra_args, setup, "hello").await;
+}
+
+/// Run one scenario with a custom user prompt and compare (or rewrite) its fixture.
+async fn check_with_prompt(
+    name: &str,
+    replies: Vec<Reply>,
+    extra_args: &[&str],
+    setup: impl FnOnce(&TempDir),
+    prompt: &str,
+) {
     let home = TempDir::new(&format!("sj_{name}_home"));
     let cwd = TempDir::new(&format!("sj_{name}_cwd"));
     setup(&cwd);
@@ -76,7 +87,7 @@ async fn check(name: &str, replies: Vec<Reply>, extra_args: &[&str], setup: impl
             .args(["-p", "--output-format", "stream-json", "--session-id", SESSION])
             .args(extra_args.iter().copied())
             .mock("mock-model", &server)
-            .arg("hello")
+            .arg(prompt)
             .run_output()
     })
     .await
@@ -174,6 +185,23 @@ async fn fixture_permission_denied() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn fixture_compact_boundary() {
+    // `--autocompact 1` forces auto-compaction before the first request: the mock serves the
+    // summarization call first, then the real answer. The prompt is long enough (>1 token) to
+    // trip the threshold since only `messages` (not the system prompt) counts.
+    let mut args = BARE.to_vec();
+    args.extend(["--autocompact", "1"]);
+    check_with_prompt(
+        "compact_boundary",
+        vec![Reply::text("SUMMARY: user asked to be greeted."), Reply::text("Hello after compaction.")],
+        &args,
+        |_| {},
+        "hello, please greet me warmly and at length",
+    )
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn fixture_truncation_note() {
     check(
         "truncation_note",
@@ -215,6 +243,6 @@ fn doc_names_every_field_in_the_fixtures() {
             }
         }
     }
-    assert_eq!(seen, 6, "expected 6 fixture streams");
+    assert_eq!(seen, 7, "expected 7 fixture streams");
     assert!(missing.is_empty(), "docs/stream-json-v1.md does not mention: {missing:?}");
 }

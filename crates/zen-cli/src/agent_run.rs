@@ -399,20 +399,34 @@ fn build_hooks(
     )
 }
 
-fn base_agent_config(cfg: &ResolvedConfig, cli: &Cli, system_prompt: &str) -> zen_agent::AgentConfig {
-    let context_window = cfg.context_window.unwrap_or(128_000);
+/// Resolve the auto-compaction token threshold (SPEC C10.1).
+///
+/// `--autocompact` beats the `autoCompact` setting. Absent/`"auto"`/`true` means 80% of the
+/// context window; `"off"`/`false` disables auto-compaction; a number sets an absolute token
+/// threshold.
+fn resolve_auto_compact_threshold(
+    flag: Option<&str>,
+    setting: Option<&serde_json::Value>,
+    context_window: u64,
+) -> Option<u64> {
     // `--autocompact` beats the `autoCompact` setting (C10.1).
-    let flag = cli.autocompact.as_deref().map(|v| match v {
+    let flag_value = flag.map(|v| match v {
         "auto" => serde_json::Value::Bool(true),
         "off" => serde_json::Value::Bool(false),
         n => serde_json::Value::from(n.parse::<u64>().unwrap_or(0)),
     });
-    let auto_compact_threshold = match flag.as_ref().or(cfg.auto_compact.as_ref()) {
+    match flag_value.as_ref().or(setting) {
         Some(serde_json::Value::Bool(false)) => None,
         Some(serde_json::Value::Bool(true)) | None => Some(context_window * 80 / 100),
         Some(serde_json::Value::Number(n)) => n.as_u64(),
         _ => Some(context_window * 80 / 100),
-    };
+    }
+}
+
+fn base_agent_config(cfg: &ResolvedConfig, cli: &Cli, system_prompt: &str) -> zen_agent::AgentConfig {
+    let context_window = cfg.context_window.unwrap_or(128_000);
+    let auto_compact_threshold =
+        resolve_auto_compact_threshold(cli.autocompact.as_deref(), cfg.auto_compact.as_ref(), context_window);
     let mut config = zen_agent::AgentConfig {
         model: cfg.model.clone(),
         fallback_models: cfg.fallback_models.clone(),
@@ -1064,6 +1078,55 @@ pub fn emit_notice(_ev: AgentEvent) {}
 #[cfg(test)]
 mod tools_flag_tests {
     use super::*;
+
+    #[test]
+    fn auto_compact_threshold_defaults_to_80_percent_of_context_window() {
+        assert_eq!(resolve_auto_compact_threshold(None, None, 128_000), Some(102_400));
+        assert_eq!(resolve_auto_compact_threshold(None, None, 200_000), Some(160_000));
+    }
+
+    #[test]
+    fn auto_compact_flag_auto_and_true_setting_use_80_percent() {
+        use serde_json::json;
+        assert_eq!(resolve_auto_compact_threshold(Some("auto"), None, 100_000), Some(80_000));
+        assert_eq!(resolve_auto_compact_threshold(None, Some(&json!(true)), 100_000), Some(80_000));
+        // The flag beats the setting.
+        assert_eq!(
+            resolve_auto_compact_threshold(Some("auto"), Some(&json!(false)), 100_000),
+            Some(80_000)
+        );
+    }
+
+    #[test]
+    fn auto_compact_flag_off_and_false_setting_disable() {
+        use serde_json::json;
+        assert_eq!(resolve_auto_compact_threshold(Some("off"), None, 100_000), None);
+        assert_eq!(resolve_auto_compact_threshold(None, Some(&json!(false)), 100_000), None);
+        // The flag beats the setting.
+        assert_eq!(
+            resolve_auto_compact_threshold(Some("off"), Some(&json!(5_000)), 100_000),
+            None
+        );
+    }
+
+    #[test]
+    fn auto_compact_numeric_flag_and_setting_set_absolute_threshold() {
+        use serde_json::json;
+        assert_eq!(resolve_auto_compact_threshold(Some("5000"), None, 100_000), Some(5_000));
+        assert_eq!(resolve_auto_compact_threshold(None, Some(&json!(3000)), 100_000), Some(3_000));
+        // The flag beats the setting.
+        assert_eq!(
+            resolve_auto_compact_threshold(Some("7000"), Some(&json!(3000)), 100_000),
+            Some(7_000)
+        );
+    }
+
+    #[test]
+    fn auto_compact_unexpected_setting_shape_falls_back_to_80_percent() {
+        use serde_json::json;
+        assert_eq!(resolve_auto_compact_threshold(None, Some(&json!("weird")), 100_000), Some(80_000));
+        assert_eq!(resolve_auto_compact_threshold(None, Some(&json!(null)), 100_000), Some(80_000));
+    }
 
     fn names(v: &[Arc<dyn Tool>]) -> Vec<String> {
         v.iter().map(|t| t.name().to_string()).collect()

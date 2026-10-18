@@ -127,7 +127,7 @@ A message meant for the user, not the model. Despite the name it is used for mor
 
 ### `system` / `compact_boundary`
 
-Emitted when the conversation is compacted (not in the fixtures).
+Emitted when the conversation is compacted (see `fixtures/stream-json/compact_boundary.ndjson`).
 
 | field | type | notes |
 |---|---|---|
