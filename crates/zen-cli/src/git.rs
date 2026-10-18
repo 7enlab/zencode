@@ -3,7 +3,7 @@
 //! both have `/diff`; ZenCode shows `git diff HEAD` incl. untracked files).
 
 use std::io::Read;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
@@ -195,9 +195,104 @@ pub fn os_info() -> String {
     format!("{} ({})", std::env::consts::OS, std::env::consts::ARCH)
 }
 
+/// Create a git worktree at `path` on a new branch `branch` (from HEAD).
+/// Returns the worktree path on success, or an error message.
+pub fn create_worktree(cwd: &Path, path: &Path, branch: &str) -> Result<PathBuf, String> {
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(cwd)
+        .args(["worktree", "add", "-b", branch, "--"])
+        .arg(path)
+        .output()
+        .map_err(|e| format!("failed to run git: {}", e))?;
+    if out.status.success() {
+        Ok(path.to_path_buf())
+    } else {
+        Err(String::from_utf8_lossy(&out.stderr).trim().to_string())
+    }
+}
+
+/// List worktrees for the repo containing `cwd`: (path, branch, commit).
+/// Porcelain records are `worktree`, `HEAD`, then `branch` (or `detached`), separated by blank lines.
+pub fn list_worktrees(cwd: &Path) -> Vec<(String, String, String)> {
+    let p = spawn_probe("git", cwd, &["worktree", "list", "--porcelain"]);
+    let out = match finish_probe(p, Instant::now() + GIT_TIMEOUT) {
+        Some(o) => o,
+        None => return vec![],
+    };
+    parse_worktree_porcelain(&out)
+}
+
+fn parse_worktree_porcelain(out: &str) -> Vec<(String, String, String)> {
+    let mut result = Vec::new();
+    let (mut path, mut branch, mut head) = (String::new(), String::new(), String::new());
+    for line in out.lines().chain(std::iter::once("")) {
+        if line.is_empty() {
+            if !path.is_empty() {
+                let b = if branch.is_empty() { "detached".to_string() } else { branch.clone() };
+                result.push((path.clone(), b, head.clone()));
+            }
+            path.clear();
+            branch.clear();
+            head.clear();
+        } else if let Some(p) = line.strip_prefix("worktree ") {
+            path = p.to_string();
+        } else if let Some(b) = line.strip_prefix("branch ") {
+            branch = b.trim_start_matches("refs/heads/").to_string();
+        } else if let Some(c) = line.strip_prefix("HEAD ") {
+            head = c.to_string();
+        }
+    }
+    result
+}
+
+/// A worktree/branch name typed after `/worktree`: no option-like or path-escaping names.
+pub fn valid_worktree_name(name: &str) -> bool {
+    !name.is_empty()
+        && !name.starts_with('-')
+        && !name.starts_with('.')
+        && !name.contains("..")
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+}
+
+/// Remove the worktree at `path` (does not delete the branch). Refuses when it has
+/// uncommitted changes, so work is never silently discarded.
+pub fn remove_worktree(cwd: &Path, path: &Path) -> Result<(), String> {
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(cwd)
+        .args(["worktree", "remove"])
+        .arg(path)
+        .output()
+        .map_err(|e| format!("failed to run git: {}", e))?;
+    if out.status.success() {
+        Ok(())
+    } else {
+        Err(String::from_utf8_lossy(&out.stderr).trim().to_string())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn worktree_porcelain_keeps_branch_with_its_path() {
+        let out = "worktree /r\nHEAD 1111111aaaa\nbranch refs/heads/main\n\nworktree /r-x\nHEAD 2222222bbbb\ndetached\n";
+        let v = parse_worktree_porcelain(out);
+        assert_eq!(v.len(), 2);
+        assert_eq!(v[0], ("/r".into(), "main".into(), "1111111aaaa".into()));
+        assert_eq!(v[1], ("/r-x".into(), "detached".into(), "2222222bbbb".into()));
+    }
+
+    #[test]
+    fn worktree_names_reject_options_and_traversal() {
+        assert!(valid_worktree_name("feature-1"));
+        assert!(!valid_worktree_name("-b"));
+        assert!(!valid_worktree_name("../x"));
+        assert!(!valid_worktree_name("a/b"));
+        assert!(!valid_worktree_name(""));
+    }
     use std::path::PathBuf;
 
     /// Fresh temp repo with one committed file; `None` when git is unavailable.

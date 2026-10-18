@@ -599,6 +599,40 @@ async fn handle_slash(
             let store = home.map(zen_agent::RateGate::default_store_path);
             println!("{}", zen_agent::rategate::quota_report_for(store.as_deref()));
         }
+        "/worktree" => {
+            // /worktree              -> list worktrees
+            // /worktree <name>       -> create worktree ../<repo>-<name> on branch <name>
+            // /worktree rm <name>    -> remove worktree
+            let parts: Vec<&str> = arg.split_whitespace().collect();
+            match parts.as_slice() {
+                [] => {
+                    let wts = crate::git::list_worktrees(cwd);
+                    if wts.is_empty() {
+                        println!("no worktrees (or not a git repo)");
+                    } else {
+                        for (p, b, c) in wts {
+                            println!("{} [{}] {}", p, b, &c[..7.min(c.len())]);
+                        }
+                    }
+                }
+                ["rm", name] if crate::git::valid_worktree_name(name) => {
+                    let wt_path = cwd.join(format!("../{}-{}", cwd.file_name().and_then(|n| n.to_str()).unwrap_or("repo"), name));
+                    match crate::git::remove_worktree(cwd, &wt_path) {
+                        Ok(()) => println!("removed worktree {}", wt_path.display()),
+                        Err(e) => eprintln!("failed: {}", e),
+                    }
+                }
+                [name] if crate::git::valid_worktree_name(name) && *name != "rm" => {
+                    let repo = cwd.file_name().and_then(|n| n.to_str()).unwrap_or("repo");
+                    let wt_path = cwd.join(format!("../{}-{}", repo, name));
+                    match crate::git::create_worktree(cwd, &wt_path, name) {
+                        Ok(p) => println!("created worktree {} on branch {}\ncd to it and run zen there for an isolated session", p.display(), name),
+                        Err(e) => eprintln!("failed: {}", e),
+                    }
+                }
+                _ => eprintln!("usage: /worktree [name] | /worktree rm <name>  (name: letters, digits, - _ .)"),
+            }
+        }
         "/context" => println!(
             "{}",
             commands::context_report(
