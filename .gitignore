@@ -12,3 +12,4 @@ tools/pi-models-patch.py*
 proxylog*
 .zen/
 .env*
+__pycache__/
