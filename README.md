@@ -96,6 +96,17 @@ endpoints today and switches to the Anthropic endpoint automatically once an
 Anthropic client is available. Pricing feeds the `zen cost` ledger; see
 `crates/zen-agent/src/providers.rs` for the registry, featured models for
 `zen models`, login order for `zen auth`, and cheap-first fallback order.
+### `/diff` (REPL)
+
+In the interactive REPL, `/diff` shows uncommitted changes as `git diff HEAD`, plus a list of
+untracked files (parity with Claude Code and Codex CLI, which both ship `/diff`):
+
+- `/diff` — working tree vs HEAD (staged + unstaged), then untracked files
+- `/diff --staged` — staged changes only (`git diff --cached`)
+- `/diff --stat` — one-line summary per file instead of the full diff
+
+Output is colored when stdout is a terminal and `NO_COLOR` is unset. Outside a git repo it
+prints a hint instead of failing.
 
 ### Folder trust
 

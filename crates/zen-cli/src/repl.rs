@@ -352,6 +352,53 @@ async fn handle_slash(
                 agent.last_prompt_tokens,
             )
         ),
+        "/diff" => {
+            // Parity H6 (Claude Code / Codex CLI): show uncommitted changes.
+            let mut staged = false;
+            let mut stat = false;
+            let mut unknown: Option<&str> = None;
+            for tok in arg.split_whitespace() {
+                match tok {
+                    "--staged" => staged = true,
+                    "--stat" => stat = true,
+                    _ => unknown = Some(tok),
+                }
+            }
+            if let Some(flag) = unknown {
+                eprintln!("unknown flag '{flag}'; usage: /diff [--staged] [--stat]");
+            } else if !crate::git::is_git_repo(cwd) {
+                eprintln!(
+                    "not a git repository: {}\n/diff needs a git repo; read files directly or run `!git ...` instead.",
+                    cwd.display()
+                );
+            } else {
+                let mode = if stat {
+                    crate::git::DiffMode::Stat
+                } else if staged {
+                    crate::git::DiffMode::Staged
+                } else {
+                    crate::git::DiffMode::WorkingTree
+                };
+                let color = std::io::IsTerminal::is_terminal(&std::io::stdout())
+                    && std::env::var_os("NO_COLOR").is_none();
+                match crate::git::git_diff(cwd, mode, color) {
+                    Some(out) if !out.trim().is_empty() => print!("{out}"),
+                    _ => println!("(no changes)"),
+                }
+                // Default mode also lists untracked files (Codex parity).
+                if !staged && !stat {
+                    match crate::git::untracked_files(cwd) {
+                        Some(u) if !u.is_empty() => {
+                            println!("\nUntracked files ({}):", u.len());
+                            for f in u {
+                                println!("  {f}");
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
         "/add-dir" => {
             if arg.is_empty() {
                 eprintln!("usage: /add-dir <path>");

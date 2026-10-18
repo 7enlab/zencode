@@ -106,7 +106,7 @@ Read-only tools (no permission needed in `default`): Read, Glob, Grep, TodoWrite
 - In `-p` json result, denied calls are listed in `permission_denials: [{tool_name, tool_use_id, tool_input}]`.
 
 ## 6. Slash commands
-Built-in (REPL; `-p` supports those marked *): `/help`, `/clear` (new session, empty context), `/compact [instructions]`* (§11), `/model [name]`*, `/resume [id]`, `/continue`, `/cost`* (tokens used), `/status` (model, baseUrl, settings sources, mcp servers), `/permissions` (list rules), `/config key=value`*, `/memory` (open/print ZEN.md paths), `/init` (ask model to analyze repo and write ZEN.md), `/todos`, `/agents` (list sub-agents), `/mcp`* (server status), `/hooks` (list), `/skills` (list), `/exit`.
+Built-in (REPL; `-p` supports those marked *): `/help`, `/clear` (new session, empty context), `/compact [instructions]`* (§11), `/model [name]`*, `/resume [id]`, `/continue`, `/cost`* (tokens used), `/status` (model, baseUrl, settings sources, mcp servers), `/permissions` (list rules), `/config key=value`*, `/memory` (open/print ZEN.md paths), `/init` (ask model to analyze repo and write ZEN.md), `/todos`, `/agents` (list sub-agents), `/mcp`* (server status), `/hooks` (list), `/skills` (list), `/diff` (git diff HEAD + untracked; `--staged`, `--stat`), `/exit`.
 
 Custom commands: Markdown files in `.zen/commands/*.md` (project) and `~/.zen/commands/*.md` (user). Name = file stem; subfolders namespace as `dir:name`. Optional YAML frontmatter: `description`, `argument-hint`, `allowed-tools`, `model`. Body is the prompt; `$ARGUMENTS` replaced by all args, `$0..$9` / `$ARGUMENTS[N]` positional, 0-based (`$0` = first argument; see C5.2). Lines starting `!` followed by a backticked command are executed and output inlined; `@path` inlines file contents. In `-p`, a prompt starting with `/name` is expanded before running.
 
@@ -266,7 +266,7 @@ Status column is maintained in PLAN.md ("Parity status").
 - C4.8 P3 auto memory (MEMORY.md), /memory editor integration.
 
 ### C5 Slash commands, custom commands, skills
-- C5.1 P1 Built-ins: /help /clear /compact [focus] /config [k=v] /cost /status /model [name] /permissions /memory /init /agents /mcp /hooks /skills /resume [id] /exit, plus /context (token breakdown), /add-dir, /export (write transcript as markdown), /review (prompt template), /rename. Others P3.
+- C5.1 P1 Built-ins: /help /clear /compact [focus] /config [k=v] /cost /status /model [name] /permissions /memory /init /agents /mcp /hooks /skills /resume [id] /exit, plus /context (token breakdown), /add-dir, /export (write transcript as markdown), /review (prompt template), /rename, /diff (git diff HEAD + untracked; --staged, --stat). Others P3.
 - C5.2 P1 Custom commands `.zen/commands/**.md`, `~/.zen/commands/**.md` (subdir → `dir:name`), frontmatter description, argument-hint, allowed-tools, model, disable-model-invocation; `$ARGUMENTS`, `$0..$9`/`$ARGUMENTS[N]` positional, `${ZEN_SESSION_ID}`, `${ZEN_PROJECT_DIR}`, `` !`cmd` `` pre-execution, `@file` inlining.
 - C5.3 P1 Skills `.zen/skills/<name>/SKILL.md`, `~/.zen/skills/...`; frontmatter name, description, allowed-tools, disable-model-invocation (not listed for the model), user-invocable (false → hidden from `/`), argument-hint, model; skills and commands share `/name`, skill wins; `${ZEN_SKILL_DIR}`.
 - C5.4 P1 In -p, `/name args` as the prompt is expanded; terminal-only built-ins unavailable; `/model x`, `/compact`, `/cost`, `/mcp` work.

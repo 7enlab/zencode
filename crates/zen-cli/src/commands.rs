@@ -8,8 +8,8 @@ use std::path::Path;
 pub const BUILTIN_COMMANDS: &[&str] = &[
     "/help", "/clear", "/compact", "/model", "/resume", "/cost", "/status",
     "/permissions", "/config", "/memory", "/init", "/todos", "/agents",
-    "/mcp", "/hooks", "/skills", "/exit", "/context", "/add-dir", "/export",
-    "/review", "/rename", "/quota",
+    "/mcp", "/hooks", "/skills", "/exit", "/context", "/add-dir", "/export", "/review",
+    "/rename", "/quota", "/diff",
 ];
 
 /// Built-ins that also work as the whole prompt of `-p` (SPEC C5.4). The rest are terminal-only.
@@ -537,6 +537,23 @@ mod tests {
         assert!(BUILTIN_COMMANDS.contains(&"/help"));
         assert!(BUILTIN_COMMANDS.contains(&"/exit"));
         assert!(BUILTIN_COMMANDS.contains(&"/compact"));
+        assert!(BUILTIN_COMMANDS.contains(&"/diff"));
+    }
+
+    #[test]
+    fn parse_builtin_diff_with_flags() {
+        assert_eq!(
+            parse_builtin("/diff --staged"),
+            Some(("diff".to_string(), "--staged".to_string()))
+        );
+        assert_eq!(
+            parse_builtin("/diff"),
+            Some(("diff".to_string(), "".to_string()))
+        );
+        assert_eq!(
+            parse_builtin("/diff --stat"),
+            Some(("diff".to_string(), "--stat".to_string()))
+        );
     }
 
     #[test]

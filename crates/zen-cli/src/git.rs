@@ -1,4 +1,6 @@
-//! Small git helpers used to enrich the system prompt (best-effort, never fatal).
+//! Small git helpers used to enrich the system prompt (best-effort, never fatal),
+//! plus the `/diff` REPL command plumbing (parity item H6: Claude Code and Codex CLI
+//! both have `/diff`; ZenCode shows `git diff HEAD` incl. untracked files).
 
 use std::io::Read;
 use std::path::Path;
@@ -8,6 +10,10 @@ use std::time::{Duration, Instant};
 /// Budget for the git probes at startup (perf p0): a slow or hung git (network FS, huge repo,
 /// credential prompt) must not delay the first request. On timeout the info is just left out.
 pub const GIT_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// Budget for user-invoked git commands (`/diff`): local git is fast, but a huge repo can
+/// take a few seconds; still bounded so a hung git can't hang the REPL forever.
+pub const GIT_DIFF_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// A spawned git probe whose stdout is drained on a thread (so a full pipe never blocks it).
 struct Probe {
@@ -72,6 +78,13 @@ fn finish_probe(probe: Option<Probe>, deadline: Instant) -> Option<String> {
     }
 }
 
+/// Run `git` with `args` in `cwd`, capturing stdout. Returns `None` on spawn failure,
+/// non-zero exit, or timeout.
+fn run_git(cwd: &Path, args: &[&str], timeout: Duration) -> Option<String> {
+    let probe = spawn_probe("git", cwd, args);
+    finish_probe(probe, Instant::now() + timeout)
+}
+
 fn parse_branch(out: &str) -> Option<String> {
     let branch = out.trim().to_string();
     if branch.is_empty() || branch == "HEAD" {
@@ -121,6 +134,62 @@ pub fn status_summary(cwd: &Path) -> Option<String> {
     finish_probe(p, deadline).map(|o| parse_status(&o))
 }
 
+/// True when `cwd` is inside a git work tree.
+pub fn is_git_repo(cwd: &Path) -> bool {
+    matches!(
+        run_git(cwd, &["rev-parse", "--is-inside-work-tree"], GIT_TIMEOUT),
+        Some(o) if o.trim() == "true"
+    )
+}
+
+/// Which `git diff` variant `/diff` should show.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DiffMode {
+    /// `git diff HEAD`: staged + unstaged changes vs HEAD (the default).
+    WorkingTree,
+    /// `git diff --cached`: staged changes only (`/diff --staged`).
+    Staged,
+    /// `git diff HEAD --stat`: one-line summary per file (`/diff --stat`).
+    Stat,
+}
+
+/// Full diff text for `mode`, or `None` when git is missing, `cwd` is not a repo,
+/// or the command times out. `color` selects `--color=always` vs `--color=never`;
+/// the caller decides from tty detection + `NO_COLOR`.
+pub fn git_diff(cwd: &Path, mode: DiffMode, color: bool) -> Option<String> {
+    let color_arg = if color { "--color=always" } else { "--color=never" };
+    let args: Vec<&str> = match mode {
+        DiffMode::WorkingTree => vec!["diff", color_arg, "HEAD", "--"],
+        DiffMode::Staged => vec!["diff", color_arg, "--cached", "--"],
+        DiffMode::Stat => vec!["diff", color_arg, "HEAD", "--stat", "--"],
+    };
+    run_git(cwd, &args, GIT_DIFF_TIMEOUT)
+}
+
+/// Parse `?? <path>` lines out of `git status --porcelain=v1` output.
+fn parse_untracked(porcelain: &str) -> Vec<String> {
+    porcelain
+        .lines()
+        .filter_map(|l| l.strip_prefix("?? "))
+        .map(|p| {
+            // Porcelain quotes paths with special chars ("a b" -> "\"a b\""); unquote the
+            // common case so the list is readable.
+            let p = p.trim();
+            if p.len() >= 2 && p.starts_with('"') && p.ends_with('"') {
+                p[1..p.len() - 1].to_string()
+            } else {
+                p.to_string()
+            }
+        })
+        .collect()
+}
+
+/// Untracked file paths (relative to repo root) for `/diff`'s default mode
+/// (Codex parity: `/diff` includes untracked files). `None` when git fails.
+pub fn untracked_files(cwd: &Path) -> Option<Vec<String>> {
+    run_git(cwd, &["status", "--porcelain=v1"], GIT_DIFF_TIMEOUT).map(|o| parse_untracked(&o))
+}
+
 /// OS description, e.g. "linux (x86_64)".
 pub fn os_info() -> String {
     format!("{} ({})", std::env::consts::OS, std::env::consts::ARCH)
@@ -129,6 +198,33 @@ pub fn os_info() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
+
+    /// Fresh temp repo with one committed file; `None` when git is unavailable.
+    fn init_repo() -> Option<PathBuf> {
+        let dir = std::env::temp_dir().join(format!("zen_git_diff_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).ok()?;
+        let git = |args: &[&str]| {
+            Command::new("git")
+                .args(args)
+                .current_dir(&dir)
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .env("GIT_CONFIG_GLOBAL", "/dev/null")
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false)
+        };
+        if !git(&["init", "-q", "-b", "main"]) {
+            return None; // git (>= 2.28 for -b) not available here
+        }
+        git(&["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "init"]);
+        std::fs::write(dir.join("a.txt"), "one\n").ok()?;
+        git(&["add", "a.txt"]);
+        git(&[
+            "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "add a",
+        ]);
+        Some(dir)
+    }
 
     #[test]
     fn os_info_nonempty() {
@@ -187,5 +283,92 @@ mod tests {
         std::fs::write(dir.join("a.txt"), "x").unwrap();
         let (_, status) = git_info(&dir);
         assert_eq!(status.as_deref(), Some("1 changed file(s)"));
+    }
+
+    #[test]
+    fn is_git_repo_false_outside_repo() {
+        assert!(!is_git_repo(&std::env::temp_dir()));
+    }
+
+    #[test]
+    fn diff_clean_repo_is_empty() {
+        let Some(dir) = init_repo() else { return };
+        assert!(is_git_repo(&dir));
+        let d = git_diff(&dir, DiffMode::WorkingTree, false).unwrap();
+        assert!(d.trim().is_empty(), "clean repo should have empty diff");
+    }
+
+    #[test]
+    fn diff_working_tree_shows_unstaged_change() {
+        let Some(dir) = init_repo() else { return };
+        std::fs::write(dir.join("a.txt"), "one\ntwo\n").unwrap();
+        let d = git_diff(&dir, DiffMode::WorkingTree, false).expect("diff should run");
+        assert!(d.contains("diff --git a/a.txt b/a.txt"), "diff header missing:\n{d}");
+        assert!(d.contains("+two"), "added line missing:\n{d}");
+        // Unstaged change must NOT appear in the staged diff.
+        let s = git_diff(&dir, DiffMode::Staged, false).expect("staged diff should run");
+        assert!(s.trim().is_empty(), "staged diff should be empty:\n{s}");
+    }
+
+    #[test]
+    fn diff_staged_shows_staged_change() {
+        let Some(dir) = init_repo() else { return };
+        std::fs::write(dir.join("a.txt"), "one\nstaged-line\n").unwrap();
+        let git = |args: &[&str]| {
+            Command::new("git")
+                .args(args)
+                .current_dir(&dir)
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .env("GIT_CONFIG_GLOBAL", "/dev/null")
+                .output()
+        };
+        git(&["add", "a.txt"]).ok();
+        let s = git_diff(&dir, DiffMode::Staged, false).expect("staged diff should run");
+        assert!(s.contains("+staged-line"), "staged line missing:\n{s}");
+    }
+
+    #[test]
+    fn diff_stat_summarizes() {
+        let Some(dir) = init_repo() else { return };
+        std::fs::write(dir.join("a.txt"), "one\ntwo\nthree\n").unwrap();
+        let st = git_diff(&dir, DiffMode::Stat, false).expect("stat should run");
+        assert!(st.contains("a.txt"), "stat should name the file:\n{st}");
+        assert!(st.contains("1 file changed"), "stat summary missing:\n{st}");
+        // Stat must not contain a full unified diff.
+        assert!(!st.contains("@@"), "stat should not contain hunks:\n{st}");
+    }
+
+    #[test]
+    fn untracked_files_lists_new_files() {
+        let Some(dir) = init_repo() else { return };
+        assert!(untracked_files(&dir).expect("status should run").is_empty());
+        std::fs::write(dir.join("new.txt"), "hello\n").unwrap();
+        let u = untracked_files(&dir).expect("status should run");
+        assert_eq!(u, vec!["new.txt".to_string()]);
+    }
+
+    #[test]
+    fn untracked_files_none_outside_repo() {
+        assert!(untracked_files(&std::env::temp_dir()).is_none()
+            || untracked_files(&std::env::temp_dir()).unwrap().is_empty());
+    }
+
+    #[test]
+    fn parse_untracked_handles_quoted_paths() {
+        let out = "?? plain.txt\n?? \"with space.txt\"\nM  staged.txt\n";
+        assert_eq!(
+            parse_untracked(out),
+            vec!["plain.txt".to_string(), "with space.txt".to_string()]
+        );
+    }
+
+    #[test]
+    fn diff_color_flag_adds_ansi() {
+        let Some(dir) = init_repo() else { return };
+        std::fs::write(dir.join("a.txt"), "one\ntwo\n").unwrap();
+        let plain = git_diff(&dir, DiffMode::WorkingTree, false).unwrap();
+        assert!(!plain.contains("\x1b["), "plain diff must not have ANSI codes");
+        let colored = git_diff(&dir, DiffMode::WorkingTree, true).unwrap();
+        assert!(colored.contains("\x1b["), "colored diff should have ANSI codes");
     }
 }
