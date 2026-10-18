@@ -399,6 +399,20 @@ fn build_hooks(
     )
 }
 
+/// Tool bundle precedence: `--tool-bundle` > `ZEN_TOOL_BUNDLE` > settings
+/// `toolBundle` > `all`.
+pub fn resolve_tool_bundle(cli: &Cli, cfg: &ResolvedConfig) -> zen_agent::ToolBundle {
+    if let Some(b) = cli.tool_bundle {
+        return b;
+    }
+    if let Ok(s) = std::env::var("ZEN_TOOL_BUNDLE") {
+        if let Ok(b) = s.parse() {
+            return b;
+        }
+    }
+    cfg.tool_bundle
+}
+
 /// Resolve the auto-compaction token threshold (SPEC C10.1).
 ///
 /// `--autocompact` beats the `autoCompact` setting. Absent/`"auto"`/`true` means 80% of the
@@ -453,6 +467,7 @@ fn base_agent_config(cfg: &ResolvedConfig, cli: &Cli, system_prompt: &str) -> ze
                 .unwrap_or(zen_agent::prune::DEFAULT_MAX_RESULT_TOKENS),
             ..zen_agent::prune::PruneConfig::default()
         },
+        tool_bundle: resolve_tool_bundle(cli, cfg),
         ..Default::default()
     };
     apply_verify_settings(&mut config, cfg, false);
@@ -690,7 +705,7 @@ pub async fn run_agent_headless(
             "mcp" => Some(commands::mcp_report(&assembly.mcp_status)),
             "context" => Some(commands::context_report(
                 &agent.config.system_prompt,
-                &agent.tools.definitions(),
+                &agent.tools_for_request(),
                 agent.messages(),
                 agent.config.context_window,
                 agent.last_prompt_tokens,

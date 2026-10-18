@@ -65,6 +65,10 @@ impl PermissionMode {
 
 /// `--permission-mode` values: the five modes plus `manual` (alias of default) and `auto`, which
 /// zen does not implement and runs as default with a warning (SPEC C2.11).
+fn parse_tool_bundle(s: &str) -> Result<zen_agent::ToolBundle, String> {
+    s.parse::<zen_agent::ToolBundle>()
+}
+
 fn parse_permission_mode_flag(s: &str) -> Result<PermissionMode, String> {
     if s == "auto" {
         eprintln!("warning: permission mode 'auto' is not supported; using 'default'");
@@ -286,6 +290,13 @@ pub struct Cli {
     #[arg(long = "i-understand-the-risks")]
     pub i_understand_the_risks: bool,
 
+    /// Tool bundle: which tools are sent with full schemas (`all`, `core`,
+    /// `read`, `write`, `exec`). Tools outside the bundle are name-only stubs.
+    /// Fixed for the session so prompt caches stay valid. Also `ZEN_TOOL_BUNDLE`
+    /// or settings `toolBundle`.
+    #[arg(long = "tool-bundle", value_parser = parse_tool_bundle)]
+    pub tool_bundle: Option<zen_agent::ToolBundle>,
+
     #[command(subcommand)]
     pub subcommand: Option<Commands>,
 
@@ -306,6 +317,12 @@ pub enum Commands {
     Cost(CostArgs),
     /// Show the context debugger: token attribution for a session
     Context(ContextArgs),
+    /// Show full documentation for a tool (parameters, behavior, examples)
+    #[command(name = "tool-help")]
+    ToolHelp {
+        /// Tool name, e.g. Read
+        name: String,
+    },
 }
 
 #[derive(Args, Debug, Clone)]

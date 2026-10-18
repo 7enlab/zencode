@@ -30,6 +30,7 @@ use std::time::Instant;
 use zen_core::*;
 
 use crate::budget::{BudgetPolicy, BudgetVerdict};
+use crate::tool_bundles::ToolBundle;
 use crate::compaction;
 use crate::prune::{PruneConfig, PruneStats};
 use crate::finish;
@@ -119,6 +120,10 @@ pub struct AgentConfig {
     pub prune: PruneConfig,
     /// Hard cap on model output tokens per request (`--max-output-tokens`); `None` = provider default.
     pub max_output_tokens: Option<u32>,
+    /// Tool bundle: which tools are sent with full schemas vs name-only stubs.
+    /// Fixed for the whole session (never recomposed per request) so provider
+    /// prompt caches stay valid. Default: All (current behavior).
+    pub tool_bundle: ToolBundle,
 }
 
 /// Timeout for a tool call when settings `toolTimeouts` has no entry for it (p0b).
@@ -254,6 +259,7 @@ impl Default for AgentConfig {
             max_continuations: DEFAULT_MAX_CONTINUATIONS,
             prune: PruneConfig::default(),
             max_output_tokens: None,
+            tool_bundle: ToolBundle::All,
         }
     }
 }
@@ -364,9 +370,10 @@ impl Agent {
     }
 
     /// Tools to send in the `tools` field of the request. In plan mode mutating tools are hidden
-    /// (SPEC §5 / Appendix B4), not merely denied.
-    fn tools_for_request(&self) -> Vec<ToolDefinition> {
-        let defs = self.tools.definitions();
+    /// (SPEC §5 / Appendix B4), not merely denied. The active [`ToolBundle`] decides which
+    /// tools carry full schemas; the rest are name-only stubs (see `tool_bundles`).
+    pub fn tools_for_request(&self) -> Vec<ToolDefinition> {
+        let defs = crate::tool_bundles::definitions_for_bundle(&self.tools, self.config.tool_bundle);
         if self.config.permission_mode == PermissionMode::Plan {
             plan::plan_mode_tools(defs)
         } else {
@@ -1024,6 +1031,18 @@ impl Agent {
                 return Slot::Done(tool_use_id, content, true);
             }
         };
+        // Deferred tool: sent as a name-only stub in the active bundle, so the
+        // model has no schema for it. Refuse with guidance instead of
+        // executing with hallucinated arguments.
+        if crate::tool_bundles::is_deferred(&self.tools, self.config.tool_bundle, &tool_name) {
+            let content = format!(
+                "Tool '{}' is deferred in tool bundle '{}': its schema was not sent to save context. \
+                 Do not call it; use a tool from the active bundle instead.",
+                tool_name,
+                self.config.tool_bundle.as_str()
+            );
+            return Slot::Done(tool_use_id, content, true);
+        }
         let read_only = tool.is_read_only();
 
         // Plan mode: mutating tools should never reach here (they are hidden), but if a

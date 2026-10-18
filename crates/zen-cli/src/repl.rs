@@ -491,7 +491,7 @@ async fn handle_slash(
             "{}",
             commands::context_report(
                 &agent.config.system_prompt,
-                &agent.tools.definitions(),
+                &agent.tools_for_request(),
                 agent.messages(),
                 agent.config.context_window,
                 agent.last_prompt_tokens,
@@ -927,6 +927,7 @@ fn build_repl_config(
         permission_mode: crate::agent_run::core_mode(cfg.permission_mode),
         tool_timeouts: cfg.tool_timeouts.clone(),
         max_continuations: cfg.max_continuations,
+        tool_bundle: crate::agent_run::resolve_tool_bundle(cli, cfg),
         ..Default::default()
     };
     if let Some(w) = cfg.context_window {

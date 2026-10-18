@@ -30,6 +30,7 @@ pub mod gitignore;
 pub mod jobs;
 pub mod permissions;
 pub mod syntax_guard;
+pub mod tool_docs;
 
 #[cfg(test)]
 mod tests_p0;
@@ -42,6 +43,7 @@ pub use builtin::{
     TodoWriteTool, WebFetchTool, WriteTool,
 };
 pub use jobs::{JobKillTool, JobOutputTool};
+pub use tool_docs::tool_long_docs;
 
 /// The background-job tools, registered next to Bash (p0b).
 pub fn job_tools() -> Vec<std::sync::Arc<dyn zen_core::Tool>> {

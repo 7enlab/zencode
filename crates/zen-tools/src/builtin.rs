@@ -262,9 +262,7 @@ impl Tool for ReadTool {
         "Read"
     }
     fn description(&self) -> &str {
-        "Read a text file from disk and return its lines with 1-based line numbers. \
-         Use offset/limit to page through large files. Records the file as read so that \
-         Write and Edit may modify it later."
+        "Read a text file with 1-based line numbers (marks it read, enabling Write/Edit); page with offset/limit."
     }
     fn parameters_schema(&self) -> Value {
         json!({
@@ -357,8 +355,7 @@ impl Tool for WriteTool {
         "Write"
     }
     fn description(&self) -> &str {
-        "Create a file or overwrite it completely. Parent directories are created. \
-         If the file already exists it must have been read earlier in this session."
+        "Create or overwrite a file (existing files must have been read first); parent dirs are created."
     }
     fn parameters_schema(&self) -> Value {
         json!({
@@ -431,8 +428,7 @@ impl Tool for EditTool {
         "Edit"
     }
     fn description(&self) -> &str {
-        "Replace an exact string inside a file. old_string must occur exactly once unless \
-         replace_all is true. Requires that the file was read earlier in this session."
+        "Replace an exact string in a file (exactly once unless replace_all); file must have been read first."
     }
     fn parameters_schema(&self) -> Value {
         json!({
@@ -544,9 +540,7 @@ impl Tool for MultiEditTool {
         "MultiEdit"
     }
     fn description(&self) -> &str {
-        "Apply several replacements to one file in a single call. Edits run in order, each on the \
-         result of the previous one, with the same matching rules as Edit. If any edit fails, \
-         nothing is written. Requires that the file was read earlier in this session."
+        "Apply several ordered string replacements to one file atomically; file must have been read first."
     }
     fn parameters_schema(&self) -> Value {
         json!({
@@ -648,11 +642,7 @@ impl Tool for BashTool {
         "Bash"
     }
     fn description(&self) -> &str {
-        "Run a shell command with bash -c in the session working directory. The directory is \
-         persistent: a cd inside one command is still in effect for the next one. Long output is \
-         cut to its head and tail with the full text saved to a file (path given) and the exit code \
-         is reported. With background: true the command runs as a job and the call returns its \
-         job id at once; read it with JobOutput, stop it with JobKill."
+        "Run a shell command (persistent working directory); background:true runs it as a job (see JobOutput/JobKill)."
     }
     fn parameters_schema(&self) -> Value {
         json!({
@@ -799,8 +789,7 @@ impl Tool for GlobTool {
         "Glob"
     }
     fn description(&self) -> &str {
-        "Find files by glob pattern, e.g. '**/*.rs'. Skips .git, target, node_modules and \
-         gitignored trees, sorts newest first, and returns at most 1000 paths."
+        "Find files by glob pattern (e.g. '**/*.rs'); skips ignored dirs, newest first, max 1000 paths."
     }
     fn parameters_schema(&self) -> Value {
         json!({
@@ -901,9 +890,7 @@ impl Tool for GrepTool {
         "Grep"
     }
     fn description(&self) -> &str {
-        "Search file contents with a regular expression. Uses ripgrep when it is installed, \
-         otherwise a built-in walker; both respect .gitignore. Modes: files_with_matches, \
-         content, or count."
+        "Search file contents with a regex (ripgrep if installed); modes: files_with_matches, content, count."
     }
     fn parameters_schema(&self) -> Value {
         json!({
@@ -1271,8 +1258,7 @@ impl Tool for WebFetchTool {
         "WebFetch"
     }
     fn description(&self) -> &str {
-        "Fetch a URL over HTTP(S) and return it as readable text. Redirects are followed, \
-         requests time out after 10 seconds and responses are capped at 5 MB."
+        "Fetch a URL and return it as readable text (follows redirects, 10s timeout, 5MB cap)."
     }
     fn parameters_schema(&self) -> Value {
         json!({
@@ -1587,8 +1573,7 @@ impl Tool for TodoWriteTool {
         "TodoWrite"
     }
     fn description(&self) -> &str {
-        "Replace the session task list. Use it to plan multi-step work and to keep exactly one \
-         item in_progress while you work."
+        "Replace the session task list; keep exactly one item in_progress."
     }
     fn parameters_schema(&self) -> Value {
         json!({

@@ -336,6 +336,7 @@ impl LlmBackend for ProbeClient {
                 prompt_tokens: usage.prompt_tokens,
                 completion_tokens: usage.completion_tokens,
                 total_tokens: usage.total_tokens,
+                ..Default::default()
             },
             finish_reason: None,
         })
@@ -640,7 +641,7 @@ mod tests {
                 .expect("mock: more probe calls than scripted replies")?;
             Ok(ChatResponse {
                 message: ChatMessage::assistant(Some(text), None),
-                usage: Usage { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+                usage: Usage { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15, ..Default::default() },
                 finish_reason: Some("stop".into()),
             })
         }

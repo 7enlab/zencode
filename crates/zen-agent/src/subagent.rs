@@ -200,6 +200,8 @@ impl SubAgentRunner for SubAgentExecutor {
             max_continuations: self.base_config.max_continuations,
             prune: self.base_config.prune.clone(),
             max_output_tokens: self.base_config.max_output_tokens,
+            // Tool bundle is session-wide: sub-agents inherit it.
+            tool_bundle: self.base_config.tool_bundle,
         };
 
         let mut agent = Agent::new(

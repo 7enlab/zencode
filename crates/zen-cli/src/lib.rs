@@ -126,6 +126,10 @@ async fn run_subcommand(
             context::run_context(args.session.as_deref(), &cli.output_format, cwd, home)?;
             Ok(0)
         }
+        Commands::ToolHelp { name } => {
+            println!("{}", commands::tool_help(name));
+            Ok(0)
+        }
     }
 }
 

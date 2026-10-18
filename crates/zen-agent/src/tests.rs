@@ -802,7 +802,8 @@ async fn c6_3_builtin_read_only_agent_and_no_nested_task_by_default() {
     let out = ex.run_subagent(&def, "investigate", "task-9").await.unwrap();
     assert_eq!(out, "only this", "intermediate tool output is not returned to the parent");
     let names: Vec<String> = llm.requests()[0].tools.iter().map(|t| t.function.name.clone()).collect();
-    assert_eq!(names, vec!["Read".to_string(), "Grep".to_string()]);
+    // tools_for_request emits definitions in stable name-sorted order (prompt-cache stability).
+    assert_eq!(names, vec!["Grep".to_string(), "Read".to_string()]);
     // A deeper limit keeps Task available to the first level.
     let llm2 = MockLlm::new(vec![resp("ok")]);
     let reg2 = registry_with(vec![fake("Read", true, "r"), fake("Task", true, "t")]);

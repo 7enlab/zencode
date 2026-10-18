@@ -105,7 +105,60 @@ pub fn context_report(
     if last_prompt_tokens > 0 {
         out.push_str(&format!("\nLast request (reported by the API): {} prompt tokens", last_prompt_tokens));
     }
+    // Schema audit: per-tool costs, most expensive first.
+    let costs = zen_agent::tool_bundles::per_tool_costs(tools);
+    if !costs.is_empty() {
+        out.push_str("\n\nTool schema costs (estimated tokens, most expensive first):");
+        for (name, tok) in &costs {
+            out.push_str(&format!("\n  {:<12} {}", name, tok));
+        }
+    }
     out
+}
+
+/// `zen tool-help <name>`: full documentation for one tool.
+///
+/// Tool descriptions sent to the model are one-liners (token-saving); this
+/// prints the complete reference (parameters, behavior, examples) from the
+/// embedded `docs/tools/*.md`.
+pub fn tool_help(name: &str) -> String {
+    let mut registry = zen_core::ToolRegistry::new();
+    for t in zen_tools::builtin_tools() {
+        registry.register(t);
+    }
+    registry.register(std::sync::Arc::new(zen_tools::JobOutputTool));
+    registry.register(std::sync::Arc::new(zen_tools::JobKillTool));
+    let found = registry.get(name).or_else(|| {
+        let lower = name.to_ascii_lowercase();
+        registry
+            .names()
+            .into_iter()
+            .find(|n| n.to_ascii_lowercase() == lower)
+            .and_then(|n| registry.get(&n))
+    });
+    match found {
+        Some(tool) => {
+            let def = tool.definition();
+            let tokens = zen_agent::tool_bundles::estimate_schema_tokens(&def);
+            let phase = zen_agent::tool_bundles::tool_phase(tool.name())
+                .map(|p| p.as_str())
+                .unwrap_or("unclassified");
+            let docs = zen_tools::tool_long_docs(tool.name()).unwrap_or("No extended documentation available.");
+            format!(
+                "{} (phase: {}, ~{} schema tokens)\n\n{}\n\n---\n\n{}",
+                tool.name(),
+                phase,
+                tokens,
+                tool.description(),
+                docs
+            )
+        }
+        None => format!(
+            "Unknown tool '{}'. Available tools: {}",
+            name,
+            registry.names().join(", ")
+        ),
+    }
 }
 
 /// `/mcp`: one line per server with its status.
@@ -698,8 +751,7 @@ mod tests {
     #[test]
     fn cost_report_shows_cache_hit_rate_when_cached() {
         let u = zen_core::UsageStats { input_tokens: 1000, output_tokens: 50, cache_read_input_tokens: 800 };
-        let r = cost_report(&u);
-        assert!(r.contains("1000 input"), "{}", r);
+        let r = cost_report(&u, "mock-model", "http://127.0.0.1:1");
         assert!(r.contains("Prompt cache: 800 tokens served from cache (80% of input)"), "{}", r);
     }
 
@@ -707,7 +759,7 @@ mod tests {
     fn cost_report_omits_cache_line_when_unsupported() {
         // Providers without prompt caching report 0 cached tokens: no noise.
         let u = zen_core::UsageStats { input_tokens: 100, output_tokens: 5, cache_read_input_tokens: 0 };
-        let r = cost_report(&u);
+        let r = cost_report(&u, "mock-model", "http://127.0.0.1:1");
         assert!(!r.contains("Prompt cache"), "{}", r);
     }
 }

@@ -38,6 +38,8 @@ pub struct ResolvedConfig {
     pub tool_timeouts: std::collections::HashMap<String, u64>,
     /// Settings `maxContinuations`: cut-off replies continued in a row (default 3, 0 = off).
     pub max_continuations: usize,
+    /// Settings `toolBundle`: all|core|read|write|exec (default all).
+    pub tool_bundle: zen_agent::ToolBundle,
     pub max_turns: usize,
     /// Config `maxBudgetUsd`: session spend cap in USD (flag/env take precedence).
     pub max_budget_usd: Option<f64>,
@@ -120,6 +122,12 @@ pub fn tool_timeouts(v: Option<&serde_json::Value>) -> std::collections::HashMap
 /// the default ([`zen_agent::DEFAULT_MAX_CONTINUATIONS`]).
 pub fn max_continuations(v: Option<&serde_json::Value>) -> usize {
     v.and_then(|v| v.as_u64()).map_or(zen_agent::DEFAULT_MAX_CONTINUATIONS, |n| n as usize)
+}
+
+/// Settings `toolBundle` -> ToolBundle (one of all|core|read|write|exec;
+/// anything else -> All).
+fn tool_bundle(v: Option<&serde_json::Value>) -> zen_agent::ToolBundle {
+    v.and_then(|v| v.as_str()).and_then(|s| s.parse().ok()).unwrap_or_default()
 }
 
 /// Default for settings `retry.maxWaitSecs`.
@@ -511,6 +519,7 @@ pub fn resolve_config_with_home(
         retry_max_wait_secs: retry_max_wait_secs(merged.extra.get("retry")),
         tool_timeouts: tool_timeouts(merged.extra.get("toolTimeouts")),
         max_continuations: max_continuations(merged.extra.get("maxContinuations")),
+        tool_bundle: tool_bundle(merged.extra.get("toolBundle")),
         max_turns,
         max_budget_usd: merged.extra.get("maxBudgetUsd").and_then(|v| v.as_f64()),
         budget_warn_at: merged.extra.get("budgetWarnAt").and_then(|v| v.as_f64()),

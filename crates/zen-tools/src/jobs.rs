@@ -239,9 +239,7 @@ impl Tool for JobOutputTool {
         "JobOutput"
     }
     fn description(&self) -> &str {
-        "Read a background Bash job (started with Bash background: true): returns the output \
-         printed since your last JobOutput call for that job and whether it is still running or \
-         its exit code. Set wait_ms to wait for the job to finish first."
+        "Read new output of a background Bash job (by job id); reports running status or exit code."
     }
     fn parameters_schema(&self) -> Value {
         json!({
@@ -286,7 +284,7 @@ impl Tool for JobKillTool {
         "JobKill"
     }
     fn description(&self) -> &str {
-        "Stop a background Bash job (and the processes it started) by its job id."
+        "Stop a background Bash job by its job id."
     }
     fn parameters_schema(&self) -> Value {
         json!({

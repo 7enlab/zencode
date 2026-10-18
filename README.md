@@ -338,6 +338,45 @@ on step 2 of a 15-step run is re-billed ~13 more times. Zen prunes it:
 
 Pruning emits a `system`/`prune` stream-json event (`pruned`, `tokens_saved`) and
 `zen context` tells pruned summaries apart from live results by their marker.
+### Tool bundles (token-saving)
+
+Every tool's JSON schema is re-sent on every model request — a hidden per-turn
+tax (~1.7k tokens for the full builtin set). A *tool bundle* sends only one
+task phase's tools with full schemas; tools outside the phase are name-only
+stubs (the model knows they exist, at ~50 tokens instead of ~150-300).
+
+| Bundle | Full-schema tools |
+|---|---|
+| `all` (default) | everything (today's behavior) |
+| `core` | TodoWrite |
+| `read` | TodoWrite, Read, Glob, Grep, WebFetch |
+| `write` | TodoWrite, Write, Edit, MultiEdit |
+| `exec` | TodoWrite, Bash, JobOutput, JobKill |
+
+`Task` and `mcp__*` tools are never classified: they keep full schemas in every
+bundle. If the model calls a stubbed tool, the call is refused with guidance
+instead of executing with hallucinated arguments.
+
+The bundle is fixed for the whole session — it is never recomposed per
+request, because changing the tool list between requests silently invalidates
+provider prompt caches (which would cost more than the schemas save).
+
+```bash
+zen --tool-bundle read -p "where is the retry logic?"
+ZEN_TOOL_BUNDLE=write zen -p "fix the bug"
+```
+
+Settings file: `{ "toolBundle": "exec" }`. Precedence: `--tool-bundle` >
+`ZEN_TOOL_BUNDLE` > settings > `all`.
+
+Audit the cost anytime: `zen context` (or `/context`) shows per-tool schema
+costs, most expensive first. Full per-tool reference: `zen tool-help Read`
+(parameters, behavior, examples); the source lives in `docs/tools/*.md`.
+
+CI enforces per-bundle token budgets (`SCHEMA_TOKEN_BUDGETS` in
+`crates/zen-agent/src/tool_bundles.rs`): a description edit that inflates a
+bundle over budget fails the build. Bump a budget only with a measured
+justification.
 
 ## Layout
 

@@ -55,7 +55,9 @@ mod subagent;
 
 pub mod agent;
 pub mod rategate;
+pub mod tool_bundles;
 pub use agent::{Agent, AgentConfig, DEFAULT_MAX_CONTINUATIONS, DEFAULT_STOP_HOOK_CONTINUES, DEFAULT_TOOL_TIMEOUT_MS};
+pub use tool_bundles::{ToolBundle, ToolPhase};
 pub use client::{AnthropicClient, OpenAiClient, is_anthropic_url, make_backend};
 pub use safety::{user_agent, ErrorClass, classify_error};
 pub use providers::{ApiStandard, ModelSpec, ProviderInfo};
