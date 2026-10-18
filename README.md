@@ -507,3 +507,44 @@ Auto-archive stale sessions with `sessions.autoArchiveDays` in `~/.zen/settings.
 ```json
 { "sessions": { "autoArchiveDays": 90 } }
 ```
+## LSP code intelligence
+
+`zen` reads code like a compiler: three read-only tools — `goto_definition`, `hover` and
+`find_references` — backed by real language servers spoken to over LSP (JSON-RPC 2.0 on
+stdio with `Content-Length` framing). Servers start lazily per language the first time a
+tool needs them and stay alive for the whole session, so repeated queries are fast.
+
+Supported servers:
+
+| Language | Extensions | Server command | Install |
+|---|---|---|---|
+| Rust | `.rs` | `rust-analyzer` | `rustup component add rust-analyzer` |
+| Python | `.py` | `pyright-langserver --stdio` | `npm install -g pyright` |
+| TypeScript / JavaScript | `.ts` `.tsx` `.js` `.jsx` `.mjs` `.cjs` | `typescript-language-server --stdio` | `npm install -g typescript-language-server` |
+
+How it works:
+
+- The project root is found by walking up from the file to the nearest `Cargo.toml`
+  (Rust), `pyproject.toml`/`setup.py`/`setup.cfg` (Python) or `tsconfig.json`/`package.json`
+  (TypeScript), and passed as the LSP `rootUri`.
+- The full handshake runs (`initialize` with `processId`/`rootUri` and
+  definition/hover/references capabilities → `initialized`); files are opened with
+  `textDocument/didOpen` and re-sent with `didChange` when they change on disk.
+- Positions are 1-based line/character columns; multibyte characters count once (LSP's
+  UTF-16 offsets are converted both ways). Requests time out instead of hanging
+  (30s for `initialize`, 15s per request).
+
+Tool reference:
+
+- `goto_definition(file, line, col)` — definition location(s) of the symbol. Parses all
+  three LSP shapes: a single `Location`, `Location[]`, and `LocationLink[]`.
+- `hover(file, line, col)` — type signature and documentation, rendered as markdown.
+- `find_references(file, line, col, include_declaration=true)` — every use of the symbol.
+
+Each result prints human-readable `path:line:col` lines followed by a fenced `json` block, so
+both the model and scripts can consume it.
+
+Graceful degradation: if a server binary is missing from `PATH`, the tool fails with a
+clear error naming the server and the exact install command — the agent never hangs.
+The tools honor `--tools` (allowlist and `+`/`-` delta forms) and `--disallowedTools`
+like built-in tools, and they are skipped by `--tools ""`.

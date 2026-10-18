@@ -303,6 +303,27 @@ pub async fn assemble(
         assembly_permissions = build_permissions(cwd, cfg, cli);
     }
 
+    // ── LSP code-intelligence tools (v0.7.0 #8): one manager per session, so
+    // language servers stay alive across tool calls. ─────────────────────────
+    if cli.tools.as_deref() != Some("") {
+        let lsp_manager = Arc::new(zen_mcp::LspManager::new());
+        let lsp_tools: Vec<Arc<dyn Tool>> = vec![
+            Arc::new(zen_mcp::GotoDefinitionTool::new(lsp_manager.clone())),
+            Arc::new(zen_mcp::HoverTool::new(lsp_manager.clone())),
+            Arc::new(zen_mcp::FindReferencesTool::new(lsp_manager.clone())),
+        ];
+        for tool in lsp_tools {
+            // Mirror the registry-wide filters above: --allowedTools bare names,
+            // --disallowedTools, and the --tools allowlist/delta forms.
+            let name = tool.name();
+            let allowed = allowed_bare.is_empty()
+                || allowed_bare.iter().any(|a| a.eq_ignore_ascii_case(name));
+            if allowed && !tool_denied(name) && lsp_tool_allowed(cli.tools.as_deref(), name) {
+                registry.register(tool);
+            }
+        }
+    }
+
     let slash_commands: Vec<String> = commands::BUILTIN_COMMANDS
         .iter()
         .map(|s| s.to_string())
@@ -320,6 +341,28 @@ pub async fn assemble(
         subagent_sink,
         recorder,
     })
+}
+
+/// `--tools` filtering for the LSP tools, mirroring `select_builtin_tools`
+/// semantics: absent/`default` → all; `""` → none (handled by the caller);
+/// plain names → allowlist; `+`/`-` entries → delta (`-name` removes the tool).
+fn lsp_tool_allowed(spec: Option<&str>, name: &str) -> bool {
+    let list = match spec {
+        None | Some("default") => return true,
+        Some(list) => list,
+    };
+    let entries: Vec<&str> = list
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .collect();
+    if entries.iter().any(|e| e.starts_with('+') || e.starts_with('-')) {
+        return !entries
+            .iter()
+            .filter_map(|e| e.strip_prefix('-'))
+            .any(|n| n.eq_ignore_ascii_case(name));
+    }
+    entries.iter().any(|e| e.eq_ignore_ascii_case(name))
 }
 
 fn split_rule_names(rules: &[String]) -> Vec<String> {

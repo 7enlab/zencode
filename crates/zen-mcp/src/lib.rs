@@ -1,10 +1,14 @@
 //! zen-mcp — OWNER: worker E. MCP client (SPEC §8) + sub-agent definitions and the Task tool (SPEC §9).
 //! PUBLIC API CONTRACT (zen-cli codes against these exact signatures; keep them, add freely):
 //!   McpServerConfig, load_mcp_configs, McpManager::{start, tools, status, shutdown},
-//!   load_agents, TaskTool::new (impl Tool)
+//!   load_agents, TaskTool::new (impl Tool),
+//!   LspManager::new (Send+Sync),
+//!   GotoDefinitionTool/HoverTool/FindReferencesTool::new(Arc<LspManager>) (impl Tool)
 
 mod agents;
 mod config;
+mod lsp;
+mod lsp_tools;
 mod manager;
 mod task;
 mod transport;
@@ -14,8 +18,12 @@ pub use config::{
     load_mcp_configs, load_mcp_configs_ex, load_mcp_configs_scoped, mcp_add, mcp_add_json, mcp_get,
     mcp_list, mcp_remove, parse_env_kv, parse_headers, scope_path, McpServerConfig,
 };
+pub use lsp::{LspLanguage, LspManager};
+pub use lsp_tools::{FindReferencesTool, GotoDefinitionTool, HoverTool};
 pub use manager::{McpManager, SkipReason};
 pub use task::TaskTool;
 
+#[cfg(test)]
+mod lsp_tests;
 #[cfg(test)]
 mod tests;
