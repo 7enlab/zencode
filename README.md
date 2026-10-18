@@ -9,6 +9,26 @@ using any of their code, prompts or tool descriptions. It talks to any OpenAI-co
 * Behavior spec: [`SPEC.md`](SPEC.md) (Appendix C is the parity checklist)
 * How it works: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 
+## Why ZenCode
+
+**Free is structural, not promotional.** In 2026, every major "free" AI coding tier got
+narrowed or killed: Gemini CLI shut down overnight (June 18), OpenCode locked free models
+to its app (September), Qwen Code ended its 2,000 req/day free tier (April 15). ZenCode
+can't rug-pull you — there is no central API to shut off. You bring your own endpoint:
+free cloud models, your paid keys, or Ollama running fully offline on your machine.
+
+**The Four Questions** (after the [Gemini CLI postmortem](https://www.jenariusganlary.com/blog/gemini-cli-shut-down-choosing-ai-coding-tools)):
+
+| Question | ZenCode's answer |
+|---|---|
+| Is the backend as open as the code? | Yes — no backend. Any OpenAI-compatible endpoint, or local models. |
+| Am I the customer, or am I the churn? | The customer: your keys, your models, your machine. |
+| What breaks the day it dies? | Nothing. The repo and your models keep working. |
+| What's my exit cost? | Near zero. Open formats, portable sessions. |
+
+More: [`docs/positioning.md`](docs/positioning.md) · [`docs/faq.md`](docs/faq.md) ·
+[`docs/messaging.md`](docs/messaging.md)
+
 ## Build
 
 ```bash
