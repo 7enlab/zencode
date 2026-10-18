@@ -189,6 +189,20 @@ pub fn gated_project_config(cwd: &Path) -> Vec<String> {
             out.push(rel.to_string());
         }
     }
+    // Dedicated hooks files are entirely hook config, so an untrusted folder skips them whole.
+    for rel in [".zen/hooks.json", ".zen/hooks.local.json"] {
+        let p = cwd.join(rel);
+        if p.is_file() {
+            let is_hooks = std::fs::read_to_string(&p)
+                .ok()
+                .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+                .map(|v| v.is_object())
+                .unwrap_or(false);
+            if is_hooks {
+                out.push(format!("{}: hooks", rel));
+            }
+        }
+    }
     out
 }
 
@@ -278,5 +292,25 @@ mod tests {
         let removed = strip_gated(&mut v);
         assert_eq!(removed.len(), 5);
         assert_eq!(v, json!({"permissions": {"deny": ["Write"]}, "model": "m"}));
+    }
+
+    #[test]
+    fn gated_detection_reports_hooks_files() {
+        let t = TempDir::new();
+        let proj = t.path();
+        fs::create_dir_all(proj.join(".zen")).unwrap();
+        assert!(gated_project_config(proj).is_empty());
+        fs::write(
+            proj.join(".zen/hooks.json"),
+            r#"{"PreToolUse": [{"matcher": "Bash", "hooks": []}]}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            gated_project_config(proj),
+            vec![".zen/hooks.json: hooks".to_string()]
+        );
+        // Non-object content is not hook config: not reported.
+        fs::write(proj.join(".zen/hooks.json"), r#"[1,2]"#).unwrap();
+        assert!(gated_project_config(proj).is_empty());
     }
 }

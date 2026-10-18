@@ -206,6 +206,60 @@ fn load_file_layer_bypass(
     }
 }
 
+/// Load a dedicated `hooks.json` file and merge its content as the `hooks` settings key.
+///
+/// The file must contain a JSON object mapping hook event names to matcher entries, e.g.
+/// `{"PreToolUse": [{"matcher": "Edit|Write", "hooks": [{"type": "command", "command": "./check.sh"}]}]}`.
+/// It is the dedicated alternative to the `hooks` key inside `settings.json`; when both exist
+/// in the same layer, `hooks.json` wins (it merges after).
+///
+/// Missing file -> silent skip. Invalid JSON or a non-object top level -> warning, skip.
+/// `trusted == false` (project/local layers in an untrusted folder) -> the whole file is
+/// skipped and recorded in `skipped`, mirroring the folder-trust gating of the `hooks`
+/// settings key.
+fn load_hooks_file(
+    path: &Path,
+    label: &str,
+    merged: &mut Value,
+    sources: &mut Vec<String>,
+    warnings: &mut Vec<String>,
+    trusted: bool,
+    skipped: &mut Vec<String>,
+) {
+    if !path.exists() || !path.is_file() {
+        return;
+    }
+    if !trusted {
+        skipped.push(format!("{}: hooks", label));
+        return;
+    }
+    let content = match std::fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(e) => {
+            warnings.push(format!("Failed to read {} {}: {}", label, path.display(), e));
+            return;
+        }
+    };
+    let hooks: Value = match serde_json::from_str(&content) {
+        Ok(v @ Value::Object(_)) => v,
+        Ok(_) => {
+            warnings.push(format!("{} {} must be a JSON object", label, path.display()));
+            return;
+        }
+        Err(e) => {
+            warnings.push(format!("Invalid JSON in {} {}: {}", label, path.display(), e));
+            return;
+        }
+    };
+    // Wrap as {"hooks": ...} so it merges into the hooks key like a settings.json layer.
+    // merge_json concatenates the per-event matcher arrays, so hooks.json entries add to
+    // (rather than replace) any hooks from settings.json in the same layer.
+    let mut wrapper = Map::new();
+    wrapper.insert("hooks".to_string(), hooks);
+    *merged = merge_json(merged.clone(), Value::Object(wrapper));
+    sources.push(label.to_string());
+}
+
 fn parse_inline_json(json_str: &str, label: &str, warnings: &mut Vec<String>) -> Option<Value> {
     match serde_json::from_str::<Value>(json_str.trim()) {
         Ok(v @ Value::Object(_)) => Some(sanitize_layer(v, label, warnings)),
@@ -336,24 +390,30 @@ fn load_settings_impl(
     let mut warnings = Vec::new();
     let mut bypass_forbidden = false;
 
-    // 1. User ~/.zen/settings.json
+    // 1. User ~/.zen/settings.json, then ~/.zen/hooks.json (dedicated hooks file wins on conflict).
     if is_enabled(sources, "user") {
         if let Some(home) = home {
             let path = home.join(".zen").join("settings.json");
             load_file_layer(&path, "user", &mut merged, &mut loaded_sources, &mut warnings, &mut bypass_forbidden);
+            let hooks_path = home.join(".zen").join("hooks.json");
+            load_hooks_file(&hooks_path, "user-hooks", &mut merged, &mut loaded_sources, &mut warnings, true, &mut skipped);
         }
     }
 
-    // 2. Project shared .zen/settings.json
+    // 2. Project shared .zen/settings.json, then .zen/hooks.json (trust-gated like the hooks key).
     if is_enabled(sources, "project") {
         let path = cwd.join(".zen").join("settings.json");
         load_file_layer_bypass(&path, "project", &mut merged, &mut loaded_sources, &mut warnings, trusted, &mut skipped);
+        let hooks_path = cwd.join(".zen").join("hooks.json");
+        load_hooks_file(&hooks_path, "project-hooks", &mut merged, &mut loaded_sources, &mut warnings, trusted, &mut skipped);
     }
 
-    // 3. Project local .zen/settings.local.json
+    // 3. Project local .zen/settings.local.json, then .zen/hooks.local.json (trust-gated).
     if is_enabled(sources, "local") {
         let path = cwd.join(".zen").join("settings.local.json");
         load_file_layer_bypass(&path, "local", &mut merged, &mut loaded_sources, &mut warnings, trusted, &mut skipped);
+        let hooks_path = cwd.join(".zen").join("hooks.local.json");
+        load_hooks_file(&hooks_path, "local-hooks", &mut merged, &mut loaded_sources, &mut warnings, trusted, &mut skipped);
     }
 
     // 4. CLI --settings <file-or-json>
@@ -729,5 +789,174 @@ mod tests {
 
     fn load_settings_with_trust_for_test(proj: &Path, home: &Path, trusted: bool) -> LoadedSettings {
         load_settings_impl(proj, Some(home), None, None, None, trusted)
+    }
+
+    fn hooks_json_hook_names(settings: &Settings) -> Vec<String> {
+        settings
+            .hooks
+            .as_object()
+            .map(|o| {
+                let mut ks: Vec<String> = o.keys().cloned().collect();
+                ks.sort();
+                ks
+            })
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn hooks_json_user_layer_loads() {
+        let tmp = TempDir::new();
+        let home = tmp.path().join("home");
+        let proj = tmp.path().join("proj");
+        fs::create_dir_all(home.join(".zen")).unwrap();
+        fs::create_dir_all(proj.join(".zen")).unwrap();
+        fs::write(
+            home.join(".zen/hooks.json"),
+            r#"{"PreToolUse": [{"matcher": "Edit", "hooks": [{"type": "command", "command": "echo hi"}]}]}"#,
+        )
+        .unwrap();
+
+        let loaded = load_settings_with_trust_for_test(&proj, &home, true);
+        assert_eq!(hooks_json_hook_names(&loaded.settings), vec!["PreToolUse"]);
+        assert!(loaded.sources.contains(&"user-hooks".to_string()));
+        assert!(loaded.warnings.is_empty());
+    }
+
+    #[test]
+    fn hooks_json_merges_with_settings_hooks_in_same_layer() {
+        let tmp = TempDir::new();
+        let home = tmp.path().join("home");
+        let proj = tmp.path().join("proj");
+        fs::create_dir_all(home.join(".zen")).unwrap();
+        fs::create_dir_all(proj.join(".zen")).unwrap();
+        // settings.json contributes SessionStart; hooks.json contributes PreToolUse.
+        fs::write(
+            home.join(".zen/settings.json"),
+            r#"{"hooks": {"SessionStart": [{"matcher": "startup", "hooks": []}]}}"#,
+        )
+        .unwrap();
+        fs::write(
+            home.join(".zen/hooks.json"),
+            r#"{"PreToolUse": [{"matcher": "Edit", "hooks": []}]}"#,
+        )
+        .unwrap();
+
+        let loaded = load_settings_with_trust_for_test(&proj, &home, true);
+        // Arrays concatenate: both events present.
+        assert_eq!(
+            hooks_json_hook_names(&loaded.settings),
+            vec!["PreToolUse", "SessionStart"]
+        );
+    }
+
+    #[test]
+    fn hooks_json_project_layer_trust_gated() {
+        let tmp = TempDir::new();
+        let home = tmp.path().join("home");
+        let proj = tmp.path().join("proj");
+        fs::create_dir_all(home.join(".zen")).unwrap();
+        fs::create_dir_all(proj.join(".zen")).unwrap();
+        fs::write(
+            proj.join(".zen/hooks.json"),
+            r#"{"PreToolUse": [{"matcher": "Bash", "hooks": []}]}"#,
+        )
+        .unwrap();
+
+        // Trusted: loads.
+        let tr = load_settings_with_trust_for_test(&proj, &home, true);
+        assert_eq!(hooks_json_hook_names(&tr.settings), vec!["PreToolUse"]);
+        assert!(tr.skipped.is_empty());
+
+        // Untrusted: skipped whole, recorded.
+        let un = load_settings_with_trust_for_test(&proj, &home, false);
+        assert!(hooks_json_hook_names(&un.settings).is_empty());
+        assert_eq!(un.skipped, vec!["project-hooks: hooks"]);
+    }
+
+    #[test]
+    fn hooks_json_local_layer_loads_and_trust_gated() {
+        let tmp = TempDir::new();
+        let home = tmp.path().join("home");
+        let proj = tmp.path().join("proj");
+        fs::create_dir_all(home.join(".zen")).unwrap();
+        fs::create_dir_all(proj.join(".zen")).unwrap();
+        fs::write(
+            proj.join(".zen/hooks.local.json"),
+            r#"{"PostToolUse": [{"matcher": "Bash", "hooks": []}]}"#,
+        )
+        .unwrap();
+
+        let tr = load_settings_with_trust_for_test(&proj, &home, true);
+        assert_eq!(hooks_json_hook_names(&tr.settings), vec!["PostToolUse"]);
+
+        let un = load_settings_with_trust_for_test(&proj, &home, false);
+        assert!(hooks_json_hook_names(&un.settings).is_empty());
+        assert_eq!(un.skipped, vec!["local-hooks: hooks"]);
+    }
+
+    #[test]
+    fn hooks_json_invalid_content_warns_and_skips() {
+        let tmp = TempDir::new();
+        let home = tmp.path().join("home");
+        let proj = tmp.path().join("proj");
+        fs::create_dir_all(home.join(".zen")).unwrap();
+        fs::create_dir_all(proj.join(".zen")).unwrap();
+        fs::write(home.join(".zen/hooks.json"), r#"{"PreToolUse": [}"#).unwrap();
+
+        let loaded = load_settings_with_trust_for_test(&proj, &home, true);
+        assert!(hooks_json_hook_names(&loaded.settings).is_empty());
+        assert!(
+            loaded.warnings.iter().any(|w| w.contains("Invalid JSON")),
+            "warnings: {:?}",
+            loaded.warnings
+        );
+    }
+
+    #[test]
+    fn hooks_json_non_object_warns_and_skips() {
+        let tmp = TempDir::new();
+        let home = tmp.path().join("home");
+        let proj = tmp.path().join("proj");
+        fs::create_dir_all(home.join(".zen")).unwrap();
+        fs::create_dir_all(proj.join(".zen")).unwrap();
+        fs::write(home.join(".zen/hooks.json"), r#"["PreToolUse"]"#).unwrap();
+
+        let loaded = load_settings_with_trust_for_test(&proj, &home, true);
+        assert!(hooks_json_hook_names(&loaded.settings).is_empty());
+        assert!(
+            loaded.warnings.iter().any(|w| w.contains("must be a JSON object")),
+            "warnings: {:?}",
+            loaded.warnings
+        );
+    }
+
+    #[test]
+    fn hooks_json_respects_setting_sources_filter() {
+        let tmp = TempDir::new();
+        let home = tmp.path().join("home");
+        let proj = tmp.path().join("proj");
+        fs::create_dir_all(home.join(".zen")).unwrap();
+        fs::create_dir_all(proj.join(".zen")).unwrap();
+        fs::write(
+            home.join(".zen/hooks.json"),
+            r#"{"PreToolUse": [{"matcher": "Edit", "hooks": []}]}"#,
+        )
+        .unwrap();
+        fs::write(
+            proj.join(".zen/hooks.json"),
+            r#"{"PostToolUse": [{"matcher": "Bash", "hooks": []}]}"#,
+        )
+        .unwrap();
+
+        // Only the project layer enabled: user hooks.json must not load.
+        let loaded = load_settings_impl(
+            &proj,
+            Some(&home),
+            None,
+            Some(&["project".to_string()]),
+            None,
+            true,
+        );
+        assert_eq!(hooks_json_hook_names(&loaded.settings), vec!["PostToolUse"]);
     }
 }

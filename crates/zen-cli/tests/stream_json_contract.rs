@@ -202,6 +202,28 @@ async fn fixture_compact_boundary() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn fixture_hook_message() {
+    // A PreToolUse hook emitting {"systemMessage": ...} surfaces as a
+    // system/hook_message line in stream-json (docs/hooks.md).
+    check(
+        "hook_message",
+        vec![
+            tool_call("call_read_1", "Read", json!({"file_path": "notes.txt"})),
+            Reply::text("The file says hi."),
+        ],
+        &["--setting-sources", "project"],
+        |cwd| {
+            cwd.write("notes.txt", "hi\n");
+            cwd.write(
+                ".zen/settings.json",
+                r#"{"hooks": {"PreToolUse": [{"matcher": "Read", "hooks": [{"type": "command", "command": "printf '{\"systemMessage\": \"hook says hi\"}'", "timeout": 5}]}]}}"#,
+            );
+        },
+    )
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn fixture_truncation_note() {
     check(
         "truncation_note",
@@ -243,6 +265,6 @@ fn doc_names_every_field_in_the_fixtures() {
             }
         }
     }
-    assert_eq!(seen, 7, "expected 7 fixture streams");
+    assert_eq!(seen, 8, "expected 8 fixture streams");
     assert!(missing.is_empty(), "docs/stream-json-v1.md does not mention: {missing:?}");
 }
