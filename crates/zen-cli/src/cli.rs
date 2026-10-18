@@ -118,6 +118,10 @@ pub struct Cli {
     #[arg(short = 'p', long = "print")]
     pub print: bool,
 
+    /// ACP (Agent Client Protocol) server mode: JSON-RPC 2.0 over stdio (for Zed)
+    #[arg(long = "acp")]
+    pub acp: bool,
+
     /// Output format (with -p): text, json, stream-json
     #[arg(long = "output-format", value_enum, default_value_t = OutputFormat::Text)]
     pub output_format: OutputFormat,

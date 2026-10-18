@@ -437,7 +437,7 @@ fn resolve_auto_compact_threshold(
     }
 }
 
-fn base_agent_config(cfg: &ResolvedConfig, cli: &Cli, system_prompt: &str) -> zen_agent::AgentConfig {
+pub fn base_agent_config(cfg: &ResolvedConfig, cli: &Cli, system_prompt: &str) -> zen_agent::AgentConfig {
     let context_window = cfg.context_window.unwrap_or(128_000);
     let auto_compact_threshold =
         resolve_auto_compact_threshold(cli.autocompact.as_deref(), cfg.auto_compact.as_ref(), context_window);

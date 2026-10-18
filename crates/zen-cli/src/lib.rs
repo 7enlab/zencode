@@ -2,6 +2,7 @@
 //! OWNER: worker C. Exposes the CLI surface, session/transcript helpers, output sinks and the
 //! orchestration entry point `run`.
 
+pub mod acp;
 pub mod agent_run;
 pub mod budget;
 pub mod btw;
@@ -45,6 +46,11 @@ pub async fn run(cli: Cli) -> Result<i32> {
 
 /// Injectable `home`/`cwd` variant (used by tests).
 pub async fn run_with_home(cli: Cli, cwd: &Path, home: Option<&Path>) -> Result<i32> {
+    // ── ACP server mode (JSON-RPC over stdio) ──────────────────────────────
+    if cli.acp {
+        return acp::run_acp_server(&cli).await;
+    }
+
     // ── Subcommands ──────────────────────────────────────────────────────
     if let Some(sub) = cli.subcommand.clone() {
         return run_subcommand(&cli, cwd, home, &sub).await;
