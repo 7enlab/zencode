@@ -186,6 +186,43 @@ async fn run_tool(
     }
 }
 
+/// Interval between [`AgentEvent::ToolProgress`] heartbeats while a tool runs (issue #21).
+/// The first heartbeat fires after one full interval, so tools finishing faster emit none.
+const TOOL_PROGRESS_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Run one tool call, emitting [`AgentEvent::ToolProgress`] heartbeats on `sink` every
+/// `interval` while the tool is still running (issue #21).
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn run_tool_with_heartbeat(
+    tool: Arc<dyn Tool>,
+    args: Value,
+    ctx: ToolContext,
+    timeout_ms: (Option<u64>, TimeoutSource),
+    sink: Arc<dyn EventSink>,
+    tool_use_id: String,
+    tool_name: String,
+    interval: std::time::Duration,
+) -> ToolOutput {
+    let hb_sink = sink.clone();
+    let start = std::time::Instant::now();
+    let heartbeat = tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(interval);
+        // Skip the immediate first tick; heartbeats start after one full interval.
+        ticker.tick().await;
+        loop {
+            ticker.tick().await;
+            hb_sink.emit(AgentEvent::ToolProgress {
+                tool_use_id: tool_use_id.clone(),
+                tool_name: tool_name.clone(),
+                elapsed_ms: start.elapsed().as_millis() as u64,
+            });
+        }
+    });
+    let out = run_tool(tool, args, ctx, timeout_ms).await;
+    heartbeat.abort();
+    out
+}
+
 impl Default for AgentConfig {
     fn default() -> Self {
         Self {
@@ -986,8 +1023,10 @@ impl Agent {
                         let timeout = self.config.tool_timeout_with_source(&p.tool_name);
                         let journal = self.journal.clone();
                         let id = p.tool_use_id.clone();
+                        let sink = self.sink.clone();
+                        let tool_name = p.tool_name.clone();
                         Some(tokio::spawn(async move {
-                            let out = run_tool(tool, args, ctx, timeout).await;
+                            let out = run_tool_with_heartbeat(tool, args, ctx, timeout, sink, id.clone(), tool_name, TOOL_PROGRESS_INTERVAL).await;
                             // Durable the moment this call finishes, not when the batch does.
                             if let Some(j) = journal {
                                 j.tool_result(&id, &out.content, out.is_error, false);
@@ -1034,7 +1073,17 @@ impl Agent {
                         None => {
                             let ctx = self.call_ctx(&p.tool_use_id, &p.tool_name);
                             let timeout = self.config.tool_timeout_with_source(&p.tool_name);
-                            let out = run_tool(p.tool.clone(), p.args.clone(), ctx, timeout).await;
+                            let out = run_tool_with_heartbeat(
+                                p.tool.clone(),
+                                p.args.clone(),
+                                ctx,
+                                timeout,
+                                self.sink.clone(),
+                                p.tool_use_id.clone(),
+                                p.tool_name.clone(),
+                                TOOL_PROGRESS_INTERVAL,
+                            )
+                            .await;
                             self.journal_result(&p.tool_use_id, &out.content, out.is_error, false);
                             out
                         }

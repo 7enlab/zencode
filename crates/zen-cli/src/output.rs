@@ -146,6 +146,11 @@ impl zen_core::EventSink for CapturingSink {
     }
 }
 
+/// Schema version stamped on every stream-json record as `"v"`.
+/// Bump on any breaking change to the stream-json shape and note it in the CHANGELOG
+/// so downstream consumers (Desktop, other UIs) can gate on it (issue #19).
+pub const STREAM_JSON_VERSION: u32 = 1;
+
 /// Prints stream-json NDJSON lines (SPEC §14) to a buffer / writer.
 pub struct StreamJsonSink {
     pub buf: Arc<Buffered>,
@@ -260,10 +265,14 @@ impl StreamJsonSink {
                 .collect::<Vec<_>>()
                 .into();
         }
-        self.buf.write_line(&serde_json::to_string(&line).unwrap());
+        self.emit_line(line);
     }
 
-    fn emit_line(&self, line: serde_json::Value) {
+    /// Emit one stream-json record, stamping the schema version (`"v"`, issue #19).
+    fn emit_line(&self, mut line: serde_json::Value) {
+        if let Some(obj) = line.as_object_mut() {
+            obj.insert("v".into(), json!(STREAM_JSON_VERSION));
+        }
         self.buf.write_line(&serde_json::to_string(&line).unwrap());
     }
 }
@@ -315,6 +324,18 @@ impl zen_core::EventSink for StreamJsonSink {
                         }
                     }));
                 }
+            }
+            AgentEvent::ToolProgress { tool_use_id, tool_name, elapsed_ms } => {
+                let uuid = uuid::Uuid::new_v4();
+                self.emit_line(serde_json::json!({
+                    "type": "system",
+                    "subtype": "tool_progress",
+                    "uuid": uuid.to_string(),
+                    "session_id": self.session_id,
+                    "tool_use_id": tool_use_id,
+                    "tool_name": tool_name,
+                    "elapsed_ms": elapsed_ms,
+                }));
             }
             AgentEvent::ApiRetry { attempt, max_retries, retry_delay_ms, error_status, error } => {
                 let uuid = uuid::Uuid::new_v4();
@@ -401,6 +422,7 @@ pub fn result_json(result: &RunResult) -> serde_json::Value {
     if let Some(obj) = v.as_object_mut() {
         obj.insert("uuid".into(), json!(uuid::Uuid::new_v4().to_string()));
         obj.insert("stop_reason".into(), stop_reason);
+        obj.insert("v".into(), json!(STREAM_JSON_VERSION));
     }
     v
 }
@@ -631,5 +653,95 @@ mod tests {
         let v = serde_json::to_value(&d).unwrap();
         assert_eq!(v["tool_name"], "Bash");
         assert_eq!(v["tool_use_id"], "call_x");
+    }
+
+    /// Issue #19: every stream-json record carries the schema version `"v"`.
+    #[test]
+    fn stream_json_every_line_has_version() {
+        let buf = Arc::new(Buffered::new());
+        let sink = StreamJsonSink::with_partial(
+            buf.clone(),
+            "s".into(),
+            "/w".into(),
+            "m".into(),
+            vec![],
+            vec![],
+            "default".into(),
+            vec![],
+            true, // include partials so the stream_event line is emitted
+        );
+        sink.emit(AgentEvent::Assistant {
+            message: ChatMessage::assistant(Some("hi".into()), None),
+            parent_tool_use_id: None,
+        });
+        sink.emit(AgentEvent::TextDelta { text: "hel".into() });
+        sink.emit(AgentEvent::ToolResult {
+            tool_use_id: "call_1".into(),
+            content: "out".into(),
+            is_error: false,
+            parent_tool_use_id: None,
+        });
+        sink.emit(AgentEvent::ToolProgress {
+            tool_use_id: "call_1".into(),
+            tool_name: "Bash".into(),
+            elapsed_ms: 5000,
+        });
+        sink.emit(AgentEvent::ApiRetry {
+            attempt: 1,
+            max_retries: 3,
+            retry_delay_ms: 100,
+            error_status: None,
+            error: "boom".into(),
+        });
+        let out = buf.text();
+        let lines: Vec<&str> = out.lines().filter(|l| !l.trim().is_empty()).collect();
+        assert!(lines.len() >= 5, "expected init + 5 events, got: {}", out);
+        for line in &lines {
+            let v: serde_json::Value = serde_json::from_str(line).unwrap();
+            assert_eq!(v["v"], json!(STREAM_JSON_VERSION), "missing v in: {}", line);
+        }
+        // result record too
+        let result = RunResult {
+            record_type: "result".into(),
+            subtype: "success".into(),
+            is_error: false,
+            duration_ms: 1,
+            duration_api_ms: 1,
+            num_turns: 1,
+            result: "done".into(),
+            session_id: "s".into(),
+            total_cost_usd: 0.0,
+            usage: zen_core::UsageStats::default(),
+            model: "m".into(),
+            permission_denials: vec![],
+        };
+        let r = result_json(&result);
+        assert_eq!(r["v"], json!(STREAM_JSON_VERSION));
+    }
+
+    /// Issue #21: `tool_progress` heartbeat record shape.
+    #[test]
+    fn stream_json_tool_progress_shape() {
+        let buf = Arc::new(Buffered::new());
+        let sink = StreamJsonSink::new(
+            buf.clone(), "s".into(), "/w".into(), "m".into(), vec![], vec![],
+            "default".into(), vec![],
+        );
+        sink.emit(AgentEvent::ToolProgress {
+            tool_use_id: "call_9".into(),
+            tool_name: "Bash".into(),
+            elapsed_ms: 12_345,
+        });
+        let out = buf.text();
+        let lines: Vec<&str> = out.lines().filter(|l| !l.trim().is_empty()).collect();
+        assert_eq!(lines.len(), 2); // init + tool_progress
+        let p: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
+        assert_eq!(p["type"], "system");
+        assert_eq!(p["subtype"], "tool_progress");
+        assert_eq!(p["tool_use_id"], "call_9");
+        assert_eq!(p["tool_name"], "Bash");
+        assert_eq!(p["elapsed_ms"], 12_345);
+        assert_eq!(p["session_id"], "s");
+        assert_eq!(p["v"], json!(STREAM_JSON_VERSION));
     }
 }

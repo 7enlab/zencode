@@ -15,6 +15,10 @@ Regenerate after an intended change with
   diagnostics go to **stderr** and are never part of the stream.
 - Every record has a `type`: `system`, `assistant`, `user`, `stream_event`, or `result`.
   `system` records also have a `subtype`.
+- Every record carries a top-level `v` (number): the stream-json schema version, currently `1`
+  (issue #19). Bump it on any breaking change to the stream-json shape and note it in the
+  CHANGELOG so downstream consumers (Desktop, other UIs) can gate on it. Additive-only
+  changes (new records, new optional fields) do not bump `v`.
 - **Buffering:** the CLI collects the lines in memory and writes the whole stream to stdout when the
   run ends (see `print!("{}", buf.text())` in `agent_run.rs`). Consumers get every line, in order,
   but not incrementally. Do not build progress UI on line arrival timing.
@@ -23,7 +27,7 @@ Regenerate after an intended change with
   SIGTERM exits 143 and prints nothing; a built-in slash command that is not available in `-p`
   mode prints only an error `result` line, with no `init`. Headless built-ins (`/cost`,
   `/context`, `/compact`, …) print `init` then `result`, with no events in between.
-- No `v` or `seq` fields exist in v1 stream-json records. (The session file written to disk uses
+- No `seq` field exists in v1 stream-json records. (The session file written to disk uses
   `v`/`seq`; that is a different format.) A consumer that wants a sequence number numbers lines
   itself.
 - Key order inside a record is not part of the contract (the fixtures are re-serialised with
@@ -142,8 +146,30 @@ Only with `--include-partial-messages` (not in the fixtures). Text deltas while 
 the complete message still follows as an `assistant` record.
 
 ```json
-{"type":"stream_event","uuid":"…","session_id":"…","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"…"}}}
+{"type":"stream_event","v":1,"uuid":"…","session_id":"…","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"…"}}}
 ```
+
+**Consumer contract (issue #20):** `--include-partial-messages` is the required flag for
+streaming UIs that render token-by-token output — without it, the stream contains only complete
+messages. Deltas are **provisional**: the subsequent full `assistant` record is authoritative.
+UIs must **replace** (not append) the accumulated deltas when the full message arrives, keyed by
+`session_id` and turn order. Naive append-then-append-again double-renders the text.
+
+### `system` / `tool_progress`
+
+Emitted every 5 seconds while a single tool call is still running (issue #21). Lets a UI
+distinguish "tool still working" from "CLI stalled/crashed" and show honest elapsed-time state.
+
+| field | type | notes |
+|---|---|---|
+| `type`, `subtype` | `"system"`, `"tool_progress"` | |
+| `v`, `uuid`, `session_id` | | as usual |
+| `tool_use_id` | string | the running tool call's id (matches the later `user` tool_result) |
+| `tool_name` | string | tool name, e.g. `"Bash"` |
+| `elapsed_ms` | number | wall time since the tool call started |
+
+No `tool_progress` is emitted for tool calls that finish in under 5 seconds. The `user`
+record with the tool result always follows the last heartbeat for that `tool_use_id`.
 
 ### `result`
 

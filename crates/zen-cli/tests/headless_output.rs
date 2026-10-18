@@ -64,6 +64,8 @@ async fn json_output_result_shape_and_session_id() {
             // SPEC C8.2: zen's extra fields.
             "uuid",
             "stop_reason",
+            // Desktop issue #19: schema version stamped on every record.
+            "v",
         ],
         "result",
     );
@@ -144,6 +146,8 @@ async fn stream_json_line_shapes_and_order() {
             "permissionMode",
             "slash_commands",
             "folder_trusted",
+            // Desktop issue #19: schema version stamped on every record.
+            "v",
         ],
         "init",
     );
@@ -155,7 +159,15 @@ async fn stream_json_line_shapes_and_order() {
     assert_eq!(asst["message"]["content"], "streamed answer");
     assert_fields(
         asst,
-        &["type", "message", "session_id", "parent_tool_use_id", "uuid"],
+        &[
+            "type",
+            "message",
+            "session_id",
+            "parent_tool_use_id",
+            "uuid",
+            // Desktop issue #19: schema version stamped on every record.
+            "v",
+        ],
         "assistant",
     );
     // SPEC C8.3: assistant lines carry a uuid.

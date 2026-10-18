@@ -424,6 +424,10 @@ pub enum AgentEvent {
     ToolResult { tool_use_id: String, content: String, is_error: bool, parent_tool_use_id: Option<String> },
     /// Partial assistant text delta (when streaming is on).
     TextDelta { text: String },
+    /// Periodic heartbeat while a tool call runs (issue #21). Emitted every few
+    /// seconds while a tool is still running, so stream-json consumers can
+    /// distinguish "tool still working" from stalled.
+    ToolProgress { tool_use_id: String, tool_name: String, elapsed_ms: u64 },
     ApiRetry { attempt: u32, max_retries: u32, retry_delay_ms: u64, error_status: Option<u16>, error: String },
     CompactBoundary { trigger: String, pre_tokens: u64 },
     PermissionDenied(PermissionDenial),

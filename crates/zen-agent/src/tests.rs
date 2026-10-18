@@ -1053,3 +1053,94 @@ async fn r7_tool_call_written_as_text_runs_as_a_call() {
     assert!(tool_msg.content.as_deref().unwrap().contains("written as message text"));
     assert_paired(agent.messages());
 }
+
+/// A tool that sleeps before returning, for heartbeat tests.
+struct SlowTool {
+    delay_ms: u64,
+}
+
+#[async_trait::async_trait]
+impl Tool for SlowTool {
+    fn name(&self) -> &str {
+        "Slow"
+    }
+    fn description(&self) -> &str {
+        "slow fake tool"
+    }
+    fn parameters_schema(&self) -> Value {
+        json!({ "type": "object" })
+    }
+    fn is_read_only(&self) -> bool {
+        true
+    }
+    async fn call(&self, _args: Value, _ctx: &ToolContext) -> ToolOutput {
+        tokio::time::sleep(std::time::Duration::from_millis(self.delay_ms)).await;
+        ToolOutput::ok("slow done")
+    }
+}
+
+/// Issue #21: a tool running longer than the heartbeat interval emits
+/// `ToolProgress` events with increasing elapsed times.
+#[tokio::test]
+async fn tool_progress_heartbeat_emitted_for_slow_tool() {
+    use crate::agent::run_tool_with_heartbeat;
+    let sink = Arc::new(CollectSink::default());
+    let tool: Arc<dyn Tool> = Arc::new(SlowTool { delay_ms: 250 });
+    let ctx = temp_ctx();
+    let out = run_tool_with_heartbeat(
+        tool,
+        json!({}),
+        ctx,
+        (None, crate::agent::TimeoutSource::None),
+        sink.clone(),
+        "call_slow_1".into(),
+        "Slow".into(),
+        std::time::Duration::from_millis(50),
+    )
+    .await;
+    assert_eq!(out.content, "slow done");
+    let events = sink.events.lock().unwrap();
+    let progress: Vec<_> = events
+        .iter()
+        .filter_map(|e| match e {
+            AgentEvent::ToolProgress { tool_use_id, tool_name, elapsed_ms } => {
+                Some((tool_use_id.clone(), tool_name.clone(), *elapsed_ms))
+            }
+            _ => None,
+        })
+        .collect();
+    assert!(!progress.is_empty(), "expected at least one heartbeat");
+    for (id, name, _) in &progress {
+        assert_eq!(id, "call_slow_1");
+        assert_eq!(name, "Slow");
+    }
+    // elapsed times increase across heartbeats
+    let elapsed: Vec<u64> = progress.iter().map(|(_, _, ms)| *ms).collect();
+    assert!(elapsed.windows(2).all(|w| w[1] > w[0]), "elapsed not increasing: {:?}", elapsed);
+}
+
+/// Issue #21: a fast tool emits no heartbeat.
+#[tokio::test]
+async fn tool_progress_no_heartbeat_for_fast_tool() {
+    use crate::agent::run_tool_with_heartbeat;
+    let sink = Arc::new(CollectSink::default());
+    let tool: Arc<dyn Tool> = Arc::new(SlowTool { delay_ms: 10 });
+    let ctx = temp_ctx();
+    let out = run_tool_with_heartbeat(
+        tool,
+        json!({}),
+        ctx,
+        (None, crate::agent::TimeoutSource::None),
+        sink.clone(),
+        "call_fast_1".into(),
+        "Slow".into(),
+        std::time::Duration::from_secs(60),
+    )
+    .await;
+    assert_eq!(out.content, "slow done");
+    let events = sink.events.lock().unwrap();
+    assert!(
+        !events.iter().any(|e| matches!(e, AgentEvent::ToolProgress { .. })),
+        "fast tool should emit no heartbeat"
+    );
+}

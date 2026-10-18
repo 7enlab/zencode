@@ -13,6 +13,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Fixes session lookup/resume failures on Windows (issue #6).
 - Folder trust: in an untrusted folder, project baseUrl and apiKeyEnv are ignored
   (user-level values apply) so a repo cannot redirect requests carrying your API key (PR #7).
+### Added
+- stream-json: every record now carries a top-level `v` (schema version, currently `1`),
+  so downstream consumers can detect schema drift and gate on breaking changes (issue #19).
+- stream-json: `system`/`tool_progress` heartbeat records, emitted every 5 seconds while a
+  tool call is still running (`tool_use_id`, `tool_name`, `elapsed_ms`), so UIs can
+  distinguish "tool still working" from stalled (issue #21).
+- docs: `--include-partial-messages` consumer contract in `docs/stream-json-v1.md` —
+  deltas are provisional, the following full `assistant` record is authoritative; UIs must
+  replace (not append) accumulated deltas (issue #20).
 
 ## [0.1.0] - 2026-10-17
 
