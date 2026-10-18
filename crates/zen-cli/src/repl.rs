@@ -342,6 +342,45 @@ fn init_prompt_with_import_offer(cwd: &std::path::Path) -> String {
     }
 }
 
+/// Ask a yes/no question on stdin. Returns true for y/yes (case-insensitive).
+fn prompt_yes_no(question: &str) -> bool {
+    use std::io::Write;
+    print!("{} [y/N] ", question);
+    let _ = std::io::stdout().flush();
+    let mut line = String::new();
+    // One read per line (no long-lived stdin lock), matching the REPL reader.
+    match std::io::stdin().read_line(&mut line) {
+        Ok(_) => matches!(line.trim().to_lowercase().as_str(), "y" | "yes"),
+        Err(_) => false,
+    }
+}
+
+/// After an agent turn, when `autoCommit` is on and the working tree has
+/// changes, offer to commit them with a suggested message (never without a yes).
+fn maybe_auto_commit(cwd: &Path, cfg: &crate::settings::ResolvedConfig) {
+    if !cfg.auto_commit {
+        return;
+    }
+    let files = crate::git::changed_files(cwd);
+    if files.is_empty() {
+        return;
+    }
+    println!("Changed files:");
+    for (status, path) in &files {
+        println!("  {} {}", status, path);
+    }
+    let message = crate::git::suggest_commit_message(&files);
+    println!("Suggested message: {}", message);
+    if prompt_yes_no("Commit these changes?") {
+        match crate::git::stage_and_commit(cwd, &message) {
+            Ok(summary) => println!("{}", summary),
+            Err(e) => eprintln!("commit failed: {}", e),
+        }
+    } else {
+        println!("commit skipped (use /commit to commit later)");
+    }
+}
+
 async fn handle_line(
     line: &str,
     cli: &Cli,
@@ -456,7 +495,12 @@ async fn handle_line(
             );
         }
     }
+    let finished = result.is_some();
     print_turn(result);
+    // Auto-commit: offer to commit when the turn finished and files changed.
+    if finished {
+        maybe_auto_commit(cwd, cfg);
+    }
     Ok(LineAction::Continue)
 }
 
@@ -598,6 +642,41 @@ async fn handle_slash(
         "/quota" => {
             let store = home.map(zen_agent::RateGate::default_store_path);
             println!("{}", zen_agent::rategate::quota_report_for(store.as_deref()));
+        }
+        "/commit" => {
+            // /commit              -> show status, suggest message, ask to confirm
+            // /commit -m "msg"     -> commit with the given message (no prompt)
+            // /commit -y           -> commit with the suggested message (no prompt)
+            let files = crate::git::changed_files(cwd);
+            if files.is_empty() {
+                println!("nothing to commit (working tree clean)");
+            } else {
+                println!("Changed files:");
+                for (status, path) in &files {
+                    println!("  {} {}", status, path);
+                }
+                let (message, confirm) = if let Some(m) = arg.strip_prefix("-m ") {
+                    (m.trim().trim_matches('"').to_string(), false)
+                } else if arg.trim() == "-y" {
+                    (crate::git::suggest_commit_message(&files), false)
+                } else {
+                    (crate::git::suggest_commit_message(&files), true)
+                };
+                if message.trim().is_empty() {
+                    eprintln!("usage: /commit [-y | -m \"message\"]");
+                } else {
+                    println!("Message: {}", message);
+                    let do_commit = !confirm || prompt_yes_no("Commit these changes?");
+                    if do_commit {
+                        match crate::git::stage_and_commit(cwd, &message) {
+                            Ok(summary) => println!("{}", summary),
+                            Err(e) => eprintln!("commit failed: {}", e),
+                        }
+                    } else {
+                        println!("commit cancelled");
+                    }
+                }
+            }
         }
         "/worktree" => {
             // /worktree              -> list worktrees

@@ -30,6 +30,8 @@ pub struct ResolvedConfig {
     pub hooks: serde_json::Value,
     pub env: std::collections::HashMap<String, String>,
     pub auto_compact: Option<serde_json::Value>,
+    /// Auto-commit: prompt to commit after each agent turn that modified files.
+    pub auto_commit: bool,
     /// Raw `verify` object: `{ "enabled": bool, "command": "...", "timeoutSecs": n }` (r7).
     pub verify: Option<serde_json::Value>,
     /// Settings `retry.maxWaitSecs`: total backoff budget per model request (default 300 s).
@@ -217,6 +219,9 @@ pub fn merge_settings(base: &Settings, over: &Settings) -> Settings {
     }
     if over.auto_compact.is_some() {
         out.auto_compact = over.auto_compact.clone();
+    }
+    if over.auto_commit.is_some() {
+        out.auto_commit = over.auto_commit;
     }
     if over.max_turns.is_some() {
         out.max_turns = over.max_turns;
@@ -538,6 +543,7 @@ pub fn resolve_config_with_home(
         },
         env: merged.env.clone(),
         auto_compact: merged.auto_compact.clone(),
+        auto_commit: merged.auto_commit.unwrap_or(false),
         verify: merged.extra.get("verify").cloned(),
         retry_max_wait_secs: retry_max_wait_secs(merged.extra.get("retry")),
         tool_timeouts: tool_timeouts(merged.extra.get("toolTimeouts")),

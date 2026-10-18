@@ -272,6 +272,98 @@ pub fn remove_worktree(cwd: &Path, path: &Path) -> Result<(), String> {
     }
 }
 
+/// Changed files in the working tree: (status, path) pairs.
+/// Status is the two-char porcelain code, e.g. "M ", " M", "??", "A ".
+pub fn changed_files(cwd: &Path) -> Vec<(String, String)> {
+    let p = spawn_probe("git", cwd, &["status", "--porcelain"]);
+    let out = match finish_probe(p, Instant::now() + GIT_TIMEOUT) {
+        Some(o) => o,
+        None => return vec![],
+    };
+    out.lines()
+        .filter_map(|l| {
+            if l.len() < 4 {
+                return None;
+            }
+            let status = l[..2].to_string();
+            let path = l[3..].trim().to_string();
+            // Handle renames: "R  old -> new" — take the new path.
+            let path = path.split(" -> ").last().unwrap_or(&path).to_string();
+            Some((status, path))
+        })
+        .collect()
+}
+
+/// Stage all changes and commit with `message`. Returns the commit summary line.
+pub fn stage_and_commit(cwd: &Path, message: &str) -> Result<String, String> {
+    let add = Command::new("git")
+        .arg("-C")
+        .arg(cwd)
+        .args(["add", "-A"])
+        .output()
+        .map_err(|e| format!("failed to run git add: {}", e))?;
+    if !add.status.success() {
+        return Err(String::from_utf8_lossy(&add.stderr).trim().to_string());
+    }
+    let commit = Command::new("git")
+        .arg("-C")
+        .arg(cwd)
+        .args(["commit", "-m", message])
+        .output()
+        .map_err(|e| format!("failed to run git commit: {}", e))?;
+    if commit.status.success() {
+        Ok(String::from_utf8_lossy(&commit.stdout)
+            .lines()
+            .next()
+            .unwrap_or("committed")
+            .to_string())
+    } else {
+        Err(String::from_utf8_lossy(&commit.stderr).trim().to_string())
+    }
+}
+
+/// Heuristic commit message from changed files.
+/// Picks a conventional-commit prefix from the paths, then lists the scope.
+pub fn suggest_commit_message(files: &[(String, String)]) -> String {
+    if files.is_empty() {
+        return "chore: update files".to_string();
+    }
+    let paths: Vec<&str> = files.iter().map(|(_, p)| p.as_str()).collect();
+
+    // Prefix heuristic.
+    let prefix = if paths.iter().all(|p| p.ends_with(".md") || p.contains("CHANGELOG")) {
+        "docs"
+    } else if paths.iter().all(|p| p.contains("test") || p.contains("spec")) {
+        "test"
+    } else if paths.iter().any(|p| p.contains("Cargo.toml") || p.contains("package.json")) {
+        "chore"
+    } else if paths.iter().any(|p| p.ends_with(".rs") || p.ends_with(".ts") || p.ends_with(".py")) {
+        // New files suggest a feature, modifications suggest a fix.
+        let added = files.iter().any(|(s, _)| s.trim_start().starts_with('A') || s == "??");
+        if added { "feat" } else { "fix" }
+    } else {
+        "chore"
+    };
+
+    // Scope: common top-level directory, or file count.
+    let scope = if paths.len() == 1 {
+        paths[0].to_string()
+    } else {
+        let dirs: Vec<&str> = paths
+            .iter()
+            .filter_map(|p| p.split('/').next())
+            .collect();
+        let first = dirs.first().copied().unwrap_or("");
+        if !first.is_empty() && dirs.iter().all(|d| *d == first) {
+            format!("{} ({} files)", first, paths.len())
+        } else {
+            format!("{} files", paths.len())
+        }
+    };
+
+    format!("{}: update {}", prefix, scope)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -341,6 +433,56 @@ mod tests {
     fn p0_3_missing_git_gives_no_info() {
         let (b, s) = git_info_with("zen-no-such-git-binary", &std::env::temp_dir(), GIT_TIMEOUT);
         assert_eq!((b, s), (None, None));
+    }
+
+    #[test]
+    fn suggest_commit_message_empty() {
+        assert_eq!(suggest_commit_message(&[]), "chore: update files");
+    }
+
+    #[test]
+    fn suggest_commit_message_single_rs() {
+        let files = vec![(" M".to_string(), "crates/zen-cli/src/git.rs".to_string())];
+        assert_eq!(
+            suggest_commit_message(&files),
+            "fix: update crates/zen-cli/src/git.rs"
+        );
+    }
+
+    #[test]
+    fn suggest_commit_message_new_rs_is_feat() {
+        let files = vec![("??".to_string(), "crates/zen-cli/src/new.rs".to_string())];
+        assert_eq!(
+            suggest_commit_message(&files),
+            "feat: update crates/zen-cli/src/new.rs"
+        );
+    }
+
+    #[test]
+    fn suggest_commit_message_docs() {
+        let files = vec![
+            (" M".to_string(), "README.md".to_string()),
+            (" M".to_string(), "docs/guide.md".to_string()),
+        ];
+        assert_eq!(suggest_commit_message(&files), "docs: update 2 files");
+    }
+
+    #[test]
+    fn suggest_commit_message_same_dir() {
+        let files = vec![
+            (" M".to_string(), "crates/zen-cli/src/a.rs".to_string()),
+            (" M".to_string(), "crates/zen-cli/src/b.rs".to_string()),
+        ];
+        assert_eq!(
+            suggest_commit_message(&files),
+            "fix: update crates (2 files)"
+        );
+    }
+
+    #[test]
+    fn changed_files_no_panic_outside_repo() {
+        // Must never panic, regardless of environment.
+        let _ = changed_files(&std::env::temp_dir());
     }
 
     #[cfg(unix)]

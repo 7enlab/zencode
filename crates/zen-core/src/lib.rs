@@ -556,6 +556,10 @@ pub struct Settings {
     /// false = off, true/None = auto (80% of context), number = token threshold.
     #[serde(default)]
     pub auto_compact: Option<Value>,
+    /// Auto-commit: prompt to commit after each agent turn that modified files.
+    /// false/None = off, true = on. Default false.
+    #[serde(default)]
+    pub auto_commit: Option<bool>,
     #[serde(default)]
     pub max_turns: Option<usize>,
     #[serde(default)]
