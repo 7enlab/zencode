@@ -279,6 +279,11 @@ pub struct Cli {
     #[arg(long = "max-output-tokens")]
     pub max_output_tokens: Option<u32>,
 
+    /// Token budget for the repository map block in the system prompt
+    /// (0 disables it; estimated as chars/4)
+    #[arg(long = "repomap-budget", default_value_t = crate::repomap::DEFAULT_MAP_TOKENS)]
+    pub map_tokens: usize,
+
     /// Trust this folder for this run: load project hooks, MCP servers, allow rules, env and
     /// verify from `.zen/` and `.mcp.json` (same as `ZEN_TRUST_FOLDER=1`; never saved)
     #[arg(long = "trust-folder")]

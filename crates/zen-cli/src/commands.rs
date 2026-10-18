@@ -10,7 +10,7 @@ pub const BUILTIN_COMMANDS: &[&str] = &[
     "/permissions", "/config", "/memory", "/init", "/todos", "/agents", "/mcp", "/hooks",
     "/skills", "/exit", "/context", "/add-dir", "/export", "/review", "/rename", "/quota",
     "/diff", "/plan", "/memories", "/loop", "/goal", "/personality", "/vim", "/theme", "/btw",
-    "/terse",
+    "/terse", "/map", "/map-refresh",
 ];
 
 /// Built-ins that also work as the whole prompt of `-p` (SPEC C5.4). The rest are terminal-only.

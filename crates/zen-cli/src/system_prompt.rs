@@ -79,6 +79,12 @@ pub fn build_system_prompt(cli: &Cli, cwd: &Path, home: Option<&Path>) -> Result
             parts.push(snap);
         }
 
+        // Repository map (top Rust symbols by cross-file references), same once-per-session
+        // pattern; --bare and --repomap-budget 0 suppress it.
+        if let Some(map) = crate::repomap::repo_map(cwd, cli.map_tokens) {
+            parts.push(map.text().to_string());
+        }
+
         // Memory (ZEN.md files).
         let mem = zen_ext::memory_prompt(cwd, home);
         if !mem.trim().is_empty() {
@@ -351,5 +357,24 @@ call sites) and check them too. Only then report what you changed.
         assert!(has_terse_style(&p));
         assert_eq!(without_terse_style(&p), "BASE PROMPT");
         assert_eq!(without_terse_style("BASE PROMPT"), "BASE PROMPT");
+    }
+
+    #[test]
+    fn repo_map_in_prompt_unless_bare_or_zero() {
+        let dir = std::env::temp_dir().join(format!("zen_sp_map_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::write(dir.join("src/main.rs"), "pub fn entry() {}\nfn main() { entry(); }\n").unwrap();
+
+        let p = build_system_prompt(&cli(&["--setting-sources", ""]), &dir, None).unwrap();
+        assert!(p.contains("Repository map"), "map present by default");
+        assert!(p.contains("entry"), "map lists the symbol");
+
+        let bare = build_system_prompt(&cli(&["--bare"]), &dir, None).unwrap();
+        assert!(!bare.contains("Repository map"), "--bare suppresses the map");
+
+        let zero = build_system_prompt(&cli(&["--repomap-budget", "0"]), &dir, None).unwrap();
+        assert!(!zero.contains("Repository map"), "--repomap-budget 0 suppresses the map");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

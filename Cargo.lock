@@ -1873,6 +1873,7 @@ dependencies = [
  "clap",
  "dirs",
  "globset",
+ "regex",
  "reqwest",
  "serde",
  "serde_json",

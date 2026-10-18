@@ -694,6 +694,25 @@ async fn handle_slash(
             record_turn_cost(home, repl.session_id.as_str(), cfg, agent, &usage_before);
             print_turn(result);
         }
+        "/map" => {
+            // /map          -> print the repo map (rebuilt on demand)
+            match crate::repomap::repo_map(cwd, cli.map_tokens) {
+                Some(map) => println!("{}", map.text()),
+                None => println!("no repo map (no Rust files found, or --repomap-budget 0)"),
+            }
+        }
+        "/map-refresh" => {
+            // /map-refresh  -> rebuild and print the repo map
+            match crate::repomap::repo_map(cwd, cli.map_tokens) {
+                Some(map) => {
+                    println!("{}", map.text());
+                    if map.truncated {
+                        println!("[increase --repomap-budget to see more]");
+                    }
+                }
+                None => println!("no repo map (no Rust files found, or --repomap-budget 0)"),
+            }
+        }
         "/status" => {
             println!("model: {}", agent.config.model);
             println!("base_url: {}", cfg.base_url);
