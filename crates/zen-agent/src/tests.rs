@@ -178,6 +178,26 @@ async fn oversized_tool_result_is_capped_with_reread_hint() {
 }
 
 #[tokio::test]
+async fn max_output_tokens_is_threaded_into_the_request() {
+    let llm = MockLlm::new(vec![resp("hello")]);
+    let mut cfg = base_cfg();
+    cfg.max_output_tokens = Some(512);
+    let (mut agent, _sink, _h) = build_agent(llm.clone(), ToolRegistry::new(), allow(), cfg);
+    let r = agent.run_turn("hi").await;
+    assert_eq!(r.subtype, "success");
+    assert_eq!(llm.requests()[0].max_tokens, Some(512));
+}
+
+#[tokio::test]
+async fn max_output_tokens_defaults_to_none() {
+    let llm = MockLlm::new(vec![resp("hello")]);
+    let (mut agent, _sink, _h) = build_agent(llm.clone(), ToolRegistry::new(), allow(), base_cfg());
+    let r = agent.run_turn("hi").await;
+    assert_eq!(r.subtype, "success");
+    assert_eq!(llm.requests()[0].max_tokens, None);
+}
+
+#[tokio::test]
 async fn tool_call_roundtrip_feeds_result_back_and_accumulates_usage() {
     let llm = MockLlm::new(vec![resp_tool("Echo", r#"{"x":1}"#, "c1"), resp("done")]);
     let reg = registry_with(vec![fake("Echo", true, "ECHOED")]);

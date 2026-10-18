@@ -526,6 +526,7 @@ pub(crate) async fn chat_with_fallback(
     fallbacks: &[String],
     messages: Vec<ChatMessage>,
     tools: Vec<ToolDefinition>,
+    max_tokens: Option<u32>,
 ) -> anyhow::Result<(ChatResponse, u64, String)> {
     let mut candidates = Vec::with_capacity(fallbacks.len() + 1);
     candidates.push(primary.to_string());
@@ -538,7 +539,7 @@ pub(crate) async fn chat_with_fallback(
             model: model.clone(),
             messages: messages.clone(),
             tools: tools.clone(),
-            max_tokens: None,
+            max_tokens,
         };
         let started = Instant::now();
         let res = llm.chat(req).await;
@@ -672,6 +673,7 @@ mod tests {
             &["fallback".to_string()],
             vec![ChatMessage::user("hi")],
             vec![],
+            None,
         )
         .await
         .unwrap();

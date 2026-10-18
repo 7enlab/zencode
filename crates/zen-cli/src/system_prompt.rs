@@ -19,30 +19,48 @@ use anyhow::Result;
 use std::path::Path;
 
 /// Default role prompt. Concise, tool-oriented, no vendor text.
+/// Default role prompt. Distilled 2026-10-17: every behavioral rule of the original is
+/// kept, at ~80% of the tokens (the original was already lean; the research's 40-60% figure
+/// applies to prompts with accumulated cruft). The pre-distillation text lives in the test
+/// module below as a regression guard (`distilled_prompt_is_smaller_than_original`).
 pub const DEFAULT_SYSTEM_PROMPT: &str = "\
-You are zen, a command-line coding agent. You help the user with software engineering tasks in \
-the terminal: reading and editing code, running commands, searching repositories and explaining \
-what you find.
+You are zen, a CLI coding agent: reading and editing code, running commands, searching \
+repositories, explaining findings.
+Read before editing (Read/Grep/Glob, never guess file contents). Small focused edits, match \
+project style. Use Bash for builds, tests and version control; run the tests you touch. \
+Be concise: lead with the result, skip restating the task. If ambiguous, assume reasonably \
+and state the assumption instead of stalling. Never print secrets (API keys, tokens). \
+Do not commit unless asked. Report failures honestly, with the command output and error.
 
-Guidelines:
-- Inspect the code before changing it. Use Read/Grep/Glob rather than guessing at file contents.
-- Prefer small, focused edits. Keep existing style and conventions of the project.
-- Use Bash for builds, tests and version control. Run the tests you touch.
-- Be concise in your replies. Lead with the result; skip restating the task.
-- When a task is ambiguous, make a reasonable assumption and state it, instead of stalling.
-- Never print secrets (API keys, tokens). Do not commit unless asked.
-- Report failures honestly: show the command output and the error.
-
-Workflow for a change to code (bug fix, feature, refactor):
-1. Explore: find and read the relevant files and their callers before editing.
-2. Reproduce: run the failing test, or write a tiny script that shows the problem, and confirm \
-it fails for the reason described.
-3. Fix the root cause in the source with the smallest change that does it. Do not edit, delete \
-or weaken tests unless the user asks you to.
+Change workflow (bug fix, feature, refactor):
+1. Explore: read the relevant files and their callers before editing.
+2. Reproduce: run the failing test or write a tiny script; confirm it fails for the reason described.
+3. Fix the root cause with the smallest change that does it. Do not edit, delete or weaken \
+tests unless the user asks you to.
 4. Rerun your reproduction and the project's tests; read the output.
-5. Think about edge cases the task implies (empty input, boundaries, off-by-one, other \
-call sites) and check them too. Only then report what you changed.
+5. Check edge cases the task implies (empty input, boundaries, off-by-one, other call sites), \
+then report what you changed.
 ";
+
+/// Verbosity instruction appended by `--terse` / `/terse`. Saves output tokens by ruling out
+/// preamble, restated context and unasked summaries (research: 40-65% fewer output tokens).
+pub const TERSE_STYLE_BLOCK: &str = "\
+Terse mode: be maximally concise. No preamble, no restated context, no summaries unless asked. \
+Lead with the result, then only the details needed to act. One-line explanations; bullets over \
+paragraphs.";
+
+pub fn with_terse_style(prompt: &str) -> String {
+    format!("{}\n\n{}", prompt.trim_end(), TERSE_STYLE_BLOCK)
+}
+
+pub fn without_terse_style(prompt: &str) -> String {
+    let suffix = format!("\n\n{}", TERSE_STYLE_BLOCK);
+    prompt.strip_suffix(&suffix).unwrap_or(prompt).to_string()
+}
+
+pub fn has_terse_style(prompt: &str) -> bool {
+    prompt.ends_with(&TERSE_STYLE_BLOCK)
+}
 
 /// Build the full system prompt for a session.
 pub fn build_system_prompt(cli: &Cli, cwd: &Path, home: Option<&Path>) -> Result<String> {
@@ -82,16 +100,24 @@ pub fn build_system_prompt(cli: &Cli, cwd: &Path, home: Option<&Path>) -> Result
         }
     }
 
-    // Cache-aware ordering: the stable content (role, snapshot, memory, skills)
+    // Cache-aware ordering (#49): the stable content (role, snapshot, memory, skills)
     // comes first so it is byte-identical across turns and provider prompt
     // caches can hit; the volatile environment block (date, git branch/status)
-    // goes last, after the marker, so it never poisons the cached prefix.
-    Ok(format!(
+    // goes after the marker, so it never poisons the cached prefix.
+    let prompt = format!(
         "{}{}{}",
         parts.join("\n\n"),
         zen_core::CACHE_VOLATILE_MARKER,
         environment_block(cwd)
-    ))
+    );
+
+    // Terse verbosity instruction (#62, output-side saving), applied last so it is always a
+    // suffix: `/terse` toggles it by stripping/appending.
+    if cli.terse {
+        Ok(with_terse_style(&prompt))
+    } else {
+        Ok(prompt)
+    }
 }
 
 /// The `Environment:` block appended to every system prompt. Public so callers that replace
@@ -228,5 +254,102 @@ mod tests {
         }
         let custom = build_system_prompt(&cli(&["-p", "x", "--system-prompt", "R"]), Path::new("/tmp"), None).unwrap();
         assert!(!custom.contains("Workflow for a change"), "--system-prompt replaces it");
+    }
+
+    /// The pre-distillation wording (2026-10-17), kept as a regression guard: the distilled
+    /// prompt must stay well under it while keeping every behavioral rule.
+const ORIGINAL_SYSTEM_PROMPT: &str = "\
+You are zen, a command-line coding agent. You help the user with software engineering tasks in \
+the terminal: reading and editing code, running commands, searching repositories and explaining \
+what you find.
+
+Guidelines:
+- Inspect the code before changing it. Use Read/Grep/Glob rather than guessing at file contents.
+- Prefer small, focused edits. Keep existing style and conventions of the project.
+- Use Bash for builds, tests and version control. Run the tests you touch.
+- Be concise in your replies. Lead with the result; skip restating the task.
+- When a task is ambiguous, make a reasonable assumption and state it, instead of stalling.
+- Never print secrets (API keys, tokens). Do not commit unless asked.
+- Report failures honestly: show the command output and the error.
+
+Workflow for a change to code (bug fix, feature, refactor):
+1. Explore: find and read the relevant files and their callers before editing.
+2. Reproduce: run the failing test, or write a tiny script that shows the problem, and confirm \
+it fails for the reason described.
+3. Fix the root cause in the source with the smallest change that does it. Do not edit, delete \
+or weaken tests unless the user asks you to.
+4. Rerun your reproduction and the project's tests; read the output.
+5. Think about edge cases the task implies (empty input, boundaries, off-by-one, other \
+call sites) and check them too. Only then report what you changed.
+";
+
+    #[test]
+    fn distilled_prompt_is_smaller_than_original() {
+        // chars/4 token estimate, same estimator the CLI uses elsewhere.
+        // The original was already lean, so the honest bar is <85%, not the 40-60%
+        // quoted for cruft-laden prompts; the rule-preservation test below is the
+        // real quality gate.
+        let new_toks = DEFAULT_SYSTEM_PROMPT.len() / 4;
+        let old_toks = ORIGINAL_SYSTEM_PROMPT.len() / 4;
+        assert!(
+            new_toks * 100 < old_toks * 85,
+            "distilled prompt did not shrink: {} vs {} tokens (est.)",
+            new_toks,
+            old_toks
+        );
+    }
+
+    #[test]
+    fn distilled_prompt_keeps_every_behavioral_rule() {
+        let p = DEFAULT_SYSTEM_PROMPT;
+        for rule in [
+            "You are zen",
+            "reading and editing code",
+            "Read before editing",
+            "Read/Grep/Glob",
+            "never guess file contents",
+            "match project style",
+            "Use Bash for builds",
+            "run the tests you touch",
+            "Be concise",
+            "assume reasonably",
+            "Never print secrets",
+            "Do not commit unless asked",
+            "Report failures honestly",
+            "Explore",
+            "Reproduce",
+            "root cause",
+            "Rerun",
+            "edge cases",
+        ] {
+            assert!(p.contains(rule), "distilled prompt lost rule {rule:?}");
+        }
+    }
+
+    #[test]
+    fn terse_flag_appends_style_block() {
+        let c = cli(&["--bare", "--terse"]);
+        let p = build_system_prompt(&c, Path::new("/tmp"), None).unwrap();
+        assert!(p.contains(TERSE_STYLE_BLOCK), "terse block missing: {p}");
+        assert!(has_terse_style(&p));
+        let plain = build_system_prompt(&cli(&["--bare"]), Path::new("/tmp"), None).unwrap();
+        assert!(!plain.contains(TERSE_STYLE_BLOCK));
+        assert!(!has_terse_style(&plain));
+    }
+
+    #[test]
+    fn terse_applies_on_custom_system_prompt_too() {
+        let c = cli(&["--bare", "--terse", "--system-prompt", "CUSTOM ROLE"]);
+        let p = build_system_prompt(&c, Path::new("/tmp"), None).unwrap();
+        assert!(p.starts_with("CUSTOM ROLE"));
+        assert!(has_terse_style(&p));
+    }
+
+    #[test]
+    fn terse_style_roundtrip() {
+        let p = with_terse_style("BASE PROMPT");
+        assert!(has_terse_style(&p));
+        assert_eq!(without_terse_style(&p), "BASE PROMPT");
+        assert_eq!(without_terse_style("BASE PROMPT"), "BASE PROMPT");
     }
 }

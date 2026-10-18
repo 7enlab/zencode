@@ -120,6 +120,22 @@ Out of memory — the process was killed (OOM).
 
 Keep it cheap with a small model: `--btw-model <name>` or the `btw.model` setting
 (`{"btw": {"model": "org/tiny-model"}}` in settings); otherwise the session model is used.
+### Terse mode and output budget
+
+Output tokens cost 3-5x input tokens on most price sheets, so output discipline has
+outsized dollar impact:
+
+- `--terse` (or `/terse` in the REPL to toggle mid-session) appends a maximal-concision
+  instruction to the system prompt: no preamble, no restated context, no unasked summaries.
+- `--max-output-tokens N` sets a hard per-request cap (provider-level `max_tokens`).
+  Sub-agents inherit the cap from their parent.
+
+```bash
+zen -p "summarize this repo" --terse --max-output-tokens 500
+```
+
+The built-in system prompt is distilled (every behavioral rule kept, ~20% fewer tokens than
+the original) and `/context` shows the system-prompt token cost per session.
 
 ### Folder trust
 

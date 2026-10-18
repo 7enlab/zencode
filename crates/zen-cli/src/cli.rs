@@ -266,6 +266,15 @@ pub struct Cli {
     #[arg(long = "bare")]
     pub bare: bool,
 
+    /// Terse mode: append a maximal-concision instruction to the system prompt
+    /// (saves output tokens; `/terse` toggles it in the REPL)
+    #[arg(long = "terse")]
+    pub terse: bool,
+
+    /// Hard cap on model output tokens per request (provider-level max_tokens)
+    #[arg(long = "max-output-tokens")]
+    pub max_output_tokens: Option<u32>,
+
     /// Trust this folder for this run: load project hooks, MCP servers, allow rules, env and
     /// verify from `.zen/` and `.mcp.json` (same as `ZEN_TRUST_FOLDER=1`; never saved)
     #[arg(long = "trust-folder")]
@@ -515,6 +524,22 @@ mod tests {
     fn parse_flag_bare() {
         let cli = parse(&["--bare"]);
         assert!(cli.bare);
+    }
+
+    #[test]
+    fn parse_flag_terse() {
+        let cli = parse(&["--terse"]);
+        assert!(cli.terse);
+        let cli = parse(&[]);
+        assert!(!cli.terse);
+    }
+
+    #[test]
+    fn parse_max_output_tokens() {
+        let cli = parse(&["--max-output-tokens", "512"]);
+        assert_eq!(cli.max_output_tokens, Some(512));
+        let cli = parse(&[]);
+        assert_eq!(cli.max_output_tokens, None);
     }
 
     #[test]

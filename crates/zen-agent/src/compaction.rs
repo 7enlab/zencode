@@ -122,6 +122,7 @@ pub(crate) async fn compact_impl(
         &agent.config.fallback_models,
         msgs,
         vec![],
+        None,
     )
     .await?;
 

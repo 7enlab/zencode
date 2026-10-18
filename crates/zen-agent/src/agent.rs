@@ -117,6 +117,8 @@ pub struct AgentConfig {
     pub max_continuations: usize,
     /// Tool-result pruning (kills the N× re-billing multiplier).
     pub prune: PruneConfig,
+    /// Hard cap on model output tokens per request (`--max-output-tokens`); `None` = provider default.
+    pub max_output_tokens: Option<u32>,
 }
 
 /// Timeout for a tool call when settings `toolTimeouts` has no entry for it (p0b).
@@ -251,6 +253,7 @@ impl Default for AgentConfig {
             tool_timeouts: Default::default(),
             max_continuations: DEFAULT_MAX_CONTINUATIONS,
             prune: PruneConfig::default(),
+            max_output_tokens: None,
         }
     }
 }
@@ -652,6 +655,7 @@ impl Agent {
                     &self.config.fallback_models,
                     messages,
                     tools,
+                    self.config.max_output_tokens,
                 )
                 .await
             {

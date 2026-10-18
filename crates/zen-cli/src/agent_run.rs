@@ -432,6 +432,7 @@ fn base_agent_config(cfg: &ResolvedConfig, cli: &Cli, system_prompt: &str) -> ze
         fallback_models: cfg.fallback_models.clone(),
         system_prompt: system_prompt.to_string(),
         max_turns: cfg.max_turns.max(1),
+        max_output_tokens: cli.max_output_tokens,
         permission_mode: core_mode(cfg.permission_mode),
         context_window,
         auto_compact_threshold,

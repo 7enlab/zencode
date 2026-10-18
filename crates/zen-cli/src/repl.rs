@@ -544,6 +544,16 @@ async fn handle_slash(
                 }
             }
         }
+        "/terse" => {
+            let sp = std::mem::take(&mut agent.config.system_prompt);
+            if crate::system_prompt::has_terse_style(&sp) {
+                agent.config.system_prompt = crate::system_prompt::without_terse_style(&sp);
+                println!("terse mode off");
+            } else {
+                agent.config.system_prompt = crate::system_prompt::with_terse_style(&sp);
+                println!("terse mode on");
+            }
+        }
         "/add-dir" => {
             if arg.is_empty() {
                 eprintln!("usage: /add-dir <path>");

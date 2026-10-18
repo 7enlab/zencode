@@ -199,6 +199,7 @@ impl SubAgentRunner for SubAgentExecutor {
             tool_timeouts: self.base_config.tool_timeouts.clone(),
             max_continuations: self.base_config.max_continuations,
             prune: self.base_config.prune.clone(),
+            max_output_tokens: self.base_config.max_output_tokens,
         };
 
         let mut agent = Agent::new(
