@@ -108,6 +108,38 @@ pub fn canonicalize_lenient(p: &Path) -> PathBuf {
     if let Ok(c) = std::fs::canonicalize(p) {
         return c;
     }
+    // The full path doesn't exist (e.g. Write of a new file). Resolve symlinks in
+    // the longest existing prefix, then append the remaining components lexically.
+    // Without this, a symlink in an existing parent dir would not be resolved and
+    // the permission check could be bypassed (MEDIUM-2).
+    let mut existing: &Path = p;
+    let mut rest: Vec<std::ffi::OsString> = Vec::new();
+    while !existing.as_os_str().is_empty() && !existing.exists() {
+        match existing.file_name() {
+            Some(name) => {
+                rest.push(name.to_os_string());
+                existing = existing.parent().unwrap_or(Path::new(""));
+            }
+            None => break,
+        }
+    }
+    let base = if existing.as_os_str().is_empty() {
+        return lexical_normalize(p);
+    } else {
+        match std::fs::canonicalize(existing) {
+            Ok(c) => c,
+            Err(_) => return lexical_normalize(p),
+        }
+    };
+    let mut out = base;
+    for comp in rest.iter().rev() {
+        out.push(comp);
+    }
+    lexical_normalize(&out)
+}
+
+/// Purely lexical `.`/`..` normalization (no symlink resolution, no fs access).
+fn lexical_normalize(p: &Path) -> PathBuf {
     let mut out = PathBuf::new();
     for comp in p.components() {
         match comp {
@@ -655,7 +687,7 @@ impl Tool for BashTool {
         let shell = zen_core::resolve_shell("bash");
         if background {
             // Tracked job (p0b): output to a log in the session dir, read with JobOutput.
-            return match crate::jobs::start_job(cmd_str, &cwd, &ctx.env, &ctx.scratch_dir()) {
+            return match crate::jobs::start_job(cmd_str, &cwd, &ctx.env, &ctx.scratch_dir(), ctx.api_key_env.as_deref()) {
                 Ok(j) => ToolOutput::ok(format!(
                     "Started background job {} (pid {}). Output is logged to {}. Read new output with \
                      JobOutput {{\"job_id\":\"{}\"}} (add wait_ms to wait for it to finish); stop it with JobKill.",
@@ -690,6 +722,10 @@ impl Tool for BashTool {
             .stdout(Stdio::piped())
             .stderr(Stdio::null())  // stderr merged via 2>&1
             .kill_on_drop(true);
+        // MEDIUM-1: the API key is only needed in-process; never leak it to children.
+        for name in zen_core::api_key_env_names(ctx.api_key_env.as_deref()) {
+            command.env_remove(name);
+        }
 
         let child = match command.spawn() {
             Ok(c) => c,
@@ -1259,20 +1295,46 @@ impl Tool for WebFetchTool {
         if !(url.starts_with("http://") || url.starts_with("https://")) {
             return ToolOutput::err(format!("Error: unsupported URL '{}'", url));
         }
-        let _ = ctx; // no context used, but keep the signature symmetric
+        let allow_private = ctx.allow_private_network;
 
         let client = match with_extra_roots(reqwest::Client::builder())
             .timeout(Duration::from_secs(10))
-            .redirect(reqwest::redirect::Policy::limited(10))
+            .redirect(reqwest::redirect::Policy::none())
             .user_agent("zen-code/0.1 (+https://example.invalid/zen)")
             .build()
         {
             Ok(c) => c,
             Err(e) => return ToolOutput::err(format!("Error: could not build HTTP client: {}", e)),
         };
-        let resp = match client.get(&url).send().await {
-            Ok(r) => r,
-            Err(e) => return ToolOutput::err(format!("Error fetching {}: {}", url, e)),
+        // Follow redirects manually so every hop is SSRF-checked (LOW-1).
+        let mut url = url;
+        let mut hops = 0u32;
+        let resp = loop {
+            if let Err(e) = check_fetch_target(&url, allow_private).await {
+                return ToolOutput::err(e);
+            }
+            let r = match client.get(&url).send().await {
+                Ok(r) => r,
+                Err(e) => return ToolOutput::err(format!("Error fetching {}: {}", url, e)),
+            };
+            if !r.status().is_redirection() {
+                break r;
+            }
+            hops += 1;
+            if hops > 10 {
+                return ToolOutput::err(format!("Error: too many redirects fetching {}", url));
+            }
+            let loc = r.headers().get(reqwest::header::LOCATION)
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("")
+                .to_string();
+            if loc.is_empty() {
+                break r;
+            }
+            url = match join_redirect_url(&url, &loc) {
+                Ok(u) => u,
+                Err(e) => return ToolOutput::err(e),
+            };
         };
         let status = resp.status();
         if !status.is_success() {
@@ -1316,6 +1378,110 @@ fn upgrade_scheme(url: &str) -> String {
         return format!("https://{}", rest);
     }
     t.to_string()
+}
+
+/// True when `ip` is a public, globally-routable address (LOW-1 SSRF guard).
+fn is_public_ip(ip: std::net::IpAddr) -> bool {
+    use std::net::IpAddr;
+    match ip {
+        IpAddr::V4(v4) => {
+            !(v4.is_private()
+                || v4.is_loopback()
+                || v4.is_link_local()
+                || v4.is_broadcast()
+                || v4.is_documentation()
+                || v4.is_unspecified()
+                // 100.64.0.0/10 carrier-grade NAT (shared address space)
+                || (v4.octets()[0] == 100 && (v4.octets()[1] & 0b1100_0000) == 0b0100_0000))
+        }
+        IpAddr::V6(v6) => {
+            // IPv4-mapped (::ffff:a.b.c.d) addresses reach the IPv4 host: judge them as IPv4.
+            if let Some(v4) = v6.to_ipv4_mapped() {
+                return is_public_ip(IpAddr::V4(v4));
+            }
+            // 2001:db8::/32 documentation range checked manually (is_documentation is unstable).
+            let is_doc = v6.segments()[0] == 0x2001 && v6.segments()[1] == 0x0db8;
+            !(v6.is_loopback()
+                || v6.is_unspecified()
+                || v6.is_unique_local()
+                || v6.is_unicast_link_local()
+                || is_doc)
+        }
+    }
+}
+
+/// Split a URL into (host, port); handles `[ipv6]`, `user@host`, and `:port`.
+fn url_host_port(url: &str) -> (String, u16) {
+    let default_port = if url.starts_with("https://") { 443 } else { 80 };
+    let after_scheme = url.split("://").nth(1).unwrap_or(url);
+    let host_port = after_scheme.split(['/', '?', '#']).next().unwrap_or("");
+    let host_port = host_port.split('@').next_back().unwrap_or(host_port);
+    if let Some(rest) = host_port.strip_prefix('[') {
+        if let Some(end) = rest.find(']') {
+            let host = &rest[..end];
+            let port = rest[end + 1..]
+                .strip_prefix(':')
+                .and_then(|p| p.parse::<u16>().ok())
+                .unwrap_or(default_port);
+            return (host.to_string(), port);
+        }
+    }
+    match host_port.rsplit_once(':') {
+        Some((h, p)) if p.parse::<u16>().is_ok() => (h.to_string(), p.parse().unwrap_or(default_port)),
+        _ => (host_port.to_string(), default_port),
+    }
+}
+
+/// Resolve a redirect `Location` (absolute or relative) against the current URL.
+fn join_redirect_url(base: &str, loc: &str) -> Result<String, String> {
+    let base_url = reqwest::Url::parse(base)
+        .map_err(|e| format!("Error: cannot parse URL '{}': {}", base, e))?;
+    base_url
+        .join(loc)
+        .map(|u| u.to_string())
+        .map_err(|e| format!("Error: bad redirect target '{}': {}", loc, e))
+}
+
+/// Refuse to fetch `url` when its host resolves to a non-public IP, unless
+/// `allow_private` (the `allowPrivateNetwork` setting). Fails closed on DNS
+/// errors (LOW-1 SSRF guard).
+async fn check_fetch_target(url: &str, allow_private: bool) -> Result<(), String> {
+    if allow_private {
+        return Ok(());
+    }
+    let (host, port) = url_host_port(url);
+    if host.is_empty() {
+        return Err(format!("Error: cannot parse host from URL '{}'", url));
+    }
+    // Literal IP: check directly.
+    if let Ok(ip) = host.parse::<std::net::IpAddr>() {
+        if !is_public_ip(ip) {
+            return Err(format!(
+                "Error: refusing to fetch non-public address '{}' (set allowPrivateNetwork to allow)",
+                host
+            ));
+        }
+        return Ok(());
+    }
+    // Hostname: resolve and check every address.
+    let addrs = tokio::net::lookup_host(format!("{}:{}", host, port))
+        .await
+        .map_err(|e| format!("Error: cannot resolve host '{}': {}", host, e))?;
+    let mut any = false;
+    for addr in addrs {
+        any = true;
+        if !is_public_ip(addr.ip()) {
+            return Err(format!(
+                "Error: refusing to fetch '{}' (resolves to non-public address {}; set allowPrivateNetwork to allow)",
+                host,
+                addr.ip()
+            ));
+        }
+    }
+    if !any {
+        return Err(format!("Error: host '{}' resolved to no addresses", host));
+    }
+    Ok(())
 }
 
 fn looks_like_html(s: &str) -> bool {
@@ -1533,6 +1699,15 @@ pub fn builtin_tools() -> Vec<std::sync::Arc<dyn Tool>> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn ssrf_guard_rejects_ipv4_mapped_ipv6() {
+        use std::net::IpAddr;
+        assert!(!super::is_public_ip("::ffff:127.0.0.1".parse::<IpAddr>().unwrap()));
+        assert!(!super::is_public_ip("::ffff:10.0.0.1".parse::<IpAddr>().unwrap()));
+        assert!(!super::is_public_ip("::ffff:169.254.169.254".parse::<IpAddr>().unwrap()));
+        assert!(super::is_public_ip("::ffff:8.8.8.8".parse::<IpAddr>().unwrap()));
+    }
+
     use super::*;
     use serde_json::json;
 

@@ -111,6 +111,10 @@ pub(crate) fn gated_keys(layer: &Value) -> Vec<&'static str> {
     if non_empty(layer.get("apiKeyEnv")) {
         out.push("apiKeyEnv");
     }
+    // SSRF guard opt-out: a repo must not turn WebFetch loose on the local network.
+    if layer.get("allowPrivateNetwork").and_then(Value::as_bool) == Some(true) {
+        out.push("allowPrivateNetwork");
+    }
     out
 }
 
@@ -123,6 +127,7 @@ pub(crate) fn strip_gated(layer: &mut Value) -> Vec<&'static str> {
         m.remove("verify");
         m.remove("baseUrl");
         m.remove("apiKeyEnv");
+        m.remove("allowPrivateNetwork");
         if let Some(Value::Object(p)) = m.get_mut("permissions") {
             p.remove("allow");
             p.remove("additionalDirectories");

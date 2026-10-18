@@ -63,6 +63,8 @@ pub struct CommandHooks {
     pub disabled: bool,
     /// Settings `env`, exported to every hook process.
     pub env: HashMap<String, String>,
+    /// Name of the env var holding the LLM API key; scrubbed from hook processes (MEDIUM-1).
+    pub api_key_env: Option<String>,
 }
 
 /// What to do when a hook times out or cannot be spawned (`onFailure`, P2).
@@ -102,6 +104,7 @@ impl CommandHooks {
             permission_mode,
             disabled: false,
             env: HashMap::new(),
+            api_key_env: None,
         }
     }
 
@@ -114,6 +117,12 @@ impl CommandHooks {
     /// Builder: settings `env` exported to hook processes.
     pub fn with_env(mut self, env: HashMap<String, String>) -> Self {
         self.env = env;
+        self
+    }
+
+    /// Builder: name of the env var holding the LLM API key (scrubbed from hook processes).
+    pub fn with_api_key_env(mut self, api_key_env: Option<String>) -> Self {
+        self.api_key_env = api_key_env;
         self
     }
 
@@ -273,7 +282,7 @@ impl HookRunner for CommandHooks {
         let results = futures::future::join_all(
             specs
                 .iter()
-                .map(|spec| run_one(spec, &stdin_json, &self.cwd, &self.env, event)),
+                .map(|spec| run_one(spec, &stdin_json, &self.cwd, &self.env, self.api_key_env.as_deref(), event)),
         )
         .await;
 
@@ -333,6 +342,7 @@ async fn run_one(
     stdin_json: &str,
     cwd: &Path,
     env: &HashMap<String, String>,
+    api_key_env: Option<&str>,
     event: HookEvent,
 ) -> SingleOutcome {
     let mut cmd = match &spec.args {
@@ -356,6 +366,10 @@ async fn run_one(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
+    // MEDIUM-1: the API key is only needed in-process; never leak it to hook processes.
+    for name in zen_core::api_key_env_names(api_key_env) {
+        cmd.env_remove(name);
+    }
 
     let failure = |msg: String| -> SingleOutcome {
         if spec.on_failure == OnFailure::Block {

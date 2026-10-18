@@ -33,6 +33,13 @@ impl StdioTransport {
         if !cfg.env.is_empty() {
             cmd.envs(&cfg.env);
         }
+        // MEDIUM-1: the API key is only needed in-process; MCP servers inherit the
+        // parent environment, so scrub the well-known key var names. (A custom
+        // `apiKeyEnv` name is not visible here; it is scrubbed at the Bash/hook
+        // spawn sites where the configured name is known.)
+        for name in zen_core::api_key_env_names(None) {
+            cmd.env_remove(name);
+        }
         cmd.stdin(std::process::Stdio::piped());
         cmd.stdout(std::process::Stdio::piped());
         cmd.stderr(std::process::Stdio::null());

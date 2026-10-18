@@ -62,8 +62,17 @@ pub async fn syntax_error(path: &Path, text: &str) -> Option<String> {
             // `node --check` needs a file; check a sibling-named temp copy so the module type
             // (.mjs/.cjs) is the same.
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("js");
-            let tmp = std::env::temp_dir().join(format!("zen-syntax-{}.{}", uuid_like(), ext));
-            tokio::fs::write(&tmp, text).await.ok()?;
+            let tmp = std::env::temp_dir().join(format!("zen-syntax-{}.{}", random_suffix(), ext));
+            // Atomic exclusive create (O_CREAT|O_EXCL): a pre-created symlink at the
+            // path fails instead of being followed (LOW-2).
+            let mut f = std::fs::OpenOptions::new().write(true).create_new(true).open(&tmp).ok()?;
+            {
+                use std::io::Write;
+                if f.write_all(text.as_bytes()).is_err() {
+                    let _ = std::fs::remove_file(&tmp);
+                    return None;
+                }
+            }
             let out = run_checker("node", &["--check", tmp.to_str()?], "").await;
             let _ = tokio::fs::remove_file(&tmp).await;
             out.map(|m| m.replace(tmp.to_str().unwrap_or(""), "file"))
@@ -71,9 +80,31 @@ pub async fn syntax_error(path: &Path, text: &str) -> Option<String> {
     }
 }
 
-fn uuid_like() -> String {
-    let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
-    format!("{}-{}", std::process::id(), t)
+/// Unpredictable temp-file suffix: 128 bits from the OS CSPRNG on Unix,
+/// else a hash of high-entropy process-local sources (LOW-2).
+fn random_suffix() -> String {
+    #[cfg(unix)]
+    {
+        use std::io::Read;
+        if let Ok(mut f) = std::fs::File::open("/dev/urandom") {
+            let mut buf = [0u8; 16];
+            if f.read_exact(&mut buf).is_ok() {
+                return buf.iter().map(|b| format!("{:02x}", b)).collect();
+            }
+        }
+    }
+    // Fallback: hash pid + time + thread id + a stack address. Not a CSPRNG,
+    // but unpredictable to another local user; the O_EXCL create above is the
+    // real defense against symlink races.
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut h = DefaultHasher::new();
+    std::process::id().hash(&mut h);
+    std::time::SystemTime::now().hash(&mut h);
+    std::thread::current().id().hash(&mut h);
+    let stack_var = 0u8;
+    std::ptr::addr_of!(stack_var).hash(&mut h);
+    format!("{:016x}{:016x}", h.finish(), h.finish().wrapping_mul(0x9e3779b97f4a7c15))
 }
 
 /// Run `cmd` with `text` on stdin; `Some(output)` when it exits non-zero.

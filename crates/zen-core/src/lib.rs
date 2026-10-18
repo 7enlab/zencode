@@ -172,6 +172,11 @@ pub struct ToolContext {
     pub extra_dirs: Vec<PathBuf>,
     /// Env vars exported to child processes (settings `env`).
     pub env: HashMap<String, String>,
+    /// Name of the env var holding the LLM API key (`apiKeyEnv` setting); child
+    /// processes are scrubbed of it via [`api_key_env_names`] (MEDIUM-1).
+    pub api_key_env: Option<String>,
+    /// WebFetch may fetch loopback/link-local/private IPs when true (LOW-1 SSRF guard).
+    pub allow_private_network: bool,
     /// Absolute paths Read (or written) in this session, mapped to a stamp of the content seen
     /// then. Write/Edit require a prior Read of existing files and refuse a file whose content
     /// changed since (r7).
@@ -196,6 +201,8 @@ impl ToolContext {
             cwd: Arc::new(Mutex::new(cwd)),
             extra_dirs: vec![],
             env: HashMap::new(),
+            api_key_env: None,
+            allow_private_network: false,
             read_files: Default::default(),
             todos: Default::default(),
             session_id: session_id.into(),
@@ -498,6 +505,10 @@ pub struct Settings {
     pub max_turns: Option<usize>,
     #[serde(default)]
     pub context_window: Option<u64>,
+    /// WebFetch may fetch loopback/link-local/private IPs when true.
+    /// Default false: SSRF guard refuses non-public addresses (LOW-1).
+    #[serde(default)]
+    pub allow_private_network: bool,
     #[serde(flatten)]
     pub extra: HashMap<String, Value>,
 }
@@ -684,6 +695,21 @@ pub fn is_wsl_launcher(path: &Path, system_root: Option<&str>) -> bool {
     let file = p.rsplit('\\').next().unwrap_or(&p);
     let base = file.strip_suffix(".exe").unwrap_or(file);
     matches!(base, "bash" | "sh") && p.starts_with(&format!("{}\\", norm(root)))
+}
+
+/// Env var names that may carry the LLM API key: the two well-known names plus the
+/// configured `apiKeyEnv` name. Child processes (Bash tool, background jobs, hooks,
+/// MCP servers) must not inherit these — the key is only needed in-process by the
+/// LLM HTTP client (MEDIUM-1). Callers apply `Command::env_remove` for each name.
+pub fn api_key_env_names(api_key_env: Option<&str>) -> Vec<String> {
+    let mut names = vec!["ZEN_API_KEY".to_string(), "OPENAI_API_KEY".to_string()];
+    if let Some(n) = api_key_env {
+        let n = n.trim();
+        if !n.is_empty() && !names.iter().any(|x| x == n) {
+            names.push(n.to_string());
+        }
+    }
+    names
 }
 
 /// The shell to use for `preferred` scripts on this machine (cached per name).

@@ -2,7 +2,7 @@
 //!
 //! Evaluation order is `deny > ask > allow > mode default`.
 
-use crate::builtin::resolve_path;
+use crate::builtin::{canonicalize_lenient, resolve_path};
 use globset::GlobBuilder;
 use serde_json::Value;
 use std::collections::HashSet;
@@ -53,25 +53,10 @@ fn rule_pattern_path(cwd: &Path, spec: &str) -> (PathBuf, bool) {
     }
 }
 
-fn normalize(p: &Path) -> PathBuf {
-    let mut out = PathBuf::new();
-    for comp in p.components() {
-        match comp {
-            std::path::Component::CurDir => {}
-            std::path::Component::ParentDir => {
-                if !out.pop() {
-                    out.push("..");
-                }
-            }
-            other => out.push(other.as_os_str()),
-        }
-    }
-    out
-}
-
 fn path_rule_matches(cwd: &Path, spec: &str, candidate: &str) -> bool {
     let (pattern_path, dir_hint) = rule_pattern_path(cwd, spec);
-    let target = normalize(&resolve_path(cwd, candidate));
+    // Resolve symlinks so a deny rule cannot be bypassed via a symlinked path (MEDIUM-2).
+    let target = canonicalize_lenient(&resolve_path(cwd, candidate));
     let glob_pat = pattern_path.to_string_lossy().to_string();
     let mut globs = vec![glob_pat.clone()];
     if dir_hint {
@@ -364,13 +349,141 @@ fn allow_covers(rules: &[String], tool_name: &str, input: &Value, cwd: &Path) ->
     }
 }
 
-/// `None` = not a Bash call; `Some(None)` = Bash with a dangling operator; else the parts.
+/// Bodies of command substitutions in `command`: `$(...)`, `` `...` ``, with nesting,
+/// outside single/double quotes. Also descends into `${...}` parameter expansions
+/// (e.g. `${VAR:-$(cmd)}`) to find substitutions hidden there. Single-quoted text
+/// is never substitution.
+///
+/// Security (HIGH-1): the permission engine evaluates these bodies as independent
+/// fragments so a denied inner command cannot hide inside substitution —
+/// `echo $(rm -rf ~)` must not bypass a `Bash(rm *)` deny rule.
+fn substitution_bodies(command: &str) -> Vec<String> {
+    fn scan(chars: &[char], out: &mut Vec<String>) {
+        let (mut sq, mut dq) = (false, false);
+        let mut i = 0;
+        while i < chars.len() {
+            let c = chars[i];
+            if c == '\\' && !sq {
+                i += 2;
+                continue;
+            }
+            if c == '\'' && !dq {
+                sq = !sq;
+            } else if c == '"' && !sq {
+                dq = !dq;
+            } else if !sq {
+                if c == '$' && chars.get(i + 1) == Some(&'(') {
+                    let mut depth = 1usize;
+                    let mut j = i + 2;
+                    let (mut jsq, mut jdq) = (false, false);
+                    while j < chars.len() && depth > 0 {
+                        let d = chars[j];
+                        if d == '\\' && !jsq {
+                            j += 2;
+                            continue;
+                        }
+                        if d == '\'' && !jdq {
+                            jsq = !jsq;
+                        } else if d == '"' && !jsq {
+                            jdq = !jdq;
+                        } else if !jsq && !jdq {
+                            if d == '(' {
+                                depth += 1;
+                            } else if d == ')' {
+                                depth -= 1;
+                            }
+                        }
+                        j += 1;
+                    }
+                    if depth == 0 {
+                        let inner: String = chars[i + 2..j - 1].iter().collect();
+                        out.push(inner.clone());
+                        scan(&inner.chars().collect::<Vec<_>>(), out);
+                        i = j;
+                        continue;
+                    }
+                } else if c == '`' {
+                    let mut j = i + 1;
+                    while j < chars.len() {
+                        if chars[j] == '\\' {
+                            j += 2;
+                            continue;
+                        }
+                        if chars[j] == '`' {
+                            break;
+                        }
+                        j += 1;
+                    }
+                    if j < chars.len() {
+                        let inner: String = chars[i + 1..j].iter().collect();
+                        out.push(inner.clone());
+                        scan(&inner.chars().collect::<Vec<_>>(), out);
+                        i = j + 1;
+                        continue;
+                    }
+                } else if c == '$' && chars.get(i + 1) == Some(&'{') {
+                    let mut depth = 1usize;
+                    let mut j = i + 2;
+                    while j < chars.len() && depth > 0 {
+                        match chars[j] {
+                            '{' => depth += 1,
+                            '}' => depth -= 1,
+                            _ => {}
+                        }
+                        j += 1;
+                    }
+                    if depth == 0 {
+                        let inner: String = chars[i + 2..j - 1].iter().collect();
+                        scan(&inner.chars().collect::<Vec<_>>(), out);
+                        i = j;
+                        continue;
+                    }
+                }
+            }
+            i += 1;
+        }
+    }
+    let mut out = Vec::new();
+    scan(&command.chars().collect::<Vec<_>>(), &mut out);
+    out
+}
+
+/// `None` = not a Bash call; `Some(None)` = Bash with a dangling operator; else the
+/// independently-evaluated fragments: top-level compound parts plus command
+/// substitution bodies (`$(...)`, backticks), each re-split on compound operators.
 fn bash_parts(tool_name: &str, input: &Value) -> Option<Option<Vec<String>>> {
     if !tool_name.eq_ignore_ascii_case("Bash") {
         return None;
     }
     let cmd = input.get("command").and_then(|v| v.as_str()).unwrap_or("");
-    Some(split_compound(cmd))
+    Some(match split_compound(cmd) {
+        None => None,
+        Some(parts) => {
+            let mut seen: HashSet<String> = parts.iter().cloned().collect();
+            let mut all = parts;
+            // HIGH-1: evaluate substitution bodies independently so deny rules
+            // cannot be bypassed via `echo $(rm -rf ~)` / backticks / nesting.
+            for part in all.clone() {
+                for body in substitution_bodies(&part) {
+                    match split_compound(&body) {
+                        Some(inner) if !inner.is_empty() => {
+                            for frag in inner {
+                                if seen.insert(frag.clone()) {
+                                    all.push(frag);
+                                }
+                            }
+                        }
+                        _ => {
+                            if seen.insert(body.clone()) {
+                                all.push(body);
+                            }
+                        }
+                    }
+                }
+            }
+            Some(all)
+        }
+    })
 }
 
 /// The permission engine (SPEC §5).
@@ -414,17 +527,19 @@ impl RulePermissions {
     }
 
     fn working_dirs(&self, ctx: &ToolContext) -> Vec<PathBuf> {
-        let mut dirs = vec![normalize(&ctx.cwd())];
+        // Canonicalized (symlinks resolved) so the workdir boundary check cannot be
+        // confused by a symlink inside the workdir pointing outside (MEDIUM-2).
+        let mut dirs = vec![canonicalize_lenient(&ctx.cwd())];
         for d in &ctx.extra_dirs {
-            dirs.push(normalize(d));
+            dirs.push(canonicalize_lenient(d));
         }
         dirs
     }
 
-    /// Write/Edit inside cwd or an --add-dir directory.
+    /// Write/Edit inside cwd or an --add-dir directory (symlinks resolved, MEDIUM-2).
     fn path_inside_workdir(&self, input: &Value, ctx: &ToolContext) -> bool {
         let Some(fp) = path_arg(input) else { return false };
-        let target = normalize(&resolve_path(&ctx.cwd(), fp));
+        let target = canonicalize_lenient(&resolve_path(&ctx.cwd(), fp));
         self.working_dirs(ctx).iter().any(|d| target.starts_with(d))
     }
 
@@ -439,7 +554,8 @@ impl RulePermissions {
         split_compound(command).unwrap_or_default().iter().all(|part| {
             part.split_whitespace().skip(1).filter(|a| !a.starts_with('-')).all(|arg| {
                 let arg = arg.trim_matches(|c| c == '"' || c == '\'');
-                let target = normalize(&resolve_path(&cwd, arg));
+                // Resolve symlinks like the file tools do (MEDIUM-2).
+                let target = canonicalize_lenient(&resolve_path(&cwd, arg));
                 dirs.iter().any(|d| target.starts_with(d))
             })
         })
@@ -629,6 +745,111 @@ pub fn dedup(mut rules: Vec<String>) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use zen_core::PermissionMode;
+
+    fn test_perms(deny: &[&str], allow: &[&str]) -> RulePermissions {
+        RulePermissions::new(
+            PermissionMode::Default,
+            &PermissionSettings {
+                deny: deny.iter().map(|s| s.to_string()).collect(),
+                allow: allow.iter().map(|s| s.to_string()).collect(),
+                ..Default::default()
+            },
+            vec![],
+            vec![],
+            None,
+        )
+    }
+
+    fn check_bash(perms: &RulePermissions, cmd: &str) -> PermissionDecision {
+        let ctx = ToolContext::new(std::path::PathBuf::from("/tmp"), "test");
+        perms.check("Bash", &serde_json::json!({ "command": cmd }), false, &ctx)
+    }
+
+    fn is_deny(d: &PermissionDecision) -> bool {
+        matches!(d, PermissionDecision::Deny(_))
+    }
+
+    /// HIGH-1: `echo $(rm -rf ~)` must not bypass a `Bash(rm *)` deny rule.
+    #[test]
+    fn substitution_deny_bypass_blocked() {
+        let perms = test_perms(&["Bash(rm *)"], &["Bash(echo *)"]);
+        assert!(is_deny(&check_bash(&perms, "echo $(rm -rf ~)")), "$() bypass not blocked");
+        assert!(is_deny(&check_bash(&perms, "echo `rm -rf ~`")), "backtick bypass not blocked");
+        assert!(is_deny(&check_bash(&perms, "echo $(echo $(rm -rf ~))")), "nested bypass not blocked");
+        assert!(is_deny(&check_bash(&perms, "echo ${X:-$(rm -rf ~)}")), "${{}} bypass not blocked");
+        assert!(is_deny(&check_bash(&perms, "rm -rf /tmp/x")));
+    }
+
+    /// HIGH-1: allow rules fail closed on substitution — the inner command needs
+    /// its own allow rule.
+    #[test]
+    fn substitution_allow_fails_closed() {
+        let perms = test_perms(&[], &["Bash(echo *)", "Bash(date *)"]);
+        assert!(matches!(check_bash(&perms, "echo $(date)"), PermissionDecision::Allow));
+        let perms2 = test_perms(&[], &["Bash(echo *)"]);
+        assert!(matches!(check_bash(&perms2, "echo $(date)"), PermissionDecision::Ask));
+    }
+
+    /// HIGH-1: bash expands `$(...)` and backticks inside double quotes too.
+    #[test]
+    fn substitution_inside_double_quotes_blocked() {
+        let perms = test_perms(&["Bash(rm *)"], &["Bash(echo *)"]);
+        assert!(is_deny(&check_bash(&perms, "echo \"$(rm -rf ~)\"")), "dq $() bypass not blocked");
+        assert!(is_deny(&check_bash(&perms, "echo \"x `rm -rf ~` y\"")), "dq backtick bypass not blocked");
+        assert!(is_deny(&check_bash(&perms, "echo \"${X:-$(rm -rf ~)}\"")), "dq ${{}} bypass not blocked");
+    }
+
+    /// Single quotes prevent substitution — the inner text is inert.
+    #[test]
+    fn substitution_single_quoted_not_extracted() {
+        let perms = test_perms(&["Bash(rm *)"], &[]);
+        assert!(!is_deny(&check_bash(&perms, "echo '$(rm -rf ~)'")));
+        assert!(substitution_bodies("echo '$(rm)'").is_empty());
+    }
+
+    #[test]
+    fn substitution_bodies_extraction() {
+        assert_eq!(substitution_bodies("echo $(rm -rf ~)"), vec!["rm -rf ~"]);
+        assert_eq!(substitution_bodies("echo `rm -rf ~`"), vec!["rm -rf ~"]);
+        assert_eq!(substitution_bodies("echo hi"), Vec::<String>::new());
+        let nested = substitution_bodies("a $(b $(c)) d");
+        assert!(nested.contains(&"b $(c)".to_string()));
+        assert!(nested.contains(&"c".to_string()));
+        assert!(substitution_bodies("echo $(oops").is_empty());
+    }
+
+    /// Ordinary compound commands are unaffected by the substitution handling.
+    #[test]
+    fn compound_without_substitution_unchanged() {
+        let perms = test_perms(&[], &["Bash(echo *)", "Bash(ls *)"]);
+        assert!(matches!(check_bash(&perms, "echo hi && ls /tmp"), PermissionDecision::Allow));
+        assert!(matches!(check_bash(&perms, "echo hi && rm -rf /"), PermissionDecision::Ask));
+    }
+
+    /// MEDIUM-2: a symlink inside the workdir pointing outside must not pass the
+    /// workdir boundary check.
+    #[test]
+    fn symlink_inside_workdir_blocked() {
+        let dir = std::env::temp_dir().join(format!("zen-perm-symlink-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("work")).unwrap();
+        #[cfg(unix)]
+        {
+            std::fs::create_dir_all(dir.join("outside")).unwrap();
+            std::os::unix::fs::symlink(dir.join("outside"), dir.join("work").join("link")).unwrap();
+        }
+        let perms = test_perms(&[], &[]);
+        let ctx = ToolContext::new(dir.join("work"), "test");
+        let ok = serde_json::json!({ "file_path": "sub/file.txt" });
+        assert!(perms.path_inside_workdir(&ok, &ctx));
+        #[cfg(unix)]
+        {
+            let evil = serde_json::json!({ "file_path": "link/secret.txt" });
+            assert!(!perms.path_inside_workdir(&evil, &ctx), "symlink escape passed the workdir check");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn host_parsing() {

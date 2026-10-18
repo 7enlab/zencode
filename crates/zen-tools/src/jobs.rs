@@ -70,7 +70,14 @@ pub struct Started {
 }
 
 /// Start `command` in the background in `cwd` with `env`, logging to the session scratch dir.
-pub fn start_job(command: &str, cwd: &Path, env: &HashMap<String, String>, scratch: &Path) -> Result<Started, String> {
+/// The API key env vars are scrubbed from the child environment (MEDIUM-1).
+pub fn start_job(
+    command: &str,
+    cwd: &Path,
+    env: &HashMap<String, String>,
+    scratch: &Path,
+    api_key_env: Option<&str>,
+) -> Result<Started, String> {
     let id = next_id();
     let dir = scratch.join("jobs");
     std::fs::create_dir_all(&dir).map_err(|e| format!("cannot create {}: {}", dir.display(), e))?;
@@ -87,6 +94,10 @@ pub fn start_job(command: &str, cwd: &Path, env: &HashMap<String, String>, scrat
         .stdout(Stdio::from(out))
         .stderr(Stdio::from(err))
         .kill_on_drop(false);
+    // MEDIUM-1: the API key is only needed in-process; never leak it to children.
+    for name in zen_core::api_key_env_names(api_key_env) {
+        cmd.env_remove(name);
+    }
     #[cfg(unix)]
     cmd.process_group(0);
     let mut child = cmd.spawn().map_err(|e| format!("failed to start {}: {}", shell.program, e))?;

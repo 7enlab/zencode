@@ -393,7 +393,9 @@ fn build_hooks(
             core_mode(cfg.permission_mode),
         )
         // Settings `env` is exported to hook processes (C3.14).
-        .with_env(cfg.env.clone()),
+        .with_env(cfg.env.clone())
+        // The API key never reaches hook processes (MEDIUM-1).
+        .with_api_key_env(cfg.api_key_env.clone()),
     )
 }
 
@@ -482,6 +484,8 @@ pub fn tool_context_public(
 fn tool_context(cwd: &Path, cfg: &ResolvedConfig, cli: &Cli, session_id: &str) -> ToolContext {
     let mut ctx = ToolContext::new(cwd.to_path_buf(), session_id.to_string());
     ctx.env = cfg.env.clone();
+    ctx.api_key_env = cfg.api_key_env.clone();
+    ctx.allow_private_network = cfg.allow_private_network;
     let mut extra: Vec<std::path::PathBuf> = cli.add_dir.clone();
     for d in &cfg.permissions.additional_directories {
         extra.push(std::path::PathBuf::from(d));

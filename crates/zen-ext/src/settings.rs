@@ -667,6 +667,20 @@ mod tests {
     }
 
     #[test]
+    fn untrusted_folder_ignores_project_allow_private_network() {
+        let home_t = TempDir::new();
+        let proj_t = TempDir::new();
+        let (home, proj) = (home_t.path(), proj_t.path());
+        fs::create_dir_all(home.join(".zen")).unwrap();
+        fs::create_dir_all(proj.join(".zen")).unwrap();
+        fs::write(proj.join(".zen/settings.json"), r#"{"allowPrivateNetwork": true}"#).unwrap();
+        let un = load_settings_with_trust_for_test(proj, home, false);
+        assert!(!un.settings.allow_private_network);
+        let tr = load_settings_with_trust_for_test(proj, home, true);
+        assert!(tr.settings.allow_private_network);
+    }
+
+    #[test]
     fn untrusted_folder_ignores_project_base_url_keeps_user() {
         let home_t = TempDir::new();
         let proj_t = TempDir::new();

@@ -12,6 +12,11 @@ pub struct ResolvedConfig {
     pub model: String,
     pub base_url: String,
     pub api_key: Option<String>,
+    /// Name of the env var the API key was resolved from (`apiKeyEnv` setting);
+    /// child processes must not inherit it (MEDIUM-1).
+    pub api_key_env: Option<String>,
+    /// WebFetch may fetch loopback/link-local/private IPs when true (LOW-1 SSRF guard).
+    pub allow_private_network: bool,
     pub fallback_models: Vec<String>,
     pub permissions: PermissionSettings,
     pub permission_mode: PermissionMode,
@@ -320,6 +325,8 @@ pub fn resolve_config_with_home(
         model,
         base_url,
         api_key,
+        api_key_env: merged.api_key_env.clone(),
+        allow_private_network: merged.allow_private_network,
         fallback_models: merged.fallback_models.clone(),
         permissions: PermissionSettings {
             allow: cli_allow,
