@@ -1,0 +1,86 @@
+//! CLI-side account safety: user warnings, `zen doctor` checklist, risk flag.
+//!
+//! The retry/pacing machinery lives in `zen_agent::safety`; this module owns the
+//! human-facing layer: when to warn, what to say, and the `--i-understand-the-risks`
+//! acknowledgement flag.
+//!
+//! Warning philosophy (from the research): warn at most once per session per
+//! trigger, use severity tiers (info/warning/error), and never promise
+//! "you won't get banned".
+
+use zen_agent::safety as agent_safety;
+
+/// Re-export the warning texts so CLI code has one import site.
+pub use agent_safety::{
+    auth_login_warning, concurrency_cap_warning, first_429_notice, parallel_sessions_warning,
+    quota_exhausted_error, repeated_429_warning, SAFETY_DISCLAIMER,
+};
+
+/// Check for parallel sessions sharing one provider+key at session start.
+/// Returns the warning text if the threshold is exceeded, else `None`.
+/// The caller decides whether `--i-understand-the-risks` silences it.
+pub fn check_parallel_sessions(
+    provider: &str,
+    api_key: Option<&str>,
+    session_id: &str,
+) -> Option<String> {
+    let key = api_key.filter(|k| !k.is_empty())?;
+    let fingerprint = agent_safety::key_fingerprint(key);
+    let mut registry = agent_safety::SessionRegistry::load();
+    let others = registry.register(provider, &fingerprint, session_id);
+    if others > agent_safety::PARALLEL_SESSION_WARN_THRESHOLD {
+        Some(parallel_sessions_warning(others + 1, provider))
+    } else {
+        None
+    }
+}
+
+/// Render the `zen doctor` account-safety checklist section.
+pub fn doctor_safety_checklist(version: &str) -> String {
+    let mut out = String::new();
+    out.push_str("  account-safety:\n");
+    out.push_str(&format!(
+        "    - User-Agent identifies ZenCode/{version} on all requests: yes\n"
+    ));
+    out.push_str(&format!(
+        "    - exponential backoff with jitter (max {} attempts): enabled\n",
+        agent_safety::MAX_RETRY_ATTEMPTS + 1
+    ));
+    out.push_str("    - `insufficient_quota` never retried: yes\n");
+    out.push_str(&format!(
+        "    - per-provider concurrency cap: {}\n",
+        agent_safety::DEFAULT_CONCURRENCY_CAP
+    ));
+    out.push_str(&format!(
+        "    - inter-request floor: {} ms\n",
+        agent_safety::MIN_INTER_REQUEST_MS
+    ));
+    out.push_str(&format!("    - {SAFETY_DISCLAIMER}\n"));
+    out
+}
+
+/// One-time safety summary shown after `zen auth login` for a paid provider.
+/// (Called by the auth command; kept here so the text lives with the other warnings.)
+pub fn auth_login_safety_summary(provider: &str) -> String {
+    auth_login_warning(provider)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn checklist_mentions_key_safeguards() {
+        let c = doctor_safety_checklist("0.6.0");
+        assert!(c.contains("User-Agent"));
+        assert!(c.contains("insufficient_quota"));
+        assert!(c.contains("backoff"));
+        assert!(c.contains("0.6.0"));
+    }
+
+    #[test]
+    fn parallel_check_none_without_key() {
+        assert!(check_parallel_sessions("OpenAI", None, "sess-1").is_none());
+        assert!(check_parallel_sessions("OpenAI", Some(""), "sess-1").is_none());
+    }
+}

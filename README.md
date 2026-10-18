@@ -61,3 +61,25 @@ project commands/skills. Everything from `~/.zen/` always loads; project deny ru
 | `zen-ext` | settings layering, ZEN.md memory, skills, hooks |
 | `zen-mcp` | MCP client, sub-agent definitions, Task tool |
 | `zen-cli` | the `zen` binary: CLI, REPL, slash commands, output formats, sessions |
+
+## Account Safety
+
+ZenCode is designed to be a good API citizen so your accounts stay in good standing.
+
+**What ZenCode does automatically:**
+- Exponential backoff with jitter on rate limits (never hammers through 429s)
+- Never retries billing/quota errors
+- Identifies itself with a versioned User-Agent on every request
+- Caps concurrent requests per provider (default: 2)
+- Uses Anthropic prompt caching to reduce rate-limit pressure
+
+**What you should do:**
+- One API key per machine; never share keys
+- Don't run many parallel sessions on a single key
+- Keep payment methods current — chargebacks trigger automatic suspensions
+- If a key may be leaked, revoke it at the provider immediately
+
+**What gets accounts banned (so you can avoid it):**
+Providers suspend accounts for payment disputes, shared/resold keys, bot-like traffic, and ToS violations (e.g., model distillation, subscription-token relay) — not for normal coding-agent usage within rate limits. [Full details →](docs/account-safety.md)
+
+> No tool can guarantee your account won't be flagged — providers use automated systems with false positives. ZenCode minimizes the risk factors within its control and warns you about the rest.

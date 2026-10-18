@@ -10,6 +10,7 @@ pub mod eventlog;
 pub mod git;
 pub mod output;
 pub mod repl;
+pub mod safety;
 pub mod session;
 pub mod settings;
 pub mod system_prompt;
@@ -86,6 +87,10 @@ async fn run_subcommand(
                     println!("    - {}", w);
                 }
             }
+            print!(
+                "{}",
+                safety::doctor_safety_checklist(env!("CARGO_PKG_VERSION"))
+            );
             Ok(0)
         }
         Commands::Mcp(mcp) => {

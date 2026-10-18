@@ -233,6 +233,12 @@ pub struct Cli {
     #[arg(long = "trust-folder")]
     pub trust_folder: bool,
 
+    /// Acknowledge account-safety warnings and proceed anyway (concurrency /
+    /// parallel-session volume overrides only; never disables backoff or quota handling).
+    /// The acknowledgement is logged with a timestamp.
+    #[arg(long = "i-understand-the-risks")]
+    pub i_understand_the_risks: bool,
+
     #[command(subcommand)]
     pub subcommand: Option<Commands>,
 

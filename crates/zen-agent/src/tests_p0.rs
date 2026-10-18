@@ -337,7 +337,8 @@ async fn p0_4_total_wait_is_capped() {
         err
     );
     assert!(took < Duration::from_millis(1500), "took {:?}", took);
-    // Waits 20 + 40 + 40 (clipped to the 100 ms budget) → 4 requests.
+    // With +-25% jitter the waits are approximate: ~20 + ~40 + ~40 clipped to the
+    // 100 ms budget -> 4 requests.
     assert_eq!(served.load(Ordering::SeqCst), 4);
     let total: u64 = sink
         .events
@@ -349,18 +350,22 @@ async fn p0_4_total_wait_is_capped() {
             _ => None,
         })
         .sum();
-    assert_eq!(total, 100);
+    assert!(
+        (75..=100).contains(&total),
+        "total wait {total} outside [75, 100]"
+    );
 }
 
 #[tokio::test]
-async fn p0_4_other_5xx_still_stop_after_four_attempts() {
+async fn p0_4_other_5xx_stop_after_five_retries() {
     let (url, served) = status_server(vec![(500, "boom")]).await;
     let sink = Arc::new(CollectSink::default());
     let mut c = crate::client::OpenAiClient::new(url, None, sink.clone());
     c.base_retry_delay_ms = 1;
     let err = c.chat(req()).await.unwrap_err().to_string();
     assert!(err.contains("HTTP 500"), "{}", err);
-    assert_eq!(served.load(Ordering::SeqCst), 4);
+    // Safety spec: transient 5xx get 5 retries = 6 total attempts.
+    assert_eq!(served.load(Ordering::SeqCst), 6);
 }
 
 // ───────────── p0-6: verify after a successful edit ─────────────

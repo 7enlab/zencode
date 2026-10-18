@@ -161,6 +161,8 @@ async fn fixture_subagent() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn fixture_api_retry() {
+    // Deterministic jitter for the retry_delay_ms in the fixture.
+    std::env::set_var("ZEN_JITTER_SEED", "42");
     check(
         "api_retry",
         vec![Reply::status(500, "upstream overloaded"), Reply::text("Answer after one retry.")],

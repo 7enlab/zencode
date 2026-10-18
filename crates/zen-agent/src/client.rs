@@ -8,14 +8,20 @@
 //!
 //! Key design decisions:
 //!
-//! - **Retry policy lives here, not in the loop.** HTTP 429, any 5xx and network errors are
-//!   retried with exponential backoff (`base_retry_delay_ms * 2^(attempt-1)`, each wait capped at
-//!   60 s), raised to the server's `Retry-After` / `retry_after_seconds` hint (r7). Other 5xx
-//!   and network errors stop after 4 attempts; 429/502/503/504 keep retrying until the total wait
-//!   budget `max_total_wait_ms` (settings `retry.maxWaitSecs`, default 300 s) is spent (perf p0).
-//!   Each retry emits [`AgentEvent::ApiRetry`] so stream-json users can see the retry, matching
-//!   SPEC §3.6. A 200 carrying an `error` object, no choices or an empty message is resampled the
-//!   same way (r7 C3). Everything else (4xx, malformed JSON) fails immediately.
+//! - **Retry policy lives here, not in the loop.** Failures are classified *before* retrying
+//!   ([`crate::safety::classify_error`]): `rate_limit_exceeded`/429, 529-overloaded and
+//!   transient 5xx/network errors retry with exponential backoff + +-25% jitter
+//!   (`base_retry_delay_ms * 2^(attempt-1)`), always raised to the server's `Retry-After` /
+//!   `retry_after_seconds` hint, up to 5 retries or the total wait budget `max_total_wait_ms`
+//!   (settings `retry.maxWaitSecs`, default 300 s). `insufficient_quota`/billing errors are
+//!   NEVER retried (hard stop with a clear message); other 4xx fail fast. Each retry emits
+//!   [`AgentEvent::ApiRetry`] so stream-json users can see the retry, matching SPEC 3.6.
+//!   A 200 carrying an `error` object, no choices or an empty message is resampled the
+//!   same way (r7 C3).
+//! - **Request pacing.** A per-provider token bucket ([`crate::safety::RateLimiter`]) enforces
+//!   a 100 ms inter-request floor and proactive slowdown at 80% of the detected ceiling.
+//! - **Client identity.** Every request carries `User-Agent: ZenCode/<version>
+//!   (+https://zencodego.com)` so providers can identify the client.
 //! - **Model fallback lives in the agent loop** ([`crate::agent`]): once this client has
 //!   exhausted its retries it returns `Err`, and the loop tries the next configured model.
 //! - **Lenient parsing.** Free gateways commonly send `content: null` alongside `tool_calls`,
@@ -30,25 +36,17 @@
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::Value;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use zen_core::*;
+use crate::safety::{self, ErrorClass, RateLimiter};
 
-/// Number of total attempts made for one `chat` call (1 try + 3 retries).
-const MAX_ATTEMPTS: u32 = 4;
+/// Total attempts for one `chat` call: 1 try + 5 retries (see `safety::MAX_RETRY_ATTEMPTS`).
+const MAX_ATTEMPTS: u32 = 6;
 /// How much of an error body is quoted back in an error message.
 const ERROR_BODY_CHARS: usize = 300;
-/// Hard ceiling on attempts for rate limits / gateway errors, which otherwise retry until
-/// [`OpenAiClient::max_total_wait_ms`] is spent (perf p0).
-const MAX_LONG_ATTEMPTS: u32 = 30;
 /// Default total backoff budget for one `chat` call (settings `retry.maxWaitSecs`).
 pub const DEFAULT_MAX_TOTAL_WAIT_MS: u64 = 300_000;
-
-/// Statuses that are worth waiting out (rate limit, bad gateway, unavailable, gateway timeout):
-/// they keep retrying until the total wait budget is spent. Other 5xx keep [`MAX_ATTEMPTS`].
-fn is_long_retry_status(code: u16) -> bool {
-    matches!(code, 429 | 502 | 503 | 504)
-}
 
 /// HTTP client for any OpenAI-compatible `/chat/completions` endpoint.
 ///
@@ -73,6 +71,13 @@ pub struct OpenAiClient {
     /// rate-limited or flapping gateway. Public for tests and the CLI.
     pub max_total_wait_ms: u64,
     http: reqwest::Client,
+    /// Per-provider request pacer (token bucket + 100 ms floor). `None` disables pacing
+    /// (e.g., local models with no provider to anger). Shared across clones.
+    pacer: Arc<Mutex<Option<RateLimiter>>>,
+    /// Timestamps of recent HTTP 429s (for the repeated-429 user warning).
+    recent_429s: Arc<Mutex<Vec<Instant>>>,
+    /// Human-readable provider name for warnings (e.g. "OpenAI", "Anthropic").
+    provider_name: String,
 }
 
 /// Add PEM roots from `SSL_CERT_FILE` so zen works behind a TLS-inspecting proxy
@@ -94,17 +99,44 @@ fn is_local_url(url: &str) -> bool {
     b.contains("://127.0.0.1") || b.contains("://localhost") || b.contains("://[::1]")
 }
 
+/// Best-effort human-readable provider name from a base URL (for warnings).
+fn provider_name_for_url(url: &str) -> String {
+    let l = url.to_ascii_lowercase();
+    if l.contains("anthropic") {
+        "Anthropic".to_string()
+    } else if l.contains("openai") {
+        "OpenAI".to_string()
+    } else if l.contains("google") || l.contains("generativelanguage") {
+        "Google".to_string()
+    } else if l.contains("openrouter") {
+        "OpenRouter".to_string()
+    } else if l.contains("groq") {
+        "Groq".to_string()
+    } else if l.contains("ollama") || is_local_url(url) {
+        "local".to_string()
+    } else {
+        "provider".to_string()
+    }
+}
+
 impl OpenAiClient {
     /// Build a client. `api_key` may be `None` (local gateways often need no auth); an empty
     /// string is treated as absent. `sink` receives retry events.
     pub fn new(base_url: impl Into<String>, api_key: Option<String>, sink: Arc<dyn EventSink>) -> Self {
         let base_url = base_url.into();
-        let mut builder =
-            with_extra_roots(reqwest::Client::builder().timeout(Duration::from_secs(120)));
+        let mut builder = with_extra_roots(
+            reqwest::Client::builder()
+                .timeout(Duration::from_secs(120))
+                .user_agent(safety::user_agent()),
+        );
         if is_local_url(&base_url) {
             builder = builder.no_proxy();
         }
         let http = builder.build().unwrap_or_else(|_| reqwest::Client::new());
+        // Pacing is skipped for local endpoints (nothing to anger) and enabled
+        // otherwise, using conservative per-provider defaults.
+        let pacer = RateLimiter::for_provider(&base_url);
+        let provider_name = provider_name_for_url(&base_url);
         Self {
             base_url,
             api_key,
@@ -113,6 +145,48 @@ impl OpenAiClient {
             max_retry_delay_ms: 60_000,
             max_total_wait_ms: DEFAULT_MAX_TOTAL_WAIT_MS,
             http,
+            pacer: Arc::new(Mutex::new(pacer)),
+            recent_429s: Arc::new(Mutex::new(Vec::new())),
+            provider_name,
+        }
+    }
+
+    /// Override the human-readable provider name used in warnings. Public for tests.
+    pub fn with_provider_name(mut self, name: impl Into<String>) -> Self {
+        self.provider_name = name.into();
+        self
+    }
+
+    /// Number of 429s seen in the last 5 minutes (for the repeated-429 warning).
+    pub fn recent_429_count(&self) -> usize {
+        let mut v = self.recent_429s.lock().unwrap();
+        let cutoff = Instant::now() - Duration::from_secs(5 * 60);
+        v.retain(|t| *t >= cutoff);
+        v.len()
+    }
+
+    fn note_429(&self) {
+        self.recent_429s.lock().unwrap().push(Instant::now());
+    }
+
+    /// Feed live `x-ratelimit-*` / `anthropic-ratelimit-*` headers into the pacer.
+    /// Live headers always override the conservative defaults upward.
+    fn update_pacer_from_headers(&self, headers: &reqwest::header::HeaderMap) {
+        let mut guard = self.pacer.lock().unwrap();
+        let Some(pacer) = guard.as_mut() else { return };
+        for name in [
+            "x-ratelimit-limit-requests",
+            "anthropic-ratelimit-requests-limit",
+            "x-ratelimit-limit",
+        ] {
+            if let Some(v) = headers.get(name).and_then(|h| h.to_str().ok()) {
+                if let Ok(rpm) = v.trim().parse::<u64>() {
+                    if rpm > 0 {
+                        pacer.update_ceiling(rpm);
+                        return;
+                    }
+                }
+            }
         }
     }
 
@@ -199,12 +273,6 @@ fn server_retry_hint_ms(header: Option<&str>, body: &str) -> Option<u64> {
     Some((secs.max(0.0) * 1000.0) as u64)
 }
 
-/// Exponential backoff, raised to the server's hint (capped at `cap_ms`).
-fn retry_delay_ms(attempt: u32, base_ms: u64, hint_ms: Option<u64>, cap_ms: u64) -> u64 {
-    let backoff = base_ms.saturating_mul(1u64 << (attempt - 1));
-    backoff.max(hint_ms.unwrap_or(0).min(cap_ms))
-}
-
 /// First `n` characters of `s`, used to truncate error bodies.
 fn first_chars(s: &str, n: usize) -> String {
     s.chars().take(n).collect()
@@ -216,26 +284,54 @@ impl LlmBackend for OpenAiClient {
         let url = self.endpoint();
         let mut waited_ms: u64 = 0;
         let mut attempt: u32 = 0;
+        // Warn once per session on the first 429 (info, not alarming).
+        let mut warned_first_429 = false;
 
         loop {
             attempt += 1;
+
+            // ── Pacing: token bucket + 100 ms floor ──
+            let pace_wait = self
+                .pacer
+                .lock()
+                .unwrap()
+                .as_mut()
+                .map(|p| p.acquire())
+                .unwrap_or(Duration::ZERO);
+            if !pace_wait.is_zero() {
+                tokio::time::sleep(pace_wait).await;
+            }
+
             let rb = self.auth(self.http.post(&url).json(&req));
             let outcome = rb.send().await;
 
-            // Classify the attempt: either a parsed response, a retryable failure, or a
-            // fatal failure. `err_text` is what the caller would see in an error message.
-            // `long` failures (429/502/503/504) retry until the wait budget is spent.
+            // Classify the attempt BEFORE deciding to retry. Billing/quota errors
+            // are never retried; other 4xx fail fast.
             let mut server_hint_ms: Option<u64> = None;
-            let (retryable, long, status, err_text): (bool, bool, Option<u16>, String) = match outcome {
+            enum Outcome {
+                Parsed(anyhow::Result<ChatResponse>),
+                Classified(ErrorClass, Option<u16>, String),
+            }
+            let outcome: Outcome = match outcome {
                 Ok(resp) => {
                     let code = resp.status().as_u16();
+                    // Feed live rate-limit headers into the pacer (they override defaults).
+                    self.update_pacer_from_headers(resp.headers());
                     if resp.status().is_success() {
                         let body = resp.text().await?;
                         // A 200 that carries a gateway error, no choices, or an empty message is
                         // a sampling glitch (gpt-oss Harmony header errors): resample (r7 C3).
                         match transient_completion(&body) {
-                            Some(why) if attempt < MAX_ATTEMPTS => (true, false, Some(code), why),
-                            _ => return parse_completion(&body),
+                            Some(why)
+                                if attempt < MAX_ATTEMPTS =>
+                            {
+                                Outcome::Classified(
+                                    ErrorClass::Transient,
+                                    Some(code),
+                                    why,
+                                )
+                            }
+                            _ => Outcome::Parsed(parse_completion(&body)),
                         }
                     } else {
                         let header = resp
@@ -245,26 +341,48 @@ impl LlmBackend for OpenAiClient {
                             .map(str::to_string);
                         let body = resp.text().await.unwrap_or_default();
                         server_hint_ms = server_retry_hint_ms(header.as_deref(), &body);
-                        let retryable = code == 429 || (500..600).contains(&code);
-                        (
-                            retryable,
-                            is_long_retry_status(code),
+                        let class = safety::classify_error(Some(code), &body);
+                        if code == 429 {
+                            self.note_429();
+                        }
+                        Outcome::Classified(
+                            class,
                             Some(code),
                             format!("HTTP {}: {}", code, first_chars(&body, ERROR_BODY_CHARS)),
                         )
                     }
                 }
-                Err(e) => (true, false, None, format!("network error: {}", e)),
+                Err(e) => Outcome::Classified(
+                    ErrorClass::Transient,
+                    None,
+                    format!("network error: {}", e),
+                ),
             };
 
-            if !retryable {
+            let (class, status, err_text) = match outcome {
+                Outcome::Parsed(r) => return r,
+                Outcome::Classified(c, st, e) => (c, st, e),
+            };
+
+            // ── Hard stops: never retry these ──
+            match class {
+                ErrorClass::QuotaExhausted => {
+                    return Err(anyhow::anyhow!(safety::quota_exhausted_error(
+                        &self.provider_name,
+                        &err_text
+                    )));
+                }
+                ErrorClass::Fatal => {
+                    return Err(anyhow::anyhow!(err_text));
+                }
+                ErrorClass::RateLimit | ErrorClass::Overloaded | ErrorClass::Transient => {}
+            }
+
+            // ── Retryable: backoff with jitter, max 5 retries ──
+            if attempt >= MAX_ATTEMPTS {
                 return Err(anyhow::anyhow!(err_text));
             }
-            let attempt_cap = if long { MAX_LONG_ATTEMPTS } else { MAX_ATTEMPTS };
             let budget_left = self.max_total_wait_ms.saturating_sub(waited_ms);
-            if attempt >= attempt_cap {
-                return Err(anyhow::anyhow!(err_text));
-            }
             if budget_left == 0 {
                 return Err(anyhow::anyhow!(
                     "{} (gave up after {} attempts: retry wait budget of {} s spent; settings retry.maxWaitSecs)",
@@ -273,27 +391,47 @@ impl LlmBackend for OpenAiClient {
                     self.max_total_wait_ms / 1000
                 ));
             }
-            // Backoff doubles per attempt (exponent capped so it cannot overflow), never above
-            // the per-wait cap, raised to the server's hint, and clipped to the budget left.
-            let delay_ms = retry_delay_ms(
-                attempt.min(16),
+
+            // First 429 in this session: one info-level notice.
+            if status == Some(429) && !warned_first_429 {
+                warned_first_429 = true;
+                eprintln!("{}", safety::first_429_notice(&self.provider_name));
+            }
+            // Repeated 429s: stronger warning.
+            let recent = self.recent_429_count();
+            if recent > 3 {
+                eprintln!("{}", safety::repeated_429_warning(recent as u32, &self.provider_name));
+            }
+
+            // Backoff with ±25% jitter, always raised to the server's Retry-After hint,
+            // capped per-wait and clipped to the budget left.
+            let jittered = safety::backoff_with_jitter(
+                attempt,
                 self.base_retry_delay_ms,
-                server_hint_ms,
                 self.max_retry_delay_ms,
-            )
-            .min(self.max_retry_delay_ms.max(self.base_retry_delay_ms))
-            .min(budget_left);
+                safety::jitter_now_nanos(),
+            );
+            let delay_ms = jittered
+                .max(server_hint_ms.unwrap_or(0).min(self.max_retry_delay_ms))
+                .min(self.max_retry_delay_ms.max(self.base_retry_delay_ms))
+                .min(budget_left);
+            // For 529 (provider overloaded), suggest fallback in the event.
+            let mut err_for_event = err_text.clone();
+            if class == ErrorClass::Overloaded {
+                err_for_event.push_str(" (provider overloaded — consider a fallback provider)");
+            }
             self.sink.emit(AgentEvent::ApiRetry {
                 attempt,
-                max_retries: attempt_cap - 1,
+                max_retries: MAX_ATTEMPTS - 1,
                 retry_delay_ms: delay_ms,
                 error_status: status,
-                error: err_text.clone(),
+                error: err_for_event,
             });
             tokio::time::sleep(Duration::from_millis(delay_ms)).await;
             waited_ms = waited_ms.saturating_add(delay_ms);
         }
     }
+
 }
 
 /// Why a 200 body is worth resampling, if it is: an `error` object instead of choices (vLLM
@@ -364,9 +502,6 @@ pub(crate) fn parse_completion(body: &str) -> anyhow::Result<ChatResponse> {
 
 /// One `chat` call with a model-fallback chain: primary model first, then each fallback once.
 ///
-/// The primary's own retries ([`OpenAiClient::chat`]) happen inside each attempt, so a fallback
-/// only runs after the primary has truly failed. Returns the response, the total wall time spent
-/// in `chat` (all attempts and models, used for `duration_api_ms`), and the model that answered.
 pub(crate) async fn chat_with_fallback(
     llm: &Arc<dyn LlmBackend>,
     primary: &str,
@@ -503,11 +638,15 @@ mod tests {
         assert_eq!(server_retry_hint_ms(None, r#"{"retry_after_seconds":"2"}"#), Some(2_000));
         assert_eq!(server_retry_hint_ms(None, "not json"), None);
         assert_eq!(server_retry_hint_ms(Some("Wed, 21 Oct 2026 07:28:00 GMT"), "{}"), None);
-        // attempt 1 backoff 1 s; a 23 s hint wins; a 600 s hint is capped at 60 s.
-        assert_eq!(retry_delay_ms(1, 1000, None, 60_000), 1000);
-        assert_eq!(retry_delay_ms(3, 1000, Some(500), 60_000), 4000);
-        assert_eq!(retry_delay_ms(1, 1000, Some(23_000), 60_000), 23_000);
-        assert_eq!(retry_delay_ms(1, 1000, Some(600_000), 60_000), 60_000);
+        // backoff_with_jitter (safety): attempt 1 ~1 s +/-25%, attempt 3 ~4 s +/-25%,
+        // always capped at 60 s. Deterministic for a fixed seed.
+        use crate::safety::backoff_with_jitter;
+        let b1 = backoff_with_jitter(1, 1000, 60_000, 42);
+        assert!((750..=1250).contains(&b1), "b1={b1}");
+        let b3 = backoff_with_jitter(3, 1000, 60_000, 42);
+        assert!((3000..=5000).contains(&b3), "b3={b3}");
+        let bcap = backoff_with_jitter(20, 1000, 60_000, 42);
+        assert!(bcap <= 60_000, "bcap={bcap}");
     }
 
     #[test]

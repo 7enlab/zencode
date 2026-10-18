@@ -47,11 +47,13 @@ pub mod finish;
 pub mod guard;
 pub mod plan;
 pub mod repair;
+pub mod safety;
 mod subagent;
 
 pub mod agent;
 pub use agent::{Agent, AgentConfig, DEFAULT_MAX_CONTINUATIONS, DEFAULT_STOP_HOOK_CONTINUES, DEFAULT_TOOL_TIMEOUT_MS};
 pub use client::OpenAiClient;
+pub use safety::{user_agent, ErrorClass, classify_error};
 pub use subagent::SubAgentExecutor;
 
 #[cfg(test)]
