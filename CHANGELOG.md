@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `encode_cwd`: also replace `\` and `:` when encoding the project-dir name, so Windows
   paths like `C:\Users\...` become a single flat directory instead of nested dirs.
   Fixes session lookup/resume failures on Windows (issue #6).
+- Folder trust: in an untrusted folder, project baseUrl and apiKeyEnv are ignored
+  (user-level values apply) so a repo cannot redirect requests carrying your API key (PR #7).
 
 ## [0.1.0] - 2026-10-17
 
