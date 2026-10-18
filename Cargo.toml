@@ -5,6 +5,7 @@ members = ["crates/zen-core", "crates/zen-agent", "crates/zen-tools", "crates/ze
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
 
 [workspace.dependencies]
 zen-core = { path = "crates/zen-core" }
