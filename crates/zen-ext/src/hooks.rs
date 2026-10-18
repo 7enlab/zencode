@@ -1069,4 +1069,74 @@ mod tests {
         assert_eq!(v["hook_event_name"], "PostToolUse");
         assert_eq!(v["transcript_path"], "/tmp/transcript.jsonl");
     }
+
+    /// Payload schema validation for the five documented events (docs/hooks.md):
+    /// every hook receives the standard fields plus its event-specific fields,
+    /// with the documented JSON types.
+    #[tokio::test]
+    async fn payload_schema_five_events() {
+        let tmp = TempDir::new();
+        let cases: Vec<(HookEvent, &str, Value, Vec<&str>)> = vec![
+            (
+                HookEvent::PreToolUse,
+                "Bash",
+                json!({"tool_name": "Bash", "tool_input": {"command": "ls"}, "tool_use_id": "t1"}),
+                vec!["tool_name", "tool_input", "tool_use_id"],
+            ),
+            (
+                HookEvent::PostToolUse,
+                "Bash",
+                json!({"tool_name": "Bash", "tool_input": {"command": "ls"}, "tool_use_id": "t1", "tool_response": "ok"}),
+                vec!["tool_name", "tool_input", "tool_use_id", "tool_response"],
+            ),
+            (
+                HookEvent::UserPromptSubmit,
+                "",
+                json!({"prompt": "hi"}),
+                vec!["prompt"],
+            ),
+            (
+                HookEvent::Stop,
+                "",
+                json!({"stop_hook_active": false, "last_assistant_message": "done"}),
+                vec!["stop_hook_active", "last_assistant_message"],
+            ),
+            (
+                HookEvent::PreCompact,
+                "auto",
+                json!({"trigger": "auto", "custom_instructions": "", "pre_tokens": 123}),
+                vec!["trigger", "custom_instructions", "pre_tokens"],
+            ),
+        ];
+        for (event, target, payload, specific) in cases {
+            let outfile = tmp.path().join(format!("{}.json", event.as_str()));
+            let hooks =
+                hooks_with(event.as_str(), None, &format!("cat > {}", outfile.display()), 10);
+            run_ev(&runner(hooks, tmp.path()), event, target, payload).await;
+            let v: Value = serde_json::from_str(&fs::read_to_string(&outfile).unwrap()).unwrap();
+            // Standard fields (docs/hooks.md "Payload schema").
+            assert!(
+                v.get("session_id").and_then(|s| s.as_str()).is_some(),
+                "{event:?} session_id"
+            );
+            assert!(
+                v.get("transcript_path").and_then(|s| s.as_str()).is_some(),
+                "{event:?} transcript_path"
+            );
+            assert!(v.get("cwd").and_then(|s| s.as_str()).is_some(), "{event:?} cwd");
+            assert_eq!(
+                v.get("hook_event_name").and_then(|s| s.as_str()),
+                Some(event.as_str()),
+                "{event:?} hook_event_name"
+            );
+            assert!(
+                v.get("permission_mode").and_then(|s| s.as_str()).is_some(),
+                "{event:?} permission_mode"
+            );
+            // Event-specific fields from the docs.
+            for field in specific {
+                assert!(v.get(field).is_some(), "{event:?} missing field {field}");
+            }
+        }
+    }
 }
