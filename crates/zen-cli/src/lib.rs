@@ -10,6 +10,7 @@ pub mod commands;
 pub mod cost;
 pub mod context;
 pub mod envsnap;
+pub mod eval;
 pub mod eventlog;
 pub mod export;
 pub mod git;
@@ -28,7 +29,7 @@ pub mod session_mgmt;
 pub mod settings;
 pub mod system_prompt;
 
-pub use cli::{Cli, Commands, CostArgs, ExportArgs, ImportArgs, InputFormat, McpArgs, McpSubcommand, ModelsArgs, OutputFormat, PermissionMode, SessionSubcommand, SessionsArgs};
+pub use cli::{Cli, Commands, CostArgs, EvalArgs, ExportArgs, ImportArgs, InputFormat, McpArgs, McpSubcommand, ModelsArgs, OutputFormat, PermissionMode, SessionSubcommand, SessionsArgs};
 pub use settings::{resolve_config, ResolvedConfig};
 pub use system_prompt::build_system_prompt;
 
@@ -212,6 +213,29 @@ fn cost_subcommand(
         Commands::Sessions(s) => {
             commands::sessions_command(cli, cwd, home, s).await?;
             Ok(0)
+        }
+        Commands::Eval(args) => {
+            let cfg = settings::resolve_config_with_home(cli, cwd, home)?;
+            let model = args.model.clone().unwrap_or_else(|| cfg.model.clone());
+            let opts = eval::EvalOptions {
+                model,
+                task_filter: args.task.clone(),
+                max_turns: args.max_turns,
+                base_url: cfg.base_url.clone(),
+                api_key: cfg.api_key().map(|s| s.to_string()),
+            };
+            let report = eval::run_eval(&opts).await?;
+            if args.json {
+                println!("{}", report.to_json()?);
+            } else {
+                println!("{}", report.to_markdown());
+            }
+            // Exit 0 when the v0.3.0 bar (>=5/10) is met, so CI can gate on it.
+            Ok(if report.passed_count * 2 >= report.task_count {
+                0
+            } else {
+                1
+            })
         }
     }
     Ok(())

@@ -357,6 +357,8 @@ pub enum Commands {
     Import(ImportArgs),
     /// Manage saved sessions (list, archive, restore, delete)
     Sessions(SessionsArgs),
+    /// Run the 10-task benchmark harness (roadmap g5, v0.3.0 milestone)
+    Eval(EvalArgs),
 }
 
 #[derive(Args, Debug, Clone)]
@@ -445,6 +447,23 @@ pub enum SessionSubcommand {
         /// Session id (or absolute path)
         id: String,
     },
+}
+
+
+#[derive(Args, Debug, Clone)]
+pub struct EvalArgs {
+    /// Model to evaluate (overrides configured model). Must be a `:free` model.
+    #[arg(long)]
+    pub model: Option<String>,
+    /// Only run tasks whose id contains this substring
+    #[arg(long)]
+    pub task: Option<String>,
+    /// Output JSON instead of the markdown table
+    #[arg(long)]
+    pub json: bool,
+    /// Max agent turns per task
+    #[arg(long, default_value_t = 25)]
+    pub max_turns: usize,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -950,5 +969,28 @@ mod tests {
         assert_eq!(cli.provider.as_deref(), Some("ollama"));
         let cli = parse(&[]);
         assert_eq!(cli.provider, None);
+    }
+
+    #[test]
+    fn parse_eval_subcommand() {
+        let cli = parse(&["eval", "--model", "x:free", "--task", "create", "--json"]);
+        match &cli.subcommand {
+            Some(Commands::Eval(a)) => {
+                assert_eq!(a.model.as_deref(), Some("x:free"));
+                assert_eq!(a.task.as_deref(), Some("create"));
+                assert!(a.json);
+                assert_eq!(a.max_turns, 25);
+            }
+            other => panic!("expected Eval, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parse_eval_max_turns() {
+        let cli = parse(&["eval", "--max-turns", "10"]);
+        match &cli.subcommand {
+            Some(Commands::Eval(a)) => assert_eq!(a.max_turns, 10),
+            other => panic!("expected Eval, got {:?}", other),
+        }
     }
 }
