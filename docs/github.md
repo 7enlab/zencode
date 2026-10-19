@@ -11,12 +11,12 @@ Fetches PR review comments (inline code comments + conversation comments) and
 displays them grouped by file with a severity estimate:
 
 ```
-PR #52: Add /diff command
-https://github.com/atzenn/zencode/pull/52
+PR #1: docs: refresh README branding to ZenCode
+https://github.com/atzenn/zencode/pull/1
 3 comment(s):
 
 ## src/main.rs (2 comments)
-  [CRITICAL] @hark:42
+  [CRITICAL] @reviewer:42
   > This is a security issue: unsanitized input reaches the shell.
   https://github.com/...
 ```
