@@ -1322,7 +1322,7 @@ impl Tool for WebFetchTool {
         let client = match with_extra_roots(reqwest::Client::builder())
             .timeout(Duration::from_secs(10))
             .redirect(reqwest::redirect::Policy::none())
-            .user_agent("zen-code/0.1 (+https://example.invalid/zen)")
+            .user_agent("ZenCode/0.1 (+https://example.invalid/zen)")
             .build()
         {
             Ok(c) => c,

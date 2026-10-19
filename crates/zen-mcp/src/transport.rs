@@ -378,7 +378,7 @@ pub(crate) async fn handshake(transport: &Transport) -> anyhow::Result<Vec<Remot
     let init_params = json!({
         "protocolVersion": PROTOCOL_VERSION,
         "capabilities": {},
-        "clientInfo": {"name": "zen-code", "version": env!("CARGO_PKG_VERSION")}
+        "clientInfo": {"name": "ZenCode", "version": env!("CARGO_PKG_VERSION")}
     });
     let _ = transport.request("initialize", init_params).await.map_err(|e| {
         anyhow::anyhow!("initialize failed: {}", e)

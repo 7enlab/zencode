@@ -2,7 +2,7 @@
 
 > **Status:** Private until v1.0.0.
 
-A clean-room terminal coding agent written in Rust, built as a learning project. It mirrors the
+A clean-room terminal coding agent written in Rust, built for production use. It mirrors the
 *observable behavior* of tools like Claude Code (REPL, agent loop with tool calling, permissions,
 hooks, ZEN.md memory, skills, MCP, sub-agents, headless JSON output, sessions, compaction) without
 using any of their code, prompts or tool descriptions. It talks to any OpenAI-compatible

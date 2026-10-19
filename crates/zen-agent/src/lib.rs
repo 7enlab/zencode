@@ -1,7 +1,7 @@
 //! # zen-agent
 //!
 //! The agent loop, the OpenAI-compatible HTTP client, context compaction and the sub-agent
-//! runner for zen-code.
+//! runner for ZenCode.
 //!
 //! `zen-agent` is the *mechanism*: it does not know about CLI flags, settings JSON or files on
 //! disk. Those concerns live in `zen-ext` and `zen-cli`; this crate only consumes the shared

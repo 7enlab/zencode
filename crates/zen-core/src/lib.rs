@@ -1,4 +1,4 @@
-//! zen-core: shared types and traits for every zen-code crate.
+//! zen-core: shared types and traits for every ZenCode crate.
 //! OWNER: integrator only. Workers must NOT edit this crate; if you need a change, write it in
 //! your crate's NOTES.md ("core change request") and work around it locally.
 

@@ -1,4 +1,4 @@
-# zen-code — Behavioral Specification (clean-room)
+# ZenCode — Behavioral Specification (clean-room)
 
 Status: v1 (2026-10-14). Sources: public docs at code.claude.com/docs (headless, settings, hooks, cli-reference pages),
 `claude --help` output (saved in `claude-help.txt`), and black-box observation via REA on Railway (see Appendix A).
@@ -126,7 +126,7 @@ Custom commands: Markdown files in `.zen/commands/*.md` (project) and `~/.zen/co
 ## 8. MCP client
 - Config sources: `.mcp.json` in project root (`{"mcpServers": {name: cfg}}`), `~/.zen.json`/`~/.zen/mcp.json` user, `--mcp-config` files/JSON strings. `--strict-mcp-config` = only CLI ones.
 - Server config: stdio `{ "command", "args"?, "env"? }` (type `stdio` default) or HTTP `{ "type": "http", "url", "headers"? }` (streamable HTTP; MVP may stub SSE).
-- Protocol: JSON-RPC 2.0. `initialize` (protocolVersion, capabilities, clientInfo{name:"zen-code"}) → `notifications/initialized` → `tools/list` → `tools/call {name, arguments}`. Results' `content[]` text parts joined as tool result; `isError` respected.
+- Protocol: JSON-RPC 2.0. `initialize` (protocolVersion, capabilities, clientInfo{name:"ZenCode"}) → `notifications/initialized` → `tools/list` → `tools/call {name, arguments}`. Results' `content[]` text parts joined as tool result; `isError` respected.
 - Tools exposed to the model as `mcp__<server>__<tool>` with the server's inputSchema.
 - Startup timeout `MCP_TIMEOUT` (default 30 s); failed servers reported with status `failed` in `/mcp` and in stream-json init `mcp_servers: [{name, status}]`.
 - `zen mcp add <name> -- <cmd> [args]`, `zen mcp add --transport http <name> <url>`, `zen mcp list`, `zen mcp remove <name>`; `-s local|project|user` scope.
@@ -214,7 +214,7 @@ Sources (formats/behaviors only; nothing copied verbatim, no code or prompt text
 public repo github.com/anthropics/claude-code (README, examples/settings/*.json, examples/hooks/bash_command_validator_example.py,
 plugins/*/.claude-plugin/plugin.json + hooks/hooks.json layout), and docs pages code.claude.com/docs/en/{hooks, settings, permissions,
 memory, headless, commands, sub-agents, skills}. Names translated: CLAUDE.md→ZEN.md, .claude→.zen, CLAUDE_PROJECT_DIR→ZEN_PROJECT_DIR.
-Priority: P1 = must have for parity of the core loop; P2 = should have; P3 = out of scope for this learning project (documented only).
+Priority: P1 = must have for parity of the core loop; P2 = should have; P3 = out of scope for v1.0.0 (documented only).
 Status column is maintained in PLAN.md ("Parity status").
 
 ### C1 Settings

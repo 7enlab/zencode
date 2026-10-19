@@ -20,5 +20,5 @@ ideas were taken; zen's code, prompts and wording are its own (clean-room rule).
 | RPC mode (driving the agent over stdin/stdout JSON-RPC) | `-p --output-format stream-json` already serves scripted use; C8.6 (stream-json input) is the planned path. |
 | TypeScript extensions | Would pull a JS runtime into a Rust binary; hooks, skills, custom commands and MCP already cover extension needs. |
 | Hash-anchored ("hashline") edits | Interesting for weak models, but zen's `Edit` is exact unique-string replacement by spec and tests depend on it; would need its own spec item and evaluation. |
-| LSP / DAP integration | Large surface (process management, per-language servers); out of scope for a learning project. Reachable later through MCP. |
+| LSP / DAP integration | Large surface (process management, per-language servers); out of scope for v1.0.0. Reachable later through MCP. |
 | Advisor / second "reviewer" model | Doubles API calls; zen targets free models with tight rate limits. `fallbackModels` and sub-agents with a custom `model` cover the nearby need. |

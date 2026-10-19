@@ -112,7 +112,7 @@ fn parse_session_uuid(s: &str) -> Result<String, String> {
 }
 
 #[derive(Parser, Debug, Clone)]
-#[command(name = "zen", version, about = "zen-code CLI coding agent")]
+#[command(name = "zen", version, about = "ZenCode CLI coding agent")]
 pub struct Cli {
     /// Headless: run one prompt and exit
     #[arg(short = 'p', long = "print")]

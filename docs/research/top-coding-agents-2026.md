@@ -1,6 +1,6 @@
-# Top coding agents (Oct 2026) — what they do, and what zen-code should adopt next
+# Top coding agents (Oct 2026) — what they do, and what ZenCode should adopt next
 
-Scout report, 2026-10-15. Read-only pass over zen-code (PLAN.md, SPEC.md, docs/ARCHITECTURE.md, crates/*) plus public docs/READMEs/blogs.
+Scout report, 2026-10-15. Read-only pass over ZenCode (PLAN.md, SPEC.md, docs/ARCHITECTURE.md, crates/*) plus public docs/READMEs/blogs.
 Clean-room rule holds: everything below describes **behaviors** in our own words. No source, prompts, tool texts or plugin text were copied, and none should be copied when implementing.
 
 ---
@@ -15,13 +15,13 @@ Clean-room rule holds: everything below describes **behaviors** in our own words
   3. **loop detection**: per-file edit counters, with a "reconsider your approach" note after N edits to the same file;
   4. a "reasoning sandwich": high effort for planning and verification, lower for execution.
 * **ForgeCode, ~25% → 78.4% → 81.8%** (summary via https://devthrottle.com/coding-agents/forgecode and https://www.tensorlake.ai/blog/forgecode-terminal-bench; the forgecode.dev blog URLs now 404): a **tool-call correction layer** that repairs bad calls instead of failing the turn; **mandatory todo_write** for multi-step tasks; **flattened, consistently ordered tool schemas**; **explicit truncation markers** on partial reads; a **mandatory verification pass** before completion; semantic entry-point discovery; parallel execution of independent tool calls; tiered reasoning effort.
-* **oh-my-pi hashline** (https://github.com/can1357/oh-my-pi README, fetched): edits point at line anchors (a line number plus a short content hash, or a file snapshot tag) instead of retyping old text, and stale anchors are rejected. Self-reported: +15 pp on average over 16 models; Grok Code Fast went from 6.7% to 68.3%; output tokens down 61% on Grok 4 Fast. An independent edit-bench found the effect **depends on the language** (worse on Python, neutral on TS, a wash on Rust) and concluded that "edit format is not the bottleneck" for strong models (https://pi.dev/packages/@d3ara1n/pi-hashline-edit). Takeaway: the **weaker the model, the more edit and tool robustness matter**. zen-code runs only free models, so robustness work pays off more for us than for most agents.
+* **oh-my-pi hashline** (https://github.com/can1357/oh-my-pi README, fetched): edits point at line anchors (a line number plus a short content hash, or a file snapshot tag) instead of retyping old text, and stale anchors are rejected. Self-reported: +15 pp on average over 16 models; Grok Code Fast went from 6.7% to 68.3%; output tokens down 61% on Grok 4 Fast. An independent edit-bench found the effect **depends on the language** (worse on Python, neutral on TS, a wash on Rust) and concluded that "edit format is not the bottleneck" for strong models (https://pi.dev/packages/@d3ara1n/pi-hashline-edit). Takeaway: the **weaker the model, the more edit and tool robustness matter**. ZenCode runs only free models, so robustness work pays off more for us than for most agents.
 
 ## 2. Agents × features
 
 Legend: ● built-in / first-class · ◐ partial, opt-in or plugin · – none known. Source per agent is listed under the table.
 
-| Feature | Claude Code | Codex CLI | Gemini CLI | Aider | OpenCode | Cline/Roo | Cursor CLI | Amp | Goose | oh-my-pi | ForgeCode | **zen-code now** |
+| Feature | Claude Code | Codex CLI | Gemini CLI | Aider | OpenCode | Cline/Roo | Cursor CLI | Amp | Goose | oh-my-pi | ForgeCode | **ZenCode now** |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
 | Edit format | exact str-replace + multi-edit, read-before-edit | `apply_patch` freeform grammar (multi-file add/update/delete/move) | replace + write | search/replace, udiff, whole, per-model choice | edit/patch, modified-since-read check | multi search/replace, order-invariant | str-replace | `apply_patch` (rush) | developer ext. | **hashline** + fuzzy replace + ast_edit | replace | exact str-replace, read-before-write (no staleness check, no multi-edit) |
 | Tool-call repair | ◐ | ◐ lenient patch parse | ◐ | n/a (text formats) | ◐ | ◐ | ? | ? | ◐ | ● normalization warnings | **●** correction layer | ◐ bad JSON → error result only |
@@ -49,7 +49,7 @@ Cells marked ◐ or ? from search excerpts only are lower confidence. The well-s
 * poteto-mode playbooks `session-pickup` / `pause-safely`: leave a handoff file good enough for a cold restart. Maps to an Amp-style `/handoff` alternative to compaction.
 * Principles `prove-it-works` and `guard-the-context-window`: same message as LangChain (verify, keep context lean).
 
-## 3. Gap list vs zen-code
+## 3. Gap list vs ZenCode
 
 What exists (P1 parity 55/55, 363 tests): settings layering, permissions (rules + 5 modes), hooks (full P1 event set), ZEN.md memory + imports, custom commands/skills, sub-agents (Task, custom, built-in Explore/Plan), MCP stdio/http, headless text/json/stream-json, resume/continue/fork, compaction, `--tools`.
 
@@ -131,7 +131,7 @@ Each item names its behavior, prior art, likely files, a verify criterion and a 
 | 17 | Repo map (tree-sitter symbol outline ranked by references) | P3 | L | Aider; heavy dependency. #4 covers most of the value cheaply. |
 
 ## 6. Notes, assumptions, open questions
-* zen-code was read-only for this pass. Another worker is editing the source, so line-level details may shift; the file paths above are the likely touch points, not a plan of exact edits.
+* ZenCode was read-only for this pass. Another worker is editing the source, so line-level details may shift; the file paths above are the likely touch points, not a plan of exact edits.
 * Leaderboard numbers are self-reported or leaderboard snapshots (May–Jun 2026). Use them as direction, not as precise ranks.
 * ForgeCode's own blog posts returned 404 at fetch time. Its techniques are cited from third-party summaries (DevThrottle, Tensorlake) and the forgecode GitHub README.
 * Order of work suggested: #2 → #1 → #5 → #4 → #3 (they compound and are mostly in zen-agent/zen-tools), then #12 to measure, then #6, #7 and #8.
