@@ -48,3 +48,18 @@ as references.
 ## Reporting Security Issues
 
 See [SECURITY.md](SECURITY.md). Do **not** open public issues for vulnerabilities.
+
+## Benchmark Checklist
+
+Before reporting any performance numbers publicly, answer these 7 questions
+(adapted from pstack's benchmark-checklist):
+
+1. **Why not double?** What is the limiter? If you doubled the resource, would the number double?
+2. **Tuned?** Was the baseline tuned fairly, or set up to lose?
+3. **Limits?** What are the error bars? What breaks at the edges?
+4. **Errors?** What failed during measurement? Were failures excluded?
+5. **Reproduce 5x?** Does the result hold across 5 independent runs?
+6. **Matter?** Does this number change any decision? If not, don't report it.
+7. **Did it even happen?** Can someone else reproduce this from your description?
+
+Unverified numbers are never used in public materials (per project policy).
