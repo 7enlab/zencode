@@ -1,4 +1,6 @@
-# zen-code
+# ZenCode
+
+> **Status:** Private until v1.0.0.
 
 A clean-room terminal coding agent written in Rust, built as a learning project. It mirrors the
 *observable behavior* of tools like Claude Code (REPL, agent loop with tool calling, permissions,
@@ -8,6 +10,7 @@ using any of their code, prompts or tool descriptions. It talks to any OpenAI-co
 
 * Behavior spec: [`SPEC.md`](SPEC.md) (Appendix C is the parity checklist)
 * How it works: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+* Desktop integration: [`docs/stream-json-v1.md`](docs/stream-json-v1.md) (stream-json contract)
 
 ## Why ZenCode
 
@@ -32,6 +35,7 @@ More: [`docs/positioning.md`](docs/positioning.md) · [`docs/faq.md`](docs/faq.m
 ## Build
 
 ```bash
+cargo build -p zen-cli           # build the CLI crate
 cargo build --release          # binary: ./target/release/zen
 cargo test --workspace         # unit + end-to-end tests (no network needed)
 cargo clippy --workspace --all-targets -- -D warnings
