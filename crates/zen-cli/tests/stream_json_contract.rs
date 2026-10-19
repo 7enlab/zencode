@@ -238,6 +238,61 @@ async fn fixture_truncation_note() {
     .await;
 }
 
+/// A 200 completion whose `finish_reason` is `reason` (P0-5 scenarios).
+fn finished(content: &str, reason: &str) -> Reply {
+    let mut r = Reply::text(content);
+    r.body = r.body.replace(r#""finish_reason":"stop""#, &format!(r#""finish_reason":"{reason}""#));
+    r
+}
+
+/// OpenRouter's non-streaming mid-response error: 200, `finish_reason: "error"`, `choices[0].error`.
+fn mid_response_error(code: u16, error_type: &str, message: &str) -> Reply {
+    let mut r = Reply::text("");
+    r.body = json!({
+        "id": "gen-mock",
+        "object": "chat.completion",
+        "created": 0,
+        "model": "mock-model",
+        "choices": [{
+            "index": 0,
+            "message": {"role": "assistant", "content": ""},
+            "finish_reason": "error",
+            "error": {"code": code, "message": message, "metadata": {"error_type": error_type}}
+        }]
+    })
+    .to_string();
+    r
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn fixture_content_filter() {
+    check("content_filter", vec![finished("", "content_filter"), Reply::text("never sent")], BARE, |_| {}).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn fixture_mid_response_retry() {
+    std::env::set_var("ZEN_JITTER_SEED", "42");
+    check(
+        "mid_response_retry",
+        vec![mid_response_error(429, "rate_limit_exceeded", "Rate limit exceeded"), Reply::text("Answer after a mid-response 429.")],
+        BARE,
+        |_| {},
+    )
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn fixture_mid_response_error() {
+    std::env::set_var("ZEN_JITTER_SEED", "42");
+    check(
+        "mid_response_error",
+        vec![mid_response_error(502, "provider_unavailable", "Provider disconnected mid-stream")],
+        BARE,
+        |_| {},
+    )
+    .await;
+}
+
 /// Every record type, subtype and top-level key in the fixtures is named in the doc (`like_this`).
 #[test]
 fn doc_names_every_field_in_the_fixtures() {
@@ -267,6 +322,6 @@ fn doc_names_every_field_in_the_fixtures() {
             }
         }
     }
-    assert_eq!(seen, 8, "expected 8 fixture streams");
+    assert_eq!(seen, 11, "expected 11 fixture streams");
     assert!(missing.is_empty(), "docs/stream-json-v1.md does not mention: {missing:?}");
 }

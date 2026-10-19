@@ -656,8 +656,14 @@ async fn handle_slash(
         }
         "/cost" => println!("{}", commands::cost_report(&agent.usage, &agent.config.model, &cfg.base_url)),
         "/quota" => {
+            // Live numbers from OpenRouter's /api/v1/key only here, on request (P0-4).
             let store = home.map(zen_agent::RateGate::default_store_path);
-            println!("{}", zen_agent::rategate::quota_report_for(store.as_deref()));
+            let key_url = zen_agent::rategate::openrouter_key_url(&cfg.base_url);
+            let key = cfg.api_key();
+            println!(
+                "{}",
+                zen_agent::rategate::quota_command_report(key_url.as_deref(), key, store.as_deref()).await
+            );
         }
         "/commit" => {
             // /commit              -> show status, suggest message, ask to confirm

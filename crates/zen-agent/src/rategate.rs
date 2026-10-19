@@ -306,6 +306,119 @@ fn format_quota_report(status: &[QuotaStatus], enabled: bool) -> String {
     lines.join("\n")
 }
 
+// ─── Live OpenRouter quota (roadmap P0-4) ───────────────────────────────────
+//
+// OpenRouter reports the real free-model counter on `GET /api/v1/key`
+// (`data.free_model_daily_requests {used, limit, remaining}`, UTC day), see
+// https://openrouter.ai/docs/api-reference/limits. It is fetched only when the user asks
+// (`/quota`); no run ever calls it in the background.
+
+/// The key-info endpoint for an OpenRouter base URL (`https://openrouter.ai/api/v1` →
+/// `https://openrouter.ai/api/v1/key`), or `None` for any other provider.
+pub fn openrouter_key_url(base_url: &str) -> Option<String> {
+    let lower = base_url.trim().to_ascii_lowercase();
+    lower
+        .contains("openrouter.ai")
+        .then(|| format!("{}/key", base_url.trim().trim_end_matches('/')))
+}
+
+/// The parts of OpenRouter's `GET /api/v1/key` that `/quota` shows.
+#[derive(Debug, Clone, PartialEq)]
+pub struct KeyQuota {
+    /// Free-model requests used / allowed / left in the current UTC day.
+    pub free_used: Option<u64>,
+    pub free_limit: Option<u64>,
+    pub free_remaining: Option<u64>,
+    /// The key's credit limit and what is left of it (`None` = unlimited).
+    pub credit_limit: Option<f64>,
+    pub credit_remaining: Option<f64>,
+    /// Credits used today (UTC).
+    pub usage_daily: Option<f64>,
+    pub is_free_tier: Option<bool>,
+}
+
+impl KeyQuota {
+    /// Parse a `GET /api/v1/key` body.
+    pub fn from_body(body: &str) -> anyhow::Result<Self> {
+        let v: serde_json::Value = serde_json::from_str(body)
+            .map_err(|e| anyhow::anyhow!("invalid /key response: {e}"))?;
+        let d = v
+            .get("data")
+            .filter(|d| d.is_object())
+            .ok_or_else(|| anyhow::anyhow!("invalid /key response: no `data` object"))?;
+        let free = d.get("free_model_daily_requests");
+        let fu = |k: &str| free.and_then(|f| f.get(k)).and_then(serde_json::Value::as_u64);
+        let ff = |k: &str| d.get(k).and_then(serde_json::Value::as_f64);
+        Ok(Self {
+            free_used: fu("used"),
+            free_limit: fu("limit"),
+            free_remaining: fu("remaining"),
+            credit_limit: ff("limit"),
+            credit_remaining: ff("limit_remaining"),
+            usage_daily: ff("usage_daily"),
+            is_free_tier: d.get("is_free_tier").and_then(serde_json::Value::as_bool),
+        })
+    }
+
+    /// Lines for `/quota`. Never prints the key or its label.
+    pub fn report(&self) -> String {
+        let mut lines = vec![format!("OpenRouter quota ({} UTC, live from /api/v1/key):", today_utc())];
+        match (self.free_used, self.free_limit, self.free_remaining) {
+            (Some(u), Some(l), r) => {
+                let r = r.unwrap_or_else(|| l.saturating_sub(u));
+                lines.push(format!(
+                    "  free-model requests: used {u} / limit {l} (remaining {r}){}",
+                    if r == 0 { " — EXHAUSTED" } else { "" }
+                ));
+            }
+            _ => lines.push("  free-model requests: not reported for this key".into()),
+        }
+        match (self.credit_limit, self.credit_remaining) {
+            (Some(l), Some(r)) => lines.push(format!("  key credit limit: {l:.2} (remaining {r:.2})")),
+            _ => lines.push("  key credit limit: none".into()),
+        }
+        if let Some(u) = self.usage_daily {
+            lines.push(format!("  credits used today: {u:.4}"));
+        }
+        lines.join("\n")
+    }
+}
+
+/// `GET {key_url}` with the API key. One request, no retries, 15 s timeout; errors name the
+/// HTTP status (a 401 means the key is wrong) and never include the key.
+pub async fn fetch_key_quota(key_url: &str, api_key: Option<&str>) -> anyhow::Result<KeyQuota> {
+    let timeouts = crate::client::HttpTimeouts::from_secs(key_url, Some(15), None);
+    let http = crate::client::build_http(key_url, &timeouts, true);
+    let mut rb = http.get(key_url);
+    if let Some(k) = api_key.filter(|k| !k.is_empty()) {
+        rb = rb.header(reqwest::header::AUTHORIZATION, format!("Bearer {k}"));
+    }
+    let resp = rb.send().await.map_err(|e| anyhow::anyhow!("quota lookup failed: {e}"))?;
+    let status = resp.status().as_u16();
+    let body = resp.text().await.unwrap_or_default();
+    if !(200..300).contains(&status) {
+        let msg = serde_json::from_str::<serde_json::Value>(&body)
+            .ok()
+            .and_then(|v| v.pointer("/error/message").and_then(|m| m.as_str()).map(str::to_string))
+            .unwrap_or_else(|| body.chars().take(200).collect());
+        return Err(anyhow::anyhow!("quota lookup failed: HTTP {status}: {msg}"));
+    }
+    KeyQuota::from_body(&body)
+}
+
+/// The `/quota` text: the live OpenRouter numbers when `key_url` is set (see
+/// [`openrouter_key_url`]), then the local RateGate counts.
+pub async fn quota_command_report(key_url: Option<&str>, api_key: Option<&str>, store_path: Option<&Path>) -> String {
+    let local = quota_report_for(store_path);
+    match key_url {
+        None => local,
+        Some(url) => match fetch_key_quota(url, api_key).await {
+            Ok(q) => format!("{}\n{}", q.report(), local),
+            Err(e) => format!("{e}\n{local}"),
+        },
+    }
+}
+
 /// Current UTC date as `YYYY-MM-DD` (no chrono dependency; Howard Hinnant's algorithm).
 fn today_utc() -> String {
     let days = SystemTime::now()

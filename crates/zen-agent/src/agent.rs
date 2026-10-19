@@ -62,6 +62,18 @@ pub fn is_truncated(finish_reason: Option<&str>) -> bool {
     })
 }
 
+/// The run result for a reply stopped by the provider's content filter (P0-5).
+pub fn content_filter_message(partial: &str) -> String {
+    let mut m = String::from(
+        "Blocked by the provider's content filter (finish_reason: content_filter). The model's reply was stopped; ZenCode did not retry. Rephrase the request or use another model.",
+    );
+    if !partial.trim().is_empty() {
+        m.push_str(" Partial reply: ");
+        m.push_str(&partial.chars().take(300).collect::<String>());
+    }
+    m
+}
+
 /// The correction sent after an empty reply (r7 C5).
 const EMPTY_REPLY_NUDGE: &str =
     "[zen: your last reply was empty. Continue the task: call a tool, or give your final answer.]";
@@ -712,6 +724,31 @@ impl Agent {
             self.last_prompt_tokens = resp.usage.prompt_tokens;
 
             let mut resp = resp;
+            // A content-filter stop is the provider's verdict, not an empty reply: say so and end
+            // the turn after this one request instead of requerying (P0-5).
+            if crate::client::is_content_filtered(resp.finish_reason.as_deref())
+                && resp.message.tool_calls.as_ref().is_none_or(|c| c.is_empty())
+            {
+                let text = resp.message.content.clone().unwrap_or_default();
+                if !text.trim().is_empty() {
+                    self.messages.push(resp.message.clone());
+                    self.sink.emit(AgentEvent::Assistant {
+                        message: resp.message.clone(),
+                        parent_tool_use_id: self.parent_tool_use_id.clone(),
+                    });
+                    if let Some(j) = &self.journal {
+                        j.assistant(&resp.message);
+                    }
+                }
+                return self.run_result(
+                    "error_during_execution",
+                    true,
+                    content_filter_message(&text),
+                    started.elapsed().as_millis() as u64,
+                    duration_api_ms,
+                    num_turns,
+                );
+            }
             if is_truncated(resp.finish_reason.as_deref()) {
                 let calls = resp.message.tool_calls.clone().unwrap_or_default();
                 let broken = calls

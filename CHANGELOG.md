@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (providers, P0-4 / P0-5)
+- `/quota` on an OpenRouter base URL shows the real free-model counter from
+  `GET /api/v1/key` (used / limit / remaining, UTC day) and the key's credit limit, then the
+  local RateGate counts. The endpoint is called only when you run `/quota`.
+- 429: an `X-RateLimit-Reset` instant is honoured when there is no `Retry-After`, and a server
+  wait is honoured in full; a wait longer than what is left of `retry.maxWaitSecs` stops at once
+  with the reason instead of retrying early.
+- 402: never retried, with OpenRouter's reason in the error (`weight_exceeds_budget`, key limit,
+  credits); only the in-flight budget 402 with `Retry-After` is retried.
+- `finish_reason: "content_filter"` ends the turn with a clear "blocked by the provider's content
+  filter" error after one request (no empty-reply requery); a `message.refusal` is kept as the
+  reply text.
+- A provider error inside a 200 body (`finish_reason: "error"`, OpenRouter's mid-stream error) is
+  retried like its status: 429 within the wait budget, other errors at most 3 times, then the
+  turn ends with the code and `error_type` in the error.
+
 ### Added (P0-3)
 - Per-turn checkpoints, no git needed: before Write/Edit/MultiEdit first change a file in a
   REPL turn, its old content is saved in the session directory. `/undo` restores the last turn

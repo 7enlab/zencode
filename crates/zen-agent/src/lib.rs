@@ -81,3 +81,5 @@ mod tests_p0b;
 mod tests_trunc;
 #[cfg(test)]
 mod tests_timeout;
+#[cfg(test)]
+mod tests_p045;

@@ -112,6 +112,14 @@ an error / empty body).
 | `error_status` | number \| null | HTTP status, `null` for network errors |
 | `error` | string | short error text (status and truncated body; never request headers) |
 
+A provider error reported inside a `200` body after generation started (OpenRouter
+`finish_reason: "error"` with an `error` object) is retried like the HTTP status it carries:
+`error_status` is that code (e.g. `429`, `502`) and `error` starts with
+`provider error mid-response: HTTP <code> (<error_type>)`. A mid-response 429 retries within
+`retry.maxWaitSecs`; other mid-response errors retry at most 3 times, then the turn ends with an
+`error_during_execution` result carrying the same text. A 402 is never retried, except
+OpenRouter's in-flight budget 402 that sends `Retry-After`.
+
 ### `system` / `permission_denied`
 
 | field | type | notes |
@@ -208,6 +216,10 @@ Always the last line.
 | `uuid` | string | |
 | `stop_reason` | string \| null | derived from `subtype`: `success` → `"end_turn"`, `error_max_turns` → `"max_turns"`, otherwise `null` |
 
+A reply stopped by the provider's content filter (`finish_reason: "content_filter"`) is not
+requeried: any partial text is sent as an `assistant` record, then the turn ends with an
+`error_during_execution` result whose `result` starts with `Blocked by the provider's content filter`.
+
 Exit code: `0` when `is_error` is false, `1` when true, `130` after SIGINT (with an
 `error_during_execution` result `"Interrupted by user"`), `143` after SIGTERM (no output).
 
@@ -220,6 +232,9 @@ Exit code: `0` when `is_error` is false, `1` when true, `130` after SIGINT (with
 | `subagent.ndjson` | `Task` call; the sub-agent's assistant message has `parent_tool_use_id: "call_task_1"` |
 | `api_retry.ndjson` | HTTP 500 → `api_retry` → successful answer |
 | `permission_denied.ndjson` | Write in default headless mode → `permission_denied` + error tool_result; `result.permission_denials` |
+| `content_filter.ndjson` | `finish_reason: "content_filter"` with no text → one request, `error_during_execution` result |
+| `mid_response_retry.ndjson` | 200 with `finish_reason: "error"` (429) → `api_retry` (`error_status: 429`) → successful answer |
+| `mid_response_error.ndjson` | four 200s with `finish_reason: "error"` (502) → three `api_retry` → `error_during_execution` result naming `HTTP 502 (provider_unavailable)` |
 | `truncation_note.ndjson` | two cut-off replies with `maxContinuations: 1` → two `assistant` pieces → `hook_message` `Truncation` note; `result.result` is the stitched text |
 
 Normalised values in the fixtures: `uuid` → `"<uuid>"`, `duration_ms` / `duration_api_ms` → `0`,

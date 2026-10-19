@@ -43,6 +43,9 @@ use crate::safety::{self, ErrorClass, RateLimiter};
 
 /// Total attempts for one `chat` call: 1 try + 5 retries (see `safety::MAX_RETRY_ATTEMPTS`).
 const MAX_ATTEMPTS: u32 = 6;
+/// Retries for a provider error reported inside a 200 body after generation started
+/// (`finish_reason: "error"`, roadmap P0-5). Cline retries mid-stream errors 3 times too.
+pub const MID_RESPONSE_MAX_RETRIES: u32 = 3;
 /// How much of an error body is quoted back in an error message.
 const ERROR_BODY_CHARS: usize = 300;
 /// Default total backoff budget for one `chat` call (settings `retry.maxWaitSecs`).
@@ -172,7 +175,7 @@ pub fn request_id_from_error(msg: &str) -> Option<String> {
 }
 
 /// Build the pooled HTTP client for `base_url` with `timeouts`.
-fn build_http(base_url: &str, timeouts: &HttpTimeouts, user_agent: bool) -> reqwest::Client {
+pub(crate) fn build_http(base_url: &str, timeouts: &HttpTimeouts, user_agent: bool) -> reqwest::Client {
     let mut builder = timeouts.apply(with_extra_roots(reqwest::Client::builder()));
     if user_agent {
         builder = builder.user_agent(safety::user_agent());
@@ -371,6 +374,9 @@ struct WireChoice {
 struct WireMsg {
     #[serde(default)]
     content: Option<String>,
+    /// OpenAI / OpenRouter put a model refusal here, with `finish_reason: "content_filter"`.
+    #[serde(default)]
+    refusal: Option<String>,
     #[serde(default)]
     tool_calls: Option<Vec<WireCall>>,
 }
@@ -415,6 +421,138 @@ fn server_retry_hint_ms(header: Option<&str>, body: &str) -> Option<u64> {
     Some((secs.max(0.0) * 1000.0) as u64)
 }
 
+/// Wait until an `X-RateLimit-Reset` instant, in ms. OpenRouter sends a Unix timestamp in
+/// milliseconds; seconds since the epoch and a plain seconds delta are accepted too.
+fn ratelimit_reset_hint_ms(header: Option<&str>, now_ms: u64) -> Option<u64> {
+    let v = header?.trim().parse::<f64>().ok()?;
+    if !v.is_finite() || v < 0.0 {
+        return None;
+    }
+    let v = v as u64;
+    Some(if v >= 1_000_000_000_000 {
+        v.saturating_sub(now_ms)
+    } else if v >= 1_000_000_000 {
+        (v * 1000).saturating_sub(now_ms)
+    } else {
+        v * 1000
+    })
+}
+
+fn now_unix_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// A provider error reported inside a `200` body once generation had started (roadmap P0-5):
+/// OpenRouter's non-streaming form of a mid-stream error, `choices[0].finish_reason: "error"`
+/// with `choices[0].error`, or a body-level `error` carrying OpenRouter's typed
+/// `metadata.error_type`. A bare body-level `error` without `error_type` stays the r7 C3
+/// "gateway error in 200 response" resample (vLLM Harmony errors).
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct MidResponseError {
+    /// The HTTP status the provider error maps to (`error.code`), when given.
+    pub code: Option<u16>,
+    /// OpenRouter's typed `error.metadata.error_type` (`rate_limit_exceeded`, ...).
+    pub error_type: Option<String>,
+    pub message: String,
+}
+
+impl MidResponseError {
+    /// How the retry loop treats it: 429 waits and retries, 402 never retries, a content
+    /// policy block never retries, other 4xx fail fast, 5xx / unknown retry (capped).
+    pub fn class(&self) -> ErrorClass {
+        let ty = self.error_type.as_deref().unwrap_or("");
+        match (self.code, ty) {
+            (Some(429), _) | (_, "rate_limit_exceeded") => ErrorClass::RateLimit,
+            (Some(402), _) | (_, "payment_required") => ErrorClass::QuotaExhausted,
+            (_, "content_policy_violation" | "refusal") => ErrorClass::Fatal,
+            (Some(c), _) if (400..500).contains(&c) && c != 408 => ErrorClass::Fatal,
+            _ => ErrorClass::Transient,
+        }
+    }
+
+    /// One-line description with the code and type, e.g.
+    /// `provider error mid-response: HTTP 502 (provider_unavailable): Provider disconnected`.
+    pub fn describe(&self) -> String {
+        let code = self.code.map(|c| format!(" HTTP {c}")).unwrap_or_default();
+        let ty = self.error_type.as_deref().map(|t| format!(" ({t})")).unwrap_or_default();
+        let policy = matches!(self.error_type.as_deref(), Some("content_policy_violation" | "refusal"));
+        let lead = if policy {
+            "blocked by the provider's content filter mid-response:"
+        } else {
+            "provider error mid-response:"
+        };
+        format!("{lead}{code}{ty}: {}", first_chars(&self.message, ERROR_BODY_CHARS))
+    }
+}
+
+/// See [`MidResponseError`]. `None` for a normal completion or a non-JSON body.
+pub(crate) fn mid_response_error(body: &str) -> Option<MidResponseError> {
+    let v: Value = serde_json::from_str(body).ok()?;
+    let choice = v.get("choices").and_then(Value::as_array).and_then(|c| c.first());
+    let finish_error = choice
+        .and_then(|c| c.get("finish_reason"))
+        .and_then(Value::as_str)
+        .is_some_and(|r| r.eq_ignore_ascii_case("error"));
+    let err = choice
+        .and_then(|c| c.get("error"))
+        .filter(|e| e.is_object())
+        .or_else(|| v.get("error").filter(|e| e.is_object()));
+    let typed = err.and_then(|e| e.pointer("/metadata/error_type")).and_then(Value::as_str);
+    if !finish_error && typed.is_none() {
+        return None;
+    }
+    let code = err
+        .and_then(|e| e.get("code"))
+        .and_then(|c| c.as_u64().or_else(|| c.as_str().and_then(|s| s.parse().ok())))
+        .and_then(|c| u16::try_from(c).ok());
+    let message = err
+        .and_then(|e| e.get("message"))
+        .and_then(Value::as_str)
+        .unwrap_or("the provider ended the response with finish_reason \"error\"")
+        .to_string();
+    Some(MidResponseError { code, error_type: typed.map(str::to_string), message })
+}
+
+/// True when a reply was stopped by a content filter: `content_filter` (OpenAI / OpenRouter)
+/// or Anthropic's `refusal` stop reason.
+pub fn is_content_filtered(finish_reason: Option<&str>) -> bool {
+    finish_reason.is_some_and(|r| {
+        let r = r.to_ascii_lowercase();
+        r == "content_filter" || r == "refusal"
+    })
+}
+
+/// A readable reason for a 402 from OpenRouter's `error.metadata` (`limit_source`, `reason`,
+/// `remedy_hint`), or `None` when the body carries none of them.
+pub(crate) fn payment_required_reason(body: &str) -> Option<String> {
+    let v: Value = serde_json::from_str(body).ok()?;
+    let meta = v.pointer("/error/metadata")?;
+    let get = |k: &str| meta.get(k).and_then(Value::as_str).filter(|s| !s.is_empty());
+    let what = match (get("reason"), get("limit_source")) {
+        (Some("weight_exceeds_budget"), _) => {
+            "this single request's estimated cost is larger than the whole credit budget (weight_exceeds_budget); retrying will not help, lower max_tokens or the prompt size"
+        }
+        (_, Some("openrouter_key_limit")) => "the API key's credit limit is spent (openrouter_key_limit)",
+        (_, Some("openrouter_credits")) => "the account balance cannot cover this request (openrouter_credits)",
+        (_, Some("openrouter_in_flight_budget")) => {
+            "running requests fill the in-flight spending budget (openrouter_in_flight_budget)"
+        }
+        _ => return get("remedy_hint").map(str::to_string),
+    };
+    Some(match get("remedy_hint") {
+        Some(h) => format!("{what}. {h}"),
+        None => what.to_string(),
+    })
+}
+
+/// True for OpenRouter's transient 402: the in-flight budget is full, with a `Retry-After`.
+fn is_in_flight_budget_402(code: u16, has_retry_after: bool, body: &str) -> bool {
+    code == 402 && has_retry_after && body.contains("openrouter_in_flight_budget")
+}
+
 /// First `n` characters of `s`, used to truncate error bodies.
 fn first_chars(s: &str, n: usize) -> String {
     s.chars().take(n).collect()
@@ -428,6 +566,8 @@ impl LlmBackend for OpenAiClient {
         let mut attempt: u32 = 0;
         // Warn once per session on the first 429 (info, not alarming).
         let mut warned_first_429 = false;
+        // Provider errors inside a 200 body so far (P0-5), capped at MID_RESPONSE_MAX_RETRIES.
+        let mut mid_response_errors: u32 = 0;
 
         loop {
             attempt += 1;
@@ -459,6 +599,8 @@ impl LlmBackend for OpenAiClient {
                 }
             };
 
+            // Set when this attempt failed with a capped mid-response provider error (P0-5).
+            let mut mid_transient = false;
             // Classify the attempt BEFORE deciding to retry. Billing/quota errors
             // are never retried; other 4xx fail fast.
             let mut server_hint_ms: Option<u64> = None;
@@ -477,6 +619,23 @@ impl LlmBackend for OpenAiClient {
                             // A body that stalls or times out is retried like any timeout.
                             Err(e) => Outcome::Classified(ErrorClass::Transient, Some(code), timeout_text(&e)),
                             Ok(body) => {
+                                // A provider error after generation started (P0-5): classified
+                                // like the HTTP status it carries.
+                                if let Some(mid) = mid_response_error(&body) {
+                                    let class = mid.class();
+                                    if class == ErrorClass::RateLimit {
+                                        self.note_429();
+                                    }
+                                    if class == ErrorClass::Transient {
+                                        mid_response_errors += 1;
+                                        mid_transient = true;
+                                    }
+                                    Outcome::Classified(
+                                        class,
+                                        mid.code.or(Some(code)),
+                                        with_request_id(mid.describe(), request_id(&headers, &body).as_deref()),
+                                    )
+                                } else {
                                 // A 200 that carries a gateway error, no choices, or an empty
                                 // message is a sampling glitch (gpt-oss Harmony header errors):
                                 // resample (r7 C3).
@@ -488,6 +647,7 @@ impl LlmBackend for OpenAiClient {
                                     ),
                                     _ => Outcome::Parsed(parse_completion(&body)),
                                 }
+                                }
                             }
                         }
                     } else {
@@ -495,19 +655,35 @@ impl LlmBackend for OpenAiClient {
                             .get(reqwest::header::RETRY_AFTER)
                             .and_then(|v| v.to_str().ok())
                             .map(str::to_string);
+                        let reset = headers
+                            .get("x-ratelimit-reset")
+                            .and_then(|v| v.to_str().ok())
+                            .map(str::to_string);
                         let body = resp.text().await.unwrap_or_default();
                         server_hint_ms = server_retry_hint_ms(header.as_deref(), &body);
-                        let class = safety::classify_error(Some(code), &body);
+                        if code == 429 && server_hint_ms.is_none() {
+                            // OpenRouter's platform 429s say when the window resets (P0-4).
+                            server_hint_ms = ratelimit_reset_hint_ms(reset.as_deref(), now_unix_ms());
+                        }
+                        let mut class = safety::classify_error(Some(code), &body);
+                        // OpenRouter's in-flight budget 402 is transient and says when to retry;
+                        // every other 402 is a hard stop.
+                        if is_in_flight_budget_402(code, header.is_some(), &body) {
+                            class = ErrorClass::RateLimit;
+                        }
                         if code == 429 {
                             self.note_429();
+                        }
+                        let mut text = format!("HTTP {}: {}", code, first_chars(&body, ERROR_BODY_CHARS));
+                        if code == 402 {
+                            if let Some(why) = payment_required_reason(&body) {
+                                text = format!("HTTP 402: {why}");
+                            }
                         }
                         Outcome::Classified(
                             class,
                             Some(code),
-                            with_request_id(
-                                format!("HTTP {}: {}", code, first_chars(&body, ERROR_BODY_CHARS)),
-                                request_id(&headers, &body).as_deref(),
-                            ),
+                            with_request_id(text, request_id(&headers, &body).as_deref()),
                         )
                     }
                 }
@@ -538,7 +714,24 @@ impl LlmBackend for OpenAiClient {
             if attempt >= MAX_ATTEMPTS {
                 return Err(anyhow::anyhow!(err_text));
             }
+            if mid_response_errors > MID_RESPONSE_MAX_RETRIES {
+                return Err(anyhow::anyhow!(
+                    "{} (gave up: the provider failed mid-response {} times in a row)",
+                    err_text,
+                    mid_response_errors
+                ));
+            }
             let budget_left = self.max_total_wait_ms.saturating_sub(waited_ms);
+            // The server asked for a wait longer than the budget left: retrying earlier
+            // would only be rejected again, so stop now with the reason (P0-4).
+            if let Some(hint) = server_hint_ms.filter(|h| *h > budget_left) {
+                return Err(anyhow::anyhow!(
+                    "{} (not retried: the server asked to wait {} s, more than the {} s left of the retry budget; settings retry.maxWaitSecs)",
+                    err_text,
+                    hint.div_ceil(1000),
+                    budget_left / 1000
+                ));
+            }
             if budget_left == 0 {
                 return Err(anyhow::anyhow!(
                     "{} (gave up after {} attempts: retry wait budget of {} s spent; settings retry.maxWaitSecs)",
@@ -567,9 +760,11 @@ impl LlmBackend for OpenAiClient {
                 self.max_retry_delay_ms,
                 safety::jitter_now_nanos(),
             );
+            // A server hint is honoured in full (it fits the budget, checked above): waking
+            // before the window resets only spends another rejected request.
             let delay_ms = jittered
-                .max(server_hint_ms.unwrap_or(0).min(self.max_retry_delay_ms))
                 .min(self.max_retry_delay_ms.max(self.base_retry_delay_ms))
+                .max(server_hint_ms.unwrap_or(0))
                 .min(budget_left);
             // For 529 (provider overloaded), suggest fallback in the event.
             let mut err_for_event = err_text.clone();
@@ -578,7 +773,7 @@ impl LlmBackend for OpenAiClient {
             }
             self.sink.emit(AgentEvent::ApiRetry {
                 attempt,
-                max_retries: MAX_ATTEMPTS - 1,
+                max_retries: if mid_transient { MID_RESPONSE_MAX_RETRIES } else { MAX_ATTEMPTS - 1 },
                 retry_delay_ms: delay_ms,
                 error_status: status,
                 error: err_for_event,
@@ -605,6 +800,10 @@ pub(crate) fn transient_completion(body: &str) -> Option<String> {
         Some(c) => c,
         None => return Some("model returned no choices".into()),
     };
+    // A content-filter stop is the provider's answer, not a glitch: never resample it (P0-5).
+    if is_content_filtered(first.get("finish_reason").and_then(Value::as_str)) {
+        return None;
+    }
     let msg = first.get("message")?;
     let has_text = msg.get("content").and_then(Value::as_str).is_some_and(|t| !t.trim().is_empty());
     let has_calls = msg.get("tool_calls").and_then(Value::as_array).is_some_and(|c| !c.is_empty());
@@ -648,6 +847,11 @@ pub(crate) fn parse_completion(body: &str) -> anyhow::Result<ChatResponse> {
         // "no text" branch is unambiguous.
         Some(s) if s.is_empty() && tool_calls.is_some() => None,
         other => other,
+    };
+    // A refusal (OpenAI / OpenRouter `message.refusal`) is what the model said instead.
+    let content = match (content, choice.message.refusal) {
+        (c, Some(r)) if c.as_deref().is_none_or(|t| t.trim().is_empty()) && !r.trim().is_empty() => Some(r),
+        (c, _) => c,
     };
     let mut usage = parsed.usage;
     // OpenAI's automatic prompt cache reports via
