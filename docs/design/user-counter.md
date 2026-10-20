@@ -9,6 +9,7 @@
 2. **Opt-out respected.** `DO_NOT_TRACK=1` or `ZENCODE_TELEMETRY=0` or `zen config set telemetry off` disables all pings. First-run shows a one-line notice.
 3. **Transparent.** Method documented publicly (this file); counting backend code is open source; raw data never published, only aggregates.
 4. **Minimal.** One ping per 24h max, tiny payload, no cookies, no fingerprinting.
+5. **BYOK-clean (Constitution VIII).** The counter uses no API keys at all — not the team's, not the user's. Model calls elsewhere in ZenCode always run on the user's own keys/endpoints; this counter is separate, keyless infrastructure.
 
 ## 2. What is counted
 
