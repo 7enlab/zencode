@@ -47,7 +47,20 @@ as references.
 
 ## Reporting Security Issues
 
-See [SECURITY.md](SECURITY.md). Do **not** open public issues for vulnerabilities.
+See [SECURITY.md](SECURITY.md) and [docs/threat-model.md](docs/threat-model.md).
+Do **not** open public issues for vulnerabilities.
+
+## Release Checklist
+
+No release ships until all five gates pass:
+
+1. **context7** — dependencies and APIs checked against current docs; no deprecated usage.
+2. **ocr** (OpenCodeReview) — full code review of the release diff.
+3. **e2e** — full end-to-end test suite green on Linux, macOS, and Windows.
+4. **rea** (REA research) — reverse-engineering/parity checks against reference behavior.
+5. **bughunter** — security audit, including dependency scans:
+   `cargo audit` and `osv-scanner scan source -r .` (OSV-Scanner, against OSV.dev)
+   must both report no unresolved vulnerabilities.
 
 ## Benchmark Checklist
 

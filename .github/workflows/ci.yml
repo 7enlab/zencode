@@ -31,6 +31,11 @@ jobs:
         with: { tool: cargo-audit }
       - name: RustSec advisory audit
         run: cargo audit
+      - name: OSV vulnerability scan
+        uses: google/osv-scanner-action/osv-scanner-action@v2.3.8
+        with:
+          scan-args: |-
+            -L Cargo.lock
   build:
     needs: check
     strategy:
