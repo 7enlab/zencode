@@ -5,7 +5,7 @@
 //! existing chars/4 convention (see `zen_core::estimate_tokens` and the `/context` command).
 //!
 //! STATUS 2026-10-17: currently OVER the 1,200-token g4 target (2,331 measured). The
-//! `g4_prompt_budget_within_1200_tokens` test is `#[ignore]`d until Hark decides what to
+//! `g4_prompt_budget_within_1200_tokens` test is `#[ignore]`d until Z Core decides what to
 //! cut; `g4_prompt_budget_no_growth` guards against further growth in the meantime.
 //!
 //! The measurement uses `--bare` mode for determinism: it skips the project snapshot,
@@ -93,11 +93,11 @@ mod tests {
     use super::*;
 
     /// Roadmap g4 target: 1,200 tokens. Currently OVER BUDGET (2,331 as of 2026-10-17,
-    /// see breakdown below) — Hark must decide what to cut before this can be enabled.
+    /// see breakdown below) — Z Core must decide what to cut before this can be enabled.
     /// Biggest sections: Grep (325), Bash (305), MultiEdit (219), system prompt (374).
     /// Run explicitly with: cargo test -p zen-cli --lib prompt_budget -- --ignored
     #[test]
-    #[ignore = "g4 target not yet met: 2,331 > 1,200 tokens; awaiting Hark's cuts"]
+    #[ignore = "g4 target not yet met: 2,331 > 1,200 tokens; awaiting Z Core's cuts"]
     fn g4_prompt_budget_within_1200_tokens() {
         let b = measure_default_budget().expect("prompt budget measurement");
         // Always print the breakdown so CI logs show where the tokens go.
