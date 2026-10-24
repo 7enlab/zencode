@@ -439,7 +439,16 @@ impl Agent {
             num_turns,
             result,
             session_id: self.ctx.session_id.clone(),
-            total_cost_usd: 0.0,
+            // Priced from the accumulated usage with the shared budget table — the
+            // same table the `zen cost` ledger prices with, so the record and the
+            // ledger agree. Unknown pricing contributes 0 rather than a guessed
+            // figure; free/local models price to a genuine 0.0.
+            total_cost_usd: crate::budget::estimate_cost_usd(
+                &self.config.model,
+                self.usage.input_tokens,
+                self.usage.output_tokens,
+            )
+            .unwrap_or(0.0),
             usage: self.usage.clone(),
             model: self.config.model.clone(),
             permission_denials: self.denials.clone(),

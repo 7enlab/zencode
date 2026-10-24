@@ -327,3 +327,88 @@ async fn harness_timeout_guard_exists() {
     .expect("harness should complete well within 30s");
     assert_eq!(code, 0);
 }
+
+/// A run on a priced model must report that cost in the `result` record, and it must
+/// match the total the `zen cost` ledger computes for the same session (one shared
+/// pricing table: gpt-4o is $2.50 input / $10.00 output per 1M tokens).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn json_result_total_cost_matches_cost_ledger_for_paid_model() {
+    let home = TempDir::new("cost_paid_home");
+    let cwd = TempDir::new("cost_paid_cwd");
+    let server = MockServer::single_text("hello from mock").await;
+    let session_id = "00000000-0000-4000-8000-000000000010";
+
+    let out = tokio::time::timeout(TEST_TIMEOUT, async {
+        ZenRun::new("cost_paid", &home, &cwd)
+            .args(["-p", "--output-format", "json", "--bare", "--setting-sources", ""])
+            .arg("--session-id").arg(session_id)
+            .mock("gpt-4o", &server)
+            .arg("say hi")
+            .run_output()
+    })
+    .await
+    .expect("timed out");
+
+    let (stdout, stderr, code) = out;
+    assert_eq!(code, 0, "stderr: {}\nstdout: {}", stderr, stdout);
+    let lines = ndjson(&stdout);
+    let v = &lines[0];
+    // Mock usage: 7 prompt / 3 completion tokens.
+    assert_eq!(v["usage"]["input_tokens"], 7);
+    assert_eq!(v["usage"]["output_tokens"], 3);
+    let expected = 7.0 / 1_000_000.0 * 2.50 + 3.0 / 1_000_000.0 * 10.00;
+    let reported = v["total_cost_usd"].as_f64().expect("total_cost_usd is a number");
+    assert!(reported > 0.0, "paid model must not report a hard-coded 0.0: {}", v);
+    assert!(
+        (reported - expected).abs() < 1e-12,
+        "result total_cost_usd {} != priced cost {}",
+        reported,
+        expected
+    );
+
+    // The per-session ledger `zen cost` renders must total to the same number.
+    let ledger_path = home.path().join(".zen").join("cost").join(format!("{}.json", session_id));
+    let ledger: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&ledger_path).expect("ledger written"))
+            .expect("ledger is json");
+    let (mut li, mut lo) = (0u64, 0u64);
+    for e in ledger["entries"].as_array().expect("ledger entries") {
+        li += e["input_tokens"].as_u64().unwrap();
+        lo += e["output_tokens"].as_u64().unwrap();
+    }
+    let ledger_total = li as f64 / 1_000_000.0 * 2.50 + lo as f64 / 1_000_000.0 * 10.00;
+    assert!(
+        (reported - ledger_total).abs() < 1e-12,
+        "result total_cost_usd {} != ledger total {}",
+        reported,
+        ledger_total
+    );
+}
+
+/// A `:free` model spends real tokens but its `result` record must say exactly 0.0 —
+/// a genuine zero from the pricing table, not the old hard-coded placeholder.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn json_result_total_cost_is_genuine_zero_for_free_model() {
+    let home = TempDir::new("cost_free_home");
+    let cwd = TempDir::new("cost_free_cwd");
+    let server = MockServer::single_text("hello from mock").await;
+
+    let out = tokio::time::timeout(TEST_TIMEOUT, async {
+        ZenRun::new("cost_free", &home, &cwd)
+            .args(["-p", "--output-format", "json", "--bare", "--setting-sources", ""])
+            .arg("--session-id").arg("00000000-0000-4000-8000-000000000011")
+            .mock("mock-model:free", &server)
+            .arg("say hi")
+            .run_output()
+    })
+    .await
+    .expect("timed out");
+
+    let (stdout, stderr, code) = out;
+    assert_eq!(code, 0, "stderr: {}\nstdout: {}", stderr, stdout);
+    let lines = ndjson(&stdout);
+    let v = &lines[0];
+    assert_eq!(v["usage"]["input_tokens"], 7);
+    assert_eq!(v["usage"]["output_tokens"], 3);
+    assert_eq!(v["total_cost_usd"], 0.0);
+}

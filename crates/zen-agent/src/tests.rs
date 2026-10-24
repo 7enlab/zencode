@@ -1601,3 +1601,35 @@ async fn write_flushes_parallel_batch_and_runs_alone() {
     assert_eq!(by_id.get("r3"), Some(&false), "a lone call is not parallel");
     assert_paired(agent.messages());
 }
+
+#[tokio::test]
+async fn result_total_cost_is_priced_from_usage_for_paid_model() {
+    let llm = MockLlm::new(vec![resp("hello")]);
+    let mut cfg = base_cfg();
+    cfg.model = "gpt-4o".into();
+    let (mut agent, _sink, _h) = build_agent(llm.clone(), ToolRegistry::new(), allow(), cfg);
+    let r = agent.run_turn("hi").await;
+    // `resp` reports 10 prompt / 5 completion tokens. The result record must carry the
+    // cost priced by the shared budget table — the same table the `zen cost` ledger
+    // uses — not a hard-coded 0.0.
+    let expected = crate::budget::estimate_cost_usd("gpt-4o", 10, 5).expect("gpt-4o is priced");
+    assert!(expected > 0.0);
+    assert!(
+        (r.total_cost_usd - expected).abs() < 1e-12,
+        "result total_cost_usd {} != priced cost {}",
+        r.total_cost_usd,
+        expected
+    );
+}
+
+#[tokio::test]
+async fn result_total_cost_is_a_genuine_zero_for_free_models() {
+    let llm = MockLlm::new(vec![resp("hello")]);
+    let mut cfg = base_cfg();
+    cfg.model = "qwen/qwen3-coder:free".into();
+    let (mut agent, _sink, _h) = build_agent(llm.clone(), ToolRegistry::new(), allow(), cfg);
+    let r = agent.run_turn("hi").await;
+    // Real tokens were spent, but a `:free` model prices to a genuine $0.00.
+    assert!(r.usage.input_tokens > 0 && r.usage.output_tokens > 0);
+    assert_eq!(r.total_cost_usd, 0.0);
+}

@@ -945,6 +945,14 @@ pub(crate) async fn run_agent_with_result(
                 // The interrupted turn is not persisted: it may end in a tool call without a
                 // result, which would leave an orphaned tool message on resume (C10.3).
                 run_session_end(&assembly.hooks, session_id, cwd, cfg, "other").await;
+                // The interrupted turn may already have spent tokens; price them
+                // with the shared table instead of reporting a placeholder 0.0.
+                let total_cost_usd = zen_agent::budget::estimate_cost_usd(
+                    &cfg.model,
+                    agent.usage.input_tokens,
+                    agent.usage.output_tokens,
+                )
+                .unwrap_or(0.0);
                 let result = RunResult {
                     record_type: "result".into(),
                     subtype: "error_during_execution".into(),
@@ -954,7 +962,7 @@ pub(crate) async fn run_agent_with_result(
                     num_turns: 0,
                     result: "Interrupted by user".into(),
                     session_id: session_id.into(),
-                    total_cost_usd: 0.0,
+                    total_cost_usd,
                     usage: agent.usage.clone(),
                     model: cfg.model.clone(),
                     permission_denials: vec![],
@@ -1175,6 +1183,15 @@ fn local_result(
     is_error: bool,
     duration_ms: u64,
 ) -> RunResult {
+    // Priced with the same shared table as the agent's own result records:
+    // built-ins that consumed model usage (the plan turn, /compact) report their
+    // real cost here instead of a placeholder 0.0.
+    let total_cost_usd = zen_agent::budget::estimate_cost_usd(
+        model,
+        usage.input_tokens,
+        usage.output_tokens,
+    )
+    .unwrap_or(0.0);
     RunResult {
         record_type: "result".into(),
         subtype: if is_error { "error_during_execution" } else { "success" }.into(),
@@ -1184,7 +1201,7 @@ fn local_result(
         num_turns: 0,
         result: text,
         session_id: session_id.into(),
-        total_cost_usd: 0.0,
+        total_cost_usd,
         usage,
         model: model.into(),
         permission_denials: vec![],
