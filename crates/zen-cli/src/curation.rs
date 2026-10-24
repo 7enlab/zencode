@@ -365,7 +365,7 @@ mod tests {
                 source: Some(format!("builtin:{}", name)),
             },
             curation: CurationMeta {
-                reviewer: "Muse (ZenCode maintainer)".to_string(),
+                reviewer: "ZC Leader (ZenCode maintainer)".to_string(),
                 review_date: "2026-10-17".to_string(),
                 review_notes: "Security: PASS. No network. Quality: PASS. Deterministic. Documentation: PASS. Complete. Maintenance: PASS. In-repo.".to_string(),
                 reviewed_version: "1.2.0".to_string(),
@@ -515,7 +515,7 @@ mod tests {
         let out = format_hits(&hits, false);
         assert!(out.contains("[curated ✓] tdd"));
         assert!(out.contains("[community] tdd-helper"));
-        assert!(out.contains("reviewed by Muse"));
+        assert!(out.contains("reviewed by ZC Leader"));
         assert!(out.contains("unreviewed — inspect before installing"));
     }
 

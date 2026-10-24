@@ -106,7 +106,7 @@ date. `zen skill search` never shows delisted entries.
       "permissions": ["read", "write", "edit", "bash"],
       "source": "builtin:tdd",
       "curation": {
-        "reviewer": "Muse (ZenCode maintainer)",
+        "reviewer": "ZC Leader (ZenCode maintainer)",
         "review_date": "2026-10-17",
         "review_notes": "Security: PASS. ... Quality: PASS. ... Documentation: PASS. ... Maintenance: PASS. ...",
         "reviewed_version": "1.0.0"
