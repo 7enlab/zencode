@@ -672,7 +672,7 @@ mod tests {
             "diff_hunk": "@@ -40,3 +40,3 @@",
             "created_at": "2026-10-17T10:00:00Z",
             "html_url": "https://github.com/o/r/pull/1#discussion_r101",
-            "user": {"login": "hark"}
+            "user": {"login": "lead-reviewer"}
         },
         {
             "id": 102,
@@ -682,7 +682,7 @@ mod tests {
             "diff_hunk": null,
             "created_at": "2026-10-17T11:00:00Z",
             "html_url": "https://github.com/o/r/pull/1#discussion_r102",
-            "user": {"login": "muse"}
+            "user": {"login": "reviewer"}
         }
     ]"#;
 
@@ -718,7 +718,7 @@ mod tests {
         let cs = parse_review_comments(REVIEW_JSON).unwrap();
         assert_eq!(cs.len(), 2);
         assert_eq!(cs[0].id, 101);
-        assert_eq!(cs[0].author, "hark");
+        assert_eq!(cs[0].author, "lead-reviewer");
         assert_eq!(cs[0].kind, CommentKind::Review);
         assert_eq!(cs[0].path.as_deref(), Some("src/main.rs"));
         assert_eq!(cs[0].line, Some(42));
@@ -774,7 +774,7 @@ mod tests {
         assert!(text.contains("PR #1: Add feature"));
         assert!(text.contains("## src/main.rs"));
         assert!(text.contains("[CRITICAL]"));
-        assert!(text.contains("@hark:42"));
+        assert!(text.contains("@lead-reviewer:42"));
         assert!(text.contains("[NIT]"));
         assert!(text.contains("## General discussion"));
     }
@@ -844,7 +844,7 @@ mod tests {
     fn pr_fix_prompt_lists_comments_and_forbids_replies() {
         let p = pr_fix_prompt(&sample_fetched());
         assert!(p.contains("PR #1"));
-        assert!(p.contains("@hark"));
+        assert!(p.contains("@lead-reviewer"));
         assert!(p.contains("[CRITICAL]"));
         assert!(p.contains("Do not post replies on GitHub"));
     }
@@ -852,7 +852,7 @@ mod tests {
     #[test]
     fn ci_fix_prompt_contains_branch_and_logs() {
         let status = CiStatus {
-            branch: "muse/x".into(),
+            branch: "feature/x".into(),
             pr_number: Some(7),
             failing: vec![FailingCheck {
                 run_id: 11,
@@ -863,7 +863,7 @@ mod tests {
             }],
         };
         let p = ci_fix_prompt(&status);
-        assert!(p.contains("muse/x"));
+        assert!(p.contains("feature/x"));
         assert!(p.contains("PR #7"));
         assert!(p.contains("error: boom"));
         assert!(p.contains("Do not modify CI workflow files"));
