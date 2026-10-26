@@ -1,0 +1,22 @@
+{
+  "name": "tdd",
+  "version": "1.0.0",
+  "description": "Test-driven development workflow - write the failing test first",
+  "author": "ZenCode",
+  "permissions": {
+    "allowed_tools": [
+      "bash",
+      "edit",
+      "read",
+      "write"
+    ],
+    "network": false,
+    "file_write": true,
+    "exec": true,
+    "file_scope": "project"
+  },
+  "skills": [
+    "."
+  ],
+  "signature": "56cdecfb5c122fb5a2f5876c486634a288eee0705935f74f253d843bedd03b28c2170a0e85eb30f705c35c9c2ec3c33645eb6a49cca415647d249bb880422902"
+}

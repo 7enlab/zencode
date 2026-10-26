@@ -1,0 +1,34 @@
+[package]
+name = "zen-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "zen_cli"
+path = "src/lib.rs"
+
+[[bin]]
+name = "zen"
+path = "src/main.rs"
+
+[dependencies]
+zen-core.workspace = true
+zen-agent.workspace = true
+zen-tools.workspace = true
+zen-ext.workspace = true
+zen-mcp.workspace = true
+anyhow.workspace = true
+async-trait.workspace = true
+chrono.workspace = true
+clap.workspace = true
+dirs.workspace = true
+reqwest.workspace = true
+regex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+ed25519-dalek.workspace = true
+tokio.workspace = true
+walkdir.workspace = true
+globset.workspace = true
+uuid.workspace = true

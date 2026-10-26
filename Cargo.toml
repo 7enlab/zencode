@@ -1,0 +1,42 @@
+[workspace]
+resolver = "2"
+members = ["crates/zen-core", "crates/zen-agent", "crates/zen-tools", "crates/zen-cli", "crates/zen-ext", "crates/zen-mcp"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+authors = ["7EN Labs <7enlab@gmail.com>"]
+
+[workspace.dependencies]
+zen-core = { path = "crates/zen-core" }
+zen-agent = { path = "crates/zen-agent" }
+zen-tools = { path = "crates/zen-tools" }
+zen-ext = { path = "crates/zen-ext" }
+zen-mcp = { path = "crates/zen-mcp" }
+anyhow = "1"
+async-trait = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4", features = ["derive", "env"] }
+dirs = "5"
+futures = "0.3"
+globset = "0.4"
+regex = "1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ed25519-dalek = "2"
+tokio = { version = "1", features = ["full"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+walkdir = "2"
+
+[profile.release]
+strip = true
+
+
+
+[profile.dev]
+debug = 0
+
+[profile.dev.package."*"]
+debug = 0

@@ -1,0 +1,19 @@
+{
+  "name": "token-diet",
+  "version": "1.0.0",
+  "description": "Token-efficiency habits for lean model calls",
+  "author": "ZenCode",
+  "permissions": {
+    "allowed_tools": [
+      "read"
+    ],
+    "network": false,
+    "file_write": false,
+    "exec": false,
+    "file_scope": "project"
+  },
+  "skills": [
+    "."
+  ],
+  "signature": "a8a75fb9d8f1929b066ef82784337ffdfa343fb47424e7ef571df539499bc2eba194856f1a9c290668a409fae438a216af6196f3d9da9af2280298897f203803"
+}

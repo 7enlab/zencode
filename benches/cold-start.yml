@@ -1,0 +1,37 @@
+name: Cold-start benchmark
+
+on:
+  push:
+    branches: [main, "feat/**", "fix/**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: cold-start-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: cold-start
+      - name: Build release binary
+        run: cargo build --release -p zen-cli
+      - name: Run cold-start benchmark (regression guard)
+        run: |
+          python3 scripts/bench_cold_start.py \
+            --zen ./target/release/zen \
+            --runs 10 --cold-runs 3 \
+            --thresholds benches/cold_start_thresholds.json \
+            --out-dir bench-results
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cold-start-results
+          path: bench-results/
