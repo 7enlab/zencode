@@ -102,11 +102,11 @@ pub struct SkipReason {
 
 
 pub struct McpManager {
-    statuses: Vec<(String, String)>,   
-    tools: Vec<Arc<dyn Tool>>,        
-    transports: Vec<Arc<Transport>>,  
-    skipped: Vec<SkipReason>,         
-    failed: Vec<(String, String)>,    
+    statuses: Vec<(String, String)>,
+    tools: Vec<Arc<dyn Tool>>,
+    transports: Vec<Arc<Transport>>,
+    skipped: Vec<SkipReason>,
+    failed: Vec<(String, String)>,
 }
 
 impl McpManager {
@@ -117,7 +117,7 @@ impl McpManager {
 
         let mut join = Vec::new();
         let mut skipped = Vec::new();
-        
+
 
         let mut valid_configs = BTreeMap::new();
         for (name, cfg) in configs {
@@ -132,7 +132,7 @@ impl McpManager {
                     continue;
                 }
             };
-            
+
 
 
             if let Some(reason) = validate(&expanded_cfg) {

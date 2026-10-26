@@ -37,8 +37,8 @@ jobs:
         with:
           scan-args: |-
             -L Cargo.lock
-  
-  
+
+
   build-linux:
     if: github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/v')
     needs: check
@@ -71,7 +71,7 @@ jobs:
         with:
           name: zen-${{ matrix.target }}
           path: target/${{ matrix.target }}/release/zen
-  
+
   build:
     if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
     needs: check

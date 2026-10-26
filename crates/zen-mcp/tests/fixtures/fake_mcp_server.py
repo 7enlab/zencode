@@ -95,7 +95,7 @@ def handle_tools_call(request_id, params):
     log(f"Handling tools/call with params: {params}")
     name = params.get("name")
     arguments = params.get("arguments", {})
-    
+
     if name == "echo":
         text = arguments.get("text", "")
         response = {
@@ -149,38 +149,38 @@ def handle_tools_call(request_id, params):
                 "message": f"Unknown tool: {name}"
             }
         }
-    
+
     print(json.dumps(response), flush=True)
 
 def main():
     """Main server loop."""
     log("Starting fake MCP server")
     request_id = 1
-    
 
 
-    
+
+
     for line in sys.stdin:
         line = line.strip()
         if not line:
             continue
-            
+
         try:
             request = json.loads(line)
             log(f"Received request: {request}")
-            
+
 
             if "id" not in request:
                 method = request.get("method")
                 if method == "notifications/initialized":
                     handle_initialized()
                 continue
-            
+
 
             req_id = request.get("id", request_id)
             method = request.get("method")
             params = request.get("params", {})
-            
+
             if method == "initialize":
                 handle_initialize(req_id)
             elif method == "tools/list":
@@ -198,7 +198,7 @@ def main():
                     }
                 }
                 print(json.dumps(error_response), flush=True)
-                
+
         except json.JSONDecodeError as e:
             log(f"Invalid JSON received: {e}")
         except Exception as e:

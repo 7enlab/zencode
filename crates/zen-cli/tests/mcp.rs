@@ -29,10 +29,10 @@ async def main():
             req = json.loads(line)
         except json.JSONDecodeError:
             continue
-        
+
         method = req.get("method")
         id = req.get("id")
-        
+
         if method == "initialize":
             # Respond to initialize
             resp = {
@@ -91,7 +91,7 @@ async def main():
                 "id": id,
                 "error": {"code": -32601, "message": f"Unknown method: {method}"}
             }
-        
+
         print(json.dumps(resp), flush=True)
 
 if __name__ == "__main__":
@@ -152,7 +152,7 @@ async fn mcp_server_connected_and_tool_works() {
     let init = &lines[0];
     assert_eq!(init["type"], "system");
     assert_eq!(init["subtype"], "init");
-    
+
 
     let mcp_servers = init["mcp_servers"].as_array().expect("mcp_servers array");
     assert!(!mcp_servers.is_empty(), "mcp_servers should list our fake server");
@@ -241,10 +241,10 @@ async fn multiple_mcp_servers_mixed_status() {
     let lines = ndjson(&stdout);
     let init = &lines[0];
     let mcp_servers = init["mcp_servers"].as_array().expect("mcp_servers array");
-    
+
     let good = mcp_servers.iter().find(|s| s["name"] == "good").expect("good server");
     assert_eq!(good["status"], "connected");
-    
+
     let bad = mcp_servers.iter().find(|s| s["name"] == "bad").expect("bad server");
     assert_eq!(bad["status"], "failed");
 }

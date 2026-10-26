@@ -61,7 +61,7 @@ Every public statement should be traceable to one of:
   3. *Wrong audience filter* - it attracts users who want Claude Code for free
      (and will complain it's not identical) instead of users who want a
      free-first agent (who will judge it on its own merits).
-  
+
   What to say instead: *"a terminal coding agent"* / *"the free-first agent"* /
   *"clean-room implementation."* Behavioral comparison ("mirrors observable
   behavior of…") is fine in technical docs; "clone" is banned in marketing.
