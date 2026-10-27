@@ -6,6 +6,9 @@ Python stdlib only (sqlite3, hashlib, json). See DESIGN.md in this directory.
 The event log is the source of truth. The `tasks` table is a projection that
 `rebuild` recreates by replaying events, and `verify` checks both the SHA-256
 hash chain and that the projection matches a fresh replay.
+
+State model follows Quy trinh MVP v3.0, Muc 18:
+QUEUED -> CLAIMED -> DOING -> BLOCKED -> REVIEW -> DONE -> DROPPED.
 """
 
 from __future__ import annotations
@@ -20,16 +23,42 @@ from datetime import datetime, timedelta, timezone
 from typing import Callable, Dict, Iterable, List, Optional
 
 CHAIN_SPEC = "ztask.chain.v1"
+EVENT_VERSION = 2  # v2 = Muc 18 state model (v1 logs from aba714b not replayed)
 GENESIS_PREV_HASH = "0" * 64
-LEASE = timedelta(hours=12)
+
+# Lease: 12h default (Viec 10 acceptance), configurable per task.
+DEFAULT_LEASE = timedelta(hours=12)
+LEASE = DEFAULT_LEASE  # kept for callers of the MVP-0 name
+LEASE_PRESETS = {
+    "default": DEFAULT_LEASE,          # acceptance criterion
+    "buffer-s": timedelta(minutes=30),  # Muc 18 pilot: small buffer tasks
+    "shift": timedelta(hours=8),        # Muc 18 pilot: 1 shift, main tasks
+}
+LEASE_MIN = timedelta(minutes=1)
+LEASE_MAX = timedelta(days=7)
+DEAD_LETTER_AFTER = 3  # re-queues before a task is dead-lettered
 DEFAULT_AGING = timedelta(hours=24)
-STATES = ("todo", "working", "blocked", "review", "done")
+
+STATES = ("QUEUED", "CLAIMED", "DOING", "BLOCKED", "REVIEW", "DONE", "DROPPED")
+TERMINAL = ("DONE", "DROPPED")
+HELD = ("CLAIMED", "DOING")  # states with a live lease
+LEVELS = ("L0", "L1", "L2", "L3", "L4")
+DEFAULT_LEVEL = "L2"
+
+# BLOCKED needs all four (Muc 18): what is blocking, what was tried,
+# who must unblock, effect on the deadline.
+BLOCK_FIELDS = ("blocked_by", "blocked_tried", "blocked_needs",
+                "blocked_impact")
+VERIFY_FIELDS = ("verified_by", "verification_cmd", "verification_receipt")
 
 TASK_FIELDS = (
-    "id", "title", "goal", "goal_ref", "owner", "acceptance", "evidence",
-    "state", "assignee", "lease_until", "lease_token", "heartbeat_at",
-    "blocked_by", "deadline", "priority", "created_at", "updated_at",
-    "escalation",
+    "id", "title", "goal", "goal_ref", "owner", "acceptance", "level",
+    "state", "assignee", "evidence",
+    "verified_by", "verification_cmd", "verification_receipt",
+    "blocked_by", "blocked_tried", "blocked_needs", "blocked_impact",
+    "lease_seconds", "lease_until", "lease_token", "heartbeat_at",
+    "checkpoint", "idem_key", "requeue_count", "dead_letter", "drop_reason",
+    "deadline", "priority", "created_at", "updated_at", "escalation",
 )
 
 SCHEMA = """
@@ -53,25 +82,40 @@ CREATE TABLE IF NOT EXISTS chain_head (
     hash   TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS tasks (
-    id           TEXT PRIMARY KEY,
-    title        TEXT NOT NULL,
-    goal         TEXT NOT NULL,
-    goal_ref     TEXT REFERENCES tasks(id),
-    owner        TEXT NOT NULL,
-    acceptance   TEXT NOT NULL,
-    evidence     TEXT,
-    state        TEXT NOT NULL CHECK (state IN
-                 ('todo', 'working', 'blocked', 'review', 'done')),
-    assignee     TEXT,
-    lease_until  TEXT,
-    lease_token  INTEGER NOT NULL DEFAULT 0,
-    heartbeat_at TEXT,
-    blocked_by   TEXT,
-    deadline     TEXT,
-    priority     INTEGER NOT NULL DEFAULT 0,
-    created_at   TEXT NOT NULL,
-    updated_at   TEXT NOT NULL,
-    escalation   TEXT
+    id                   TEXT PRIMARY KEY,
+    title                TEXT NOT NULL,
+    goal                 TEXT NOT NULL,
+    goal_ref             TEXT REFERENCES tasks(id),
+    owner                TEXT NOT NULL,
+    acceptance           TEXT NOT NULL,
+    level                TEXT NOT NULL CHECK (level IN
+                         ('L0', 'L1', 'L2', 'L3', 'L4')),
+    state                TEXT NOT NULL CHECK (state IN
+                         ('QUEUED', 'CLAIMED', 'DOING', 'BLOCKED', 'REVIEW',
+                          'DONE', 'DROPPED')),
+    assignee             TEXT,
+    evidence             TEXT,
+    verified_by          TEXT,
+    verification_cmd     TEXT,
+    verification_receipt TEXT,
+    blocked_by           TEXT,
+    blocked_tried        TEXT,
+    blocked_needs        TEXT,
+    blocked_impact       TEXT,
+    lease_seconds        INTEGER NOT NULL,
+    lease_until          TEXT,
+    lease_token          INTEGER NOT NULL DEFAULT 0,
+    heartbeat_at         TEXT,
+    checkpoint           TEXT,
+    idem_key             TEXT,
+    requeue_count        INTEGER NOT NULL DEFAULT 0,
+    dead_letter          INTEGER NOT NULL DEFAULT 0,
+    drop_reason          TEXT,
+    deadline             TEXT,
+    priority             INTEGER NOT NULL DEFAULT 0,
+    created_at           TEXT NOT NULL,
+    updated_at           TEXT NOT NULL,
+    escalation           TEXT
 );
 CREATE TABLE IF NOT EXISTS outbox (
     id           INTEGER PRIMARY KEY,
@@ -234,6 +278,34 @@ def secret_precheck(values: Iterable) -> None:
                     f"write rejected: looks like a secret (marker {hits[0]!r})")
 
 
+
+
+def parse_lease(value) -> int:
+    """Lease length in seconds from a preset name, '30m'/'8h'/'90s', or int."""
+    if value is None or value == "":
+        secs = int(DEFAULT_LEASE.total_seconds())
+    elif isinstance(value, timedelta):
+        secs = int(value.total_seconds())
+    elif isinstance(value, int) and not isinstance(value, bool):
+        secs = value
+    else:
+        text = str(value).strip().lower()
+        units = {"s": 1, "m": 60, "h": 3600}
+        if text in LEASE_PRESETS:
+            secs = int(LEASE_PRESETS[text].total_seconds())
+        elif text[-1:] in units and text[:-1].isdigit():
+            secs = int(text[:-1]) * units[text[-1]]
+        elif text.isdigit():
+            secs = int(text)
+        else:
+            raise ZtaskError(
+                f"bad lease {value!r}: use a preset "
+                f"({', '.join(sorted(LEASE_PRESETS))}) or e.g. 30m, 8h, 12h")
+    if not (LEASE_MIN.total_seconds() <= secs <= LEASE_MAX.total_seconds()):
+        raise ZtaskError("lease must be between 1 minute and 7 days")
+    return secs
+
+
 # --------------------------------------------------------------------------
 # Projection: one pure function, used by live writes and by rebuild
 
@@ -244,33 +316,65 @@ def apply_event(tasks: Dict[str, dict], ev: dict) -> None:
     d = ev["data"]
     ts = ev["ts"]
     if t == "task.created":
-        tasks[tid] = {
-            "id": tid, "title": d["title"], "goal": d["goal"],
-            "goal_ref": d.get("goal_ref"), "owner": d["owner"],
-            "acceptance": d["acceptance"], "evidence": None,
-            "state": "todo", "assignee": None, "lease_until": None,
-            "lease_token": 0, "heartbeat_at": None, "blocked_by": None,
-            "deadline": d.get("deadline"), "priority": d.get("priority", 0),
-            "created_at": ts, "updated_at": ts, "escalation": None,
-        }
+        task = {f: None for f in TASK_FIELDS}
+        task.update(
+            id=tid, title=d["title"], goal=d["goal"],
+            goal_ref=d.get("goal_ref"), owner=d["owner"],
+            acceptance=d["acceptance"], level=d.get("level", DEFAULT_LEVEL),
+            state="QUEUED",
+            lease_seconds=d.get("lease_seconds",
+                                int(DEFAULT_LEASE.total_seconds())),
+            lease_token=0, requeue_count=0, dead_letter=0,
+            deadline=d.get("deadline"), priority=d.get("priority", 0),
+            created_at=ts, updated_at=ts, idem_key=ev["idem_key"])
+        tasks[tid] = task
         return
     task = tasks[tid]
     task["updated_at"] = ts
-    if t in ("task.claimed", "task.unblocked", "task.rejected"):
-        task.update(state="working", assignee=d["assignee"],
+    task["idem_key"] = ev["idem_key"]
+    if t == "task.claimed":
+        task.update(state="CLAIMED", assignee=d["assignee"],
                     lease_token=d["token"], lease_until=d["lease_until"],
-                    heartbeat_at=ts, blocked_by=None)
+                    heartbeat_at=ts)
+    elif t == "task.started":
+        task.update(state="DOING", lease_until=d["lease_until"],
+                    heartbeat_at=ts)
     elif t == "task.heartbeat":
         task.update(lease_until=d["lease_until"], heartbeat_at=ts)
+        if d.get("checkpoint"):
+            task["checkpoint"] = d["checkpoint"]
     elif t in ("task.released", "task.lease_expired"):
-        task.update(state="todo", assignee=None, lease_until=None)
+        # Checkpoint is kept so the next executor can resume from it.
+        task.update(state="QUEUED", assignee=None, lease_until=None,
+                    requeue_count=(task["requeue_count"] or 0) + 1)
+    elif t == "task.dead_lettered":
+        task["dead_letter"] = 1
+    elif t == "task.recovered":
+        task.update(dead_letter=0, requeue_count=0)
+        if d.get("assignee"):
+            task.update(state="CLAIMED", assignee=d["assignee"],
+                        lease_token=d["token"], lease_until=d["lease_until"],
+                        heartbeat_at=ts)
     elif t == "task.blocked":
-        task.update(state="blocked", blocked_by=d["blocked_by"],
-                    lease_until=None)
+        task.update(state="BLOCKED", lease_until=None,
+                    **{f: d[f] for f in BLOCK_FIELDS})
+    elif t in ("task.unblocked", "task.rejected"):
+        task.update(state="DOING", assignee=d["assignee"],
+                    lease_token=d["token"], lease_until=d["lease_until"],
+                    heartbeat_at=ts, **{f: None for f in BLOCK_FIELDS})
+        if t == "task.rejected":  # rework: the old verification is void
+            task.update(**{f: None for f in VERIFY_FIELDS})
     elif t == "task.submitted":
-        task.update(state="review", evidence=d["evidence"], lease_until=None)
+        task.update(state="REVIEW", evidence=d["evidence"], lease_until=None)
+    elif t == "task.verified":
+        task.update(verified_by=d["verified_by"],
+                    verification_cmd=d["command"],
+                    verification_receipt=d["receipt"])
     elif t == "task.approved":
-        task.update(state="done", lease_until=None)
+        task.update(state="DONE", lease_until=None)
+    elif t == "task.dropped":
+        task.update(state="DROPPED", lease_until=None,
+                    drop_reason=d["reason"])
     elif t == "task.escalated":
         prior = [x for x in (task.get("escalation") or "").split(",") if x]
         if d["reason"] not in prior:
@@ -278,6 +382,11 @@ def apply_event(tasks: Dict[str, dict], ev: dict) -> None:
         task["escalation"] = ",".join(prior)
     else:
         raise ZtaskError(f"unknown event type {t}")
+
+
+LEADER_EVENTS = ("task.submitted", "task.blocked", "task.escalated",
+                 "task.lease_expired", "task.dead_lettered", "task.verified",
+                 "task.dropped", "task.recovered")
 
 
 def recipients_for(ev: dict, task: dict, leaders: List[str]) -> List[str]:
@@ -290,8 +399,7 @@ def recipients_for(ev: dict, task: dict, leaders: List[str]) -> List[str]:
         who.append(task["assignee"])
     if t == "task.lease_expired":
         who.append(ev["data"].get("previous_assignee") or "")
-    if t in ("task.submitted", "task.blocked", "task.escalated",
-             "task.lease_expired"):
+    if t in LEADER_EVENTS:
         who.extend(leaders)
     seen: List[str] = []
     for w in who:
@@ -414,9 +522,9 @@ class Store:
             raise ZtaskError("store not initialised: run `ztask init`")
         seq = head["length"] + 1
         prev = head["hash"]
-        ev = {"v": 1, "type": etype, "task_id": task_id, "actor": actor,
-              "ts": fmt_time(self.now()), "idem_key": idem_key,
-              "fingerprint": fingerprint, "data": data}
+        ev = {"v": EVENT_VERSION, "type": etype, "task_id": task_id,
+              "actor": actor, "ts": fmt_time(self.now()),
+              "idem_key": idem_key, "fingerprint": fingerprint, "data": data}
         body = canonical(ev)
         h = row_hash(prev, seq, body)
         self.conn.execute(
@@ -441,27 +549,43 @@ class Store:
         pending.append((ev, recips))
         return ev
 
+    def _after_requeue(self, task_id: str, pending: List) -> None:
+        """Dead-letter a task once it has been re-queued DEAD_LETTER_AFTER
+        times. Inside the caller's transaction."""
+        task = self._load_task(task_id)
+        if task["dead_letter"] or task["requeue_count"] < DEAD_LETTER_AFTER:
+            return
+        key = (f"sys:dead_lettered:{task_id}:{task['lease_token']}:"
+               f"{task['requeue_count']}")
+        self._append("task.dead_lettered", task_id, "system",
+                     {"requeue_count": task["requeue_count"],
+                      "checkpoint": task["checkpoint"]},
+                     key, sha256_hex(key), pending)
+
     def _sweep(self, pending: List) -> int:
-        """Expire leases and escalate overdue tasks. Inside a transaction."""
+        """Expire leases, dead-letter, escalate. Inside a transaction."""
         now = self.now()
         n = 0
         for row in self.conn.execute(
-                "SELECT * FROM tasks WHERE state='working' AND "
+                "SELECT * FROM tasks WHERE state IN ('CLAIMED', 'DOING') AND "
                 "lease_until IS NOT NULL").fetchall():
             if parse_time(row["lease_until"]) < now:
                 key = f"sys:lease_expired:{row['id']}:{row['lease_token']}"
                 self._append("task.lease_expired", row["id"], "system",
                              {"previous_assignee": row["assignee"],
+                              "previous_state": row["state"],
                               "token": row["lease_token"]},
                              key, sha256_hex(key), pending)
+                self._after_requeue(row["id"], pending)
                 n += 1
         for row in self.conn.execute(
-                "SELECT * FROM tasks WHERE state != 'done'").fetchall():
+                "SELECT * FROM tasks WHERE state NOT IN ('DONE', 'DROPPED')"
+                ).fetchall():
             done = (row["escalation"] or "").split(",")
             reasons = []
             if row["deadline"] and parse_time(row["deadline"]) < now:
                 reasons.append("deadline")
-            if (row["state"] == "todo"
+            if (row["state"] == "QUEUED"
                     and parse_time(row["created_at"]) + self.aging < now):
                 reasons.append("aging")
             for reason in reasons:
@@ -524,28 +648,47 @@ class Store:
                 except Exception:  # outbox keeps it for redelivery
                     pass
 
-    def _require_holder(self, task: dict, actor: str, token: int) -> None:
-        if task["state"] != "working":
+    def _require_holder(self, task: dict, actor: str, token: int,
+                        states=HELD) -> None:
+        if task["state"] not in HELD:
             raise InvalidTransition(
-                f"{task['id']} is {task['state']}, not working")
+                f"{task['id']} is {task['state']}, no live lease")
         if task["assignee"] != actor or int(token) != task["lease_token"]:
             raise NotAllowed(
                 f"{actor} does not hold the current lease on {task['id']} "
                 f"(stale or wrong fencing token)")
+        if task["state"] not in states:
+            raise InvalidTransition(
+                f"{task['id']} is {task['state']}, needs "
+                f"{' or '.join(states)}")
 
-    def _lease_until(self) -> str:
-        return fmt_time(self.now() + LEASE)
+    def _require_leader(self, actor: str, what: str) -> None:
+        if actor not in self.leaders():
+            raise NotAllowed(f"only a leader can {what}")
+
+    def _open_children(self, task_id: str) -> List[str]:
+        return [r["id"] for r in self.conn.execute(
+            "SELECT id FROM tasks WHERE goal_ref=? AND "
+            "state NOT IN ('DONE', 'DROPPED')", (task_id,))]
+
+    def _lease_until(self, task: dict) -> str:
+        return fmt_time(self.now() + timedelta(seconds=task["lease_seconds"]))
 
     # -- commands -----------------------------------------------------------
 
     def create(self, title: str, goal: str, owner: str, acceptance: str,
                actor: Optional[str] = None, goal_ref: Optional[str] = None,
                deadline: Optional[str] = None, priority: int = 0,
+               level: Optional[str] = None, lease=None,
                idem_key: Optional[str] = None) -> dict:
         actor = actor or owner
+        level = (level or DEFAULT_LEVEL).strip().upper()
+        if level not in LEVELS:
+            raise ZtaskError(f"level must be one of {', '.join(LEVELS)}")
         args = {"title": title, "goal": goal, "owner": owner,
                 "acceptance": acceptance, "goal_ref": goal_ref,
-                "deadline": deadline, "priority": priority}
+                "deadline": deadline, "priority": priority, "level": level,
+                "lease_seconds": parse_lease(lease)}
         for name in ("title", "goal", "owner", "acceptance"):
             if not (args[name] or "").strip():
                 raise ZtaskError(f"task record needs a non-empty {name}")
@@ -556,9 +699,9 @@ class Store:
         def build(pending, key, fp):
             if goal_ref is not None:
                 parent = self._load_task(goal_ref)
-                if parent["state"] == "done":
+                if parent["state"] in TERMINAL:
                     raise InvalidTransition(
-                        f"goal_ref {goal_ref} is already done")
+                        f"goal_ref {goal_ref} is already {parent['state']}")
             n = self.conn.execute(
                 "SELECT COUNT(*) FROM tasks").fetchone()[0]
             tid = f"T{n + 1}"
@@ -569,27 +712,51 @@ class Store:
 
     def claim(self, task_id: str, actor: str,
               idem_key: Optional[str] = None) -> dict:
+        """QUEUED -> CLAIMED. Atomic; new fencing token and lease."""
         def build(pending, key, fp):
             task = self._load_task(task_id)
-            if task["state"] != "todo":
+            if task["state"] != "QUEUED":
                 raise InvalidTransition(
                     f"{task_id} is {task['state']}, not claimable")
-            return self._append(
-                "task.claimed", task_id, actor,
-                {"assignee": actor, "token": task["lease_token"] + 1,
-                 "lease_until": self._lease_until()}, key, fp, pending)
+            if task["dead_letter"]:
+                raise NotAllowed(
+                    f"{task_id} is dead-lettered; a leader must recover it")
+            data = {"assignee": actor, "token": task["lease_token"] + 1,
+                    "lease_until": self._lease_until(task)}
+            if task["checkpoint"]:
+                data["resume_from"] = task["checkpoint"]
+            return self._append("task.claimed", task_id, actor, data, key,
+                                fp, pending)
 
         return self._write("claim", task_id, actor, {}, idem_key, build)
 
-    def heartbeat(self, task_id: str, actor: str, token: int,
-                  idem_key: Optional[str] = None) -> dict:
+    def start(self, task_id: str, actor: str, token: int,
+              idem_key: Optional[str] = None) -> dict:
+        """CLAIMED -> DOING (holder). Refreshes the lease."""
         args = {"token": int(token)}
 
         def build(pending, key, fp):
             task = self._load_task(task_id)
+            self._require_holder(task, actor, token, ("CLAIMED",))
+            return self._append("task.started", task_id, actor,
+                                {"token": int(token),
+                                 "lease_until": self._lease_until(task)},
+                                key, fp, pending)
+
+        return self._write("start", task_id, actor, args, idem_key, build)
+
+    def heartbeat(self, task_id: str, actor: str, token: int,
+                  checkpoint: Optional[str] = None,
+                  idem_key: Optional[str] = None) -> dict:
+        args = {"token": int(token), "checkpoint": checkpoint}
+
+        def build(pending, key, fp):
+            task = self._load_task(task_id)
             self._require_holder(task, actor, token)
-            return self._append("task.heartbeat", task_id, actor,
-                                {"lease_until": self._lease_until()},
+            data = {"lease_until": self._lease_until(task)}
+            if checkpoint:
+                data["checkpoint"] = checkpoint
+            return self._append("task.heartbeat", task_id, actor, data,
                                 key, fp, pending)
 
         # Heartbeats repeat, so the derived key is salted with the time.
@@ -601,69 +768,108 @@ class Store:
         def build(pending, key, fp):
             task = self._load_task(task_id)
             self._require_holder(task, actor, token)
-            return self._append("task.released", task_id, actor,
-                                {"token": int(token)}, key, fp, pending)
+            ev = self._append("task.released", task_id, actor,
+                              {"token": int(token)}, key, fp, pending)
+            self._after_requeue(task_id, pending)
+            return ev
 
         return self._write("release", task_id, actor, {"token": int(token)},
                            idem_key, build)
 
     def block(self, task_id: str, actor: str, token: int, blocked_by: str,
+              tried: str = "", needs: str = "", impact: str = "",
               idem_key: Optional[str] = None) -> dict:
-        if not (blocked_by or "").strip():
-            raise ZtaskError("block needs a non-empty blocked_by reason")
-        args = {"token": int(token), "blocked_by": blocked_by}
+        """CLAIMED/DOING -> BLOCKED. All four Muc 18 fields are required."""
+        fields = {"blocked_by": blocked_by, "blocked_tried": tried,
+                  "blocked_needs": needs, "blocked_impact": impact}
+        missing = [k for k, v in fields.items() if not (v or "").strip()]
+        if missing:
+            raise ZtaskError(
+                "BLOCKED needs 4 fields (what is blocking, what was tried, "
+                "who must unblock, effect on deadline); missing: "
+                + ", ".join(missing))
+        args = dict(fields, token=int(token))
 
         def build(pending, key, fp):
             task = self._load_task(task_id)
             self._require_holder(task, actor, token)
-            return self._append("task.blocked", task_id, actor,
-                                {"blocked_by": blocked_by}, key, fp, pending)
+            return self._append("task.blocked", task_id, actor, fields,
+                                key, fp, pending)
 
         return self._write("block", task_id, actor, args, idem_key, build)
 
     def unblock(self, task_id: str, actor: str,
                 idem_key: Optional[str] = None) -> dict:
+        """BLOCKED -> DOING (assignee or leader). New token and lease."""
         def build(pending, key, fp):
             task = self._load_task(task_id)
-            if task["state"] != "blocked":
+            if task["state"] != "BLOCKED":
                 raise InvalidTransition(
-                    f"{task_id} is {task['state']}, not blocked")
+                    f"{task_id} is {task['state']}, not BLOCKED")
             if actor != task["assignee"] and actor not in self.leaders():
                 raise NotAllowed("only the assignee or a leader can unblock")
             return self._append(
                 "task.unblocked", task_id, actor,
                 {"assignee": task["assignee"],
                  "token": task["lease_token"] + 1,
-                 "lease_until": self._lease_until()}, key, fp, pending)
+                 "lease_until": self._lease_until(task)}, key, fp, pending)
 
         return self._write("unblock", task_id, actor, {}, idem_key, build)
 
     def submit(self, task_id: str, actor: str, token: int, evidence: str,
                idem_key: Optional[str] = None) -> dict:
+        """DOING -> REVIEW (holder). REVIEW is not DONE."""
         if not (evidence or "").strip():
             raise ZtaskError("submit needs non-empty evidence")
         args = {"token": int(token), "evidence": evidence}
 
         def build(pending, key, fp):
             task = self._load_task(task_id)
-            self._require_holder(task, actor, token)
+            self._require_holder(task, actor, token, ("DOING",))
             return self._append("task.submitted", task_id, actor,
                                 {"evidence": evidence}, key, fp, pending)
 
         return self._write("submit", task_id, actor, args, idem_key, build)
 
+    def attest(self, task_id: str, actor: str, command: str, receipt: str,
+               idem_key: Optional[str] = None) -> dict:
+        """Record the verified triple on a REVIEW task: verified_by (actor)
+        + verification command + receipt. The executor cannot verify."""
+        for name, value in (("verification command", command),
+                            ("receipt", receipt)):
+            if not (value or "").strip():
+                raise ZtaskError(f"verification needs a non-empty {name}")
+        args = {"command": command, "receipt": receipt}
+
+        def build(pending, key, fp):
+            task = self._load_task(task_id)
+            if task["state"] != "REVIEW":
+                raise InvalidTransition(
+                    f"{task_id} is {task['state']}, not REVIEW")
+            if actor == task["assignee"]:
+                raise NotAllowed(
+                    f"{actor} executed {task_id} and cannot verify it "
+                    f"(no self-verify)")
+            return self._append("task.verified", task_id, actor,
+                                {"verified_by": actor, "command": command,
+                                 "receipt": receipt}, key, fp, pending)
+
+        return self._write("attest", task_id, actor, args, idem_key, build)
+
     def approve(self, task_id: str, actor: str,
                 idem_key: Optional[str] = None) -> dict:
+        """REVIEW -> DONE. Leader only, needs the verified triple."""
         def build(pending, key, fp):
-            if actor not in self.leaders():
-                raise NotAllowed("Done needs leader approval")
+            self._require_leader(actor, "approve DONE")
             task = self._load_task(task_id)
-            if task["state"] != "review":
+            if task["state"] != "REVIEW":
                 raise InvalidTransition(
-                    f"{task_id} is {task['state']}, not review")
-            open_children = [r["id"] for r in self.conn.execute(
-                "SELECT id FROM tasks WHERE goal_ref=? AND state != 'done'",
-                (task_id,))]
+                    f"{task_id} is {task['state']}, not REVIEW")
+            if not all(task[f] for f in VERIFY_FIELDS):
+                raise InvalidTransition(
+                    f"{task_id} is not verified: DONE needs verified_by + "
+                    f"verification command + receipt")
+            open_children = self._open_children(task_id)
             if open_children:
                 raise InvalidTransition(
                     f"{task_id} has open children: "
@@ -675,24 +881,70 @@ class Store:
 
     def reject(self, task_id: str, actor: str, reason: str,
                idem_key: Optional[str] = None) -> dict:
+        """REVIEW -> DOING (leader). Same executor, new token and lease."""
         if not (reason or "").strip():
             raise ZtaskError("reject needs a reason")
 
         def build(pending, key, fp):
-            if actor not in self.leaders():
-                raise NotAllowed("only a leader can reject a review")
+            self._require_leader(actor, "reject a review")
             task = self._load_task(task_id)
-            if task["state"] != "review":
+            if task["state"] != "REVIEW":
                 raise InvalidTransition(
-                    f"{task_id} is {task['state']}, not review")
+                    f"{task_id} is {task['state']}, not REVIEW")
             return self._append(
                 "task.rejected", task_id, actor,
                 {"assignee": task["assignee"], "reason": reason,
                  "token": task["lease_token"] + 1,
-                 "lease_until": self._lease_until()}, key, fp, pending)
+                 "lease_until": self._lease_until(task)}, key, fp, pending)
 
         return self._write("reject", task_id, actor, {"reason": reason},
                            idem_key, build)
+
+    def drop(self, task_id: str, actor: str, reason: str,
+             idem_key: Optional[str] = None) -> dict:
+        """Any non-terminal state -> DROPPED (leader). Replaces deletion."""
+        if not (reason or "").strip():
+            raise ZtaskError("drop needs a reason")
+
+        def build(pending, key, fp):
+            self._require_leader(actor, "drop a task")
+            task = self._load_task(task_id)
+            if task["state"] in TERMINAL:
+                raise InvalidTransition(
+                    f"{task_id} is {task['state']}, already terminal")
+            open_children = self._open_children(task_id)
+            if open_children:
+                raise InvalidTransition(
+                    f"{task_id} has open children: "
+                    f"{', '.join(open_children)} (drop or finish them first)")
+            return self._append("task.dropped", task_id, actor,
+                                {"reason": reason,
+                                 "previous_state": task["state"]},
+                                key, fp, pending)
+
+        return self._write("drop", task_id, actor, {"reason": reason},
+                           idem_key, build)
+
+    def recover(self, task_id: str, actor: str,
+                assignee: Optional[str] = None,
+                idem_key: Optional[str] = None) -> dict:
+        """Leader recovers a dead-lettered task: back to QUEUED, or straight
+        to CLAIMED for `assignee`. The checkpoint is kept (resume_from)."""
+        args = {"assignee": assignee}
+
+        def build(pending, key, fp):
+            self._require_leader(actor, "recover a dead-lettered task")
+            task = self._load_task(task_id)
+            if task["state"] != "QUEUED" or not task["dead_letter"]:
+                raise InvalidTransition(f"{task_id} is not dead-lettered")
+            data = {"assignee": assignee, "resume_from": task["checkpoint"]}
+            if assignee:
+                data.update(token=task["lease_token"] + 1,
+                            lease_until=self._lease_until(task))
+            return self._append("task.recovered", task_id, actor, data,
+                                key, fp, pending)
+
+        return self._write("recover", task_id, actor, args, idem_key, build)
 
     def sweep(self) -> int:
         pending: List = []
@@ -821,14 +1073,30 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--goal-ref")
     sp.add_argument("--deadline")
     sp.add_argument("--priority", type=int, default=0)
+    sp.add_argument("--level", default=DEFAULT_LEVEL, choices=LEVELS)
+    sp.add_argument("--lease", default=None,
+                    help="default (12h), buffer-s (30m), shift (8h), or "
+                         "e.g. 30m / 8h")
     add("claim", "task")
-    add("heartbeat", "task", token=True)
+    add("start", "task", token=True)
+    add("heartbeat", "task", token=True).add_argument("--checkpoint")
     add("release", "task", token=True)
-    add("block", "task", token=True).add_argument("--by", required=True)
+    sp = add("block", "task", token=True)
+    sp.add_argument("--by", required=True, help="what is blocking")
+    sp.add_argument("--tried", required=True, help="what was tried")
+    sp.add_argument("--needs", required=True, help="who must unblock")
+    sp.add_argument("--impact", required=True, help="effect on deadline")
     add("unblock", "task")
     add("submit", "task", token=True).add_argument("--evidence", required=True)
+    sp = add("attest", "task")
+    sp.add_argument("--cmd", required=True, dest="vcmd",
+                    help="verification command that was run")
+    sp.add_argument("--receipt", required=True,
+                    help="receipt: output digest, log link, or result")
     add("approve", "task")
     add("reject", "task").add_argument("--reason", required=True)
+    add("drop", "task").add_argument("--reason", required=True)
+    add("recover", "task").add_argument("--assignee")
     for name in ("sweep", "list", "log", "verify", "rebuild", "outbox"):
         sub.add_parser(name)
     sub.add_parser("show").add_argument("task")
@@ -849,25 +1117,37 @@ def main(argv: Optional[List[str]] = None) -> int:
             out = store.create(args.title, args.goal, args.owner,
                                args.acceptance, actor=args.actor,
                                goal_ref=args.goal_ref, deadline=args.deadline,
-                               priority=args.priority, idem_key=args.idem)
+                               priority=args.priority, level=args.level,
+                               lease=args.lease, idem_key=args.idem)
         elif c == "claim":
             out = store.claim(args.task, args.actor, args.idem)
+        elif c == "start":
+            out = store.start(args.task, args.actor, args.token, args.idem)
         elif c == "heartbeat":
-            out = store.heartbeat(args.task, args.actor, args.token, args.idem)
+            out = store.heartbeat(args.task, args.actor, args.token,
+                                  args.checkpoint, args.idem)
         elif c == "release":
             out = store.release(args.task, args.actor, args.token, args.idem)
         elif c == "block":
             out = store.block(args.task, args.actor, args.token, args.by,
-                              args.idem)
+                              args.tried, args.needs, args.impact, args.idem)
         elif c == "unblock":
             out = store.unblock(args.task, args.actor, args.idem)
         elif c == "submit":
             out = store.submit(args.task, args.actor, args.token,
                                args.evidence, args.idem)
+        elif c == "attest":
+            out = store.attest(args.task, args.actor, args.vcmd,
+                               args.receipt, args.idem)
         elif c == "approve":
             out = store.approve(args.task, args.actor, args.idem)
         elif c == "reject":
             out = store.reject(args.task, args.actor, args.reason, args.idem)
+        elif c == "drop":
+            out = store.drop(args.task, args.actor, args.reason, args.idem)
+        elif c == "recover":
+            out = store.recover(args.task, args.actor, args.assignee,
+                                args.idem)
         elif c == "sweep":
             out = {"events": store.sweep()}
         elif c == "list":

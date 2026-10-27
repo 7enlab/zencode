@@ -51,3 +51,35 @@ Note: the repo `.gitignore` ignores `/PLAN.md` at the root, so this plan lives a
 - DONE only with real test output + `git status` + `git diff --stat`.
 - Pre-deploy gate: Z Ops 6-item verification checklist must pass before any
   deploy. MVP-0 is local only and is not a deploy.
+
+## Re-plan 2026-10-27: align with Quy trinh MVP v3.0, Muc 18
+
+Trigger: the team process rule "Quy trinh MVP v3.0, Muc 18" (effective
+2026-10-25) overrides older specs (Quy trinh wins per Muc 12). The spec is
+living: replaced parts of DESIGN.md are kept and marked "superseded by Muc 18",
+not deleted. Still local only: no push, no PR, no merge, no new dependency,
+only `tools/ztask/` changes.
+
+Steps (in order, plan before code):
+
+8. Re-plan (this section). Backup of the aba714b copies kept outside the repo.
+9. DESIGN.md: 7-value state model QUEUED -> CLAIMED -> DOING -> BLOCKED ->
+   REVIEW -> DONE -> DROPPED and new transition table; BLOCKED needs 4 fields
+   (what is blocking, what was tried, who must unblock, effect on deadline);
+   full task card (status, owner separate from executor, evidence,
+   verification, blocked_by, lease_until, heartbeat, checkpoint, fencing token,
+   idempotency key, permission level L0-L4); verified triple (verified_by +
+   verification command + receipt, no self-verify, DONE needs triple + leader);
+   per-task lease (12h default, pilot presets 30 min and 1 shift); dead-letter
+   after 3 re-queues with recovery from checkpoint; reconciliation section
+   (acceptance said "5-level state machine", Muc 18 says 7; chose Muc 18,
+   flagged for ZC Leader).
+10. ztask.py: implement the above; keep hash chain, TamperEvident,
+    idempotency, WAL, VACUUM INTO, secret precheck, notifications, goal_ref.
+11. test_ztask.py: update existing tests to the 7 states; add tests for the
+    DROPPED path, BLOCKED 4-field rule, self-verify rejected, dead-letter after
+    3, configurable lease.
+12. README.md: new commands and states.
+13. Run the suite twice on the box, check em dash count = 0 and
+    `git diff --stat`; commit locally only if all green. Same step fails
+    twice: stop and report.
