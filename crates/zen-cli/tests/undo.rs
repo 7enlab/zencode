@@ -1,6 +1,3 @@
-
-
-
 #![cfg(unix)]
 
 mod common;

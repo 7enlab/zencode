@@ -1,7 +1,3 @@
-
-
-
-
 mod common;
 
 use common::*;
@@ -17,8 +13,6 @@ fn run_p(tag: &str, home: &TempDir, cwd: &TempDir, server: &MockServer, prompt: 
     assert!(!stdout.trim().is_empty(), "no stdout; stderr: {}", stderr);
     (last_result(&stdout), code)
 }
-
-
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn c5_4_headless_builtins_answer_locally() {
@@ -56,7 +50,6 @@ async fn c5_4_headless_builtins_answer_locally() {
     assert!(server.requests().await.is_empty(), "built-ins must not call the model");
 }
 
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn c5_4_headless_mcp_lists_server_status() {
     let home = TempDir::new("pmcp_home");
@@ -72,7 +65,6 @@ async fn c5_4_headless_mcp_lists_server_status() {
     assert_eq!(code, 0, "{}", stdout);
     assert_eq!(last_result(&stdout)["result"], "broken: failed");
 }
-
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn c5_1_review_sends_review_prompt() {
@@ -97,8 +89,6 @@ fn bash_call(id: &str, cmd: &str) -> Reply {
     )
 }
 
-
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn c5_2_command_model_and_allowed_tools_apply() {
     let home = TempDir::new("cmdfm_home");
@@ -117,13 +107,11 @@ async fn c5_2_command_model_and_allowed_tools_apply() {
     assert_eq!(request_json(&reqs[0])["model"], "special-model");
     assert!(request_messages_text(&reqs[1]).contains("zen-hello"), "tool output reaches the model");
 
-
     let server2 = MockServer::start(vec![bash_call("call_2", "echo zen-hello"), Reply::text("done")]).await;
     let (v2, _) = run_p("cmdfm2", &home, &cwd, &server2, "/plain");
     assert_eq!(v2["permission_denials"][0]["tool_name"], "Bash", "{}", v2);
     assert_eq!(request_json(&server2.requests().await[0])["model"], "mock-model");
 }
-
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn c6_4_stream_json_subagent_lines_carry_parent_tool_use_id() {
@@ -160,7 +148,6 @@ async fn c6_4_stream_json_subagent_lines_carry_parent_tool_use_id() {
     assert!(lines.iter().all(|l| l["session_id"].is_string()));
 }
 
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn c5_1_repl_builtins_rename_export_resume() {
     let home = TempDir::new("replb_home");
@@ -182,7 +169,6 @@ async fn c5_1_repl_builtins_rename_export_resume() {
     let md = std::fs::read_to_string(cwd.path().join("out.md")).expect("export file");
     assert!(md.contains("## User\n\nhello zen") && md.contains("## Assistant\n\nhi there"), "{}", md);
 
-
     let (stdout2, stderr2, code2) = ZenRun::new("replb2", &home, &cwd)
         .args(["--setting-sources", ""])
         .mock("mock-model", &server)
@@ -197,7 +183,6 @@ async fn c5_1_repl_builtins_rename_export_resume() {
     assert!(last.contains("hello zen") && last.contains("hi there") && last.contains("and again"), "{}", last);
 }
 
-
 #[cfg(unix)]
 fn ps_stat(pid: &str) -> Option<String> {
     let o = std::process::Command::new("ps").args(["-o", "stat=", "-p", pid]).output().ok()?;
@@ -205,13 +190,10 @@ fn ps_stat(pid: &str) -> Option<String> {
     (o.status.success() && !s.is_empty()).then_some(s)
 }
 
-
 #[cfg(unix)]
 fn alive(pid: &str) -> bool {
     ps_stat(pid).is_some_and(|s| !s.starts_with('Z'))
 }
-
-
 
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -273,8 +255,6 @@ async fn c8_9_repl_sigint_cancels_turn_and_continues() {
     assert!(request_messages_text(reqs.last().unwrap()).contains("next prompt"));
 }
 
-
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn c5_1_repl_config_saves_and_clear_starts_new_session() {
     let home = TempDir::new("replc_home");
@@ -313,8 +293,6 @@ fn walkdir_jsonl(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
     }
     out
 }
-
-
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn c10_1_autocompact_flag_sets_threshold() {

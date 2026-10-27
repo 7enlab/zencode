@@ -1,9 +1,3 @@
-
-
-
-
-
-
 setup_paginate_bug() {
   mkdir -p shop
   touch shop/__init__.py
@@ -18,11 +12,9 @@ from shop.paging import page_bounds
 
 ITEMS = ["item%02d" % i for i in range(1, 24)]
 
-
 def list_items(page=1, per_page=10):
     start, end = page_bounds(page, per_page)
     return ITEMS[start:end]
-
 
 def page_count(per_page=10):
     return len(ITEMS) // per_page
@@ -31,11 +23,9 @@ EOF
 import unittest
 from shop.catalog import list_items
 
-
 class CatalogTest(unittest.TestCase):
     def test_first_page_starts_at_first_item(self):
         self.assertEqual(list_items(1, 10)[0], "item01")
-
 
 if __name__ == "__main__":
     unittest.main()
@@ -80,11 +70,9 @@ EOF
 import unittest
 from envfile import parse
 
-
 class EnvTest(unittest.TestCase):
     def test_basic(self):
         self.assertEqual(parse("A=1\nB = two\n"), {"A": "1", "B": "two"})
-
 
 if __name__ == "__main__":
     unittest.main()
@@ -251,7 +239,6 @@ EOF
   cat > report/summary.py <<'EOF'
 from report.data import SALES
 
-
 def totals_by_region(sales=SALES):
     out = {}
     for row in sales:
@@ -262,10 +249,8 @@ EOF
 import argparse
 from report.summary import totals_by_region
 
-
 def render_text(totals):
     return "\n".join("%-6s %8.2f" % (k, v) for k, v in sorted(totals.items()))
-
 
 def main(argv=None):
     p = argparse.ArgumentParser(prog="report")
@@ -274,7 +259,6 @@ def main(argv=None):
     args = p.parse_args(argv)
     if args.cmd == "totals":
         print(render_text(totals_by_region()))
-
 
 if __name__ == "__main__":
     main()

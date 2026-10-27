@@ -1,19 +1,4 @@
-
-
-
-
-
-
-
-
-
-
-
 use serde_json::{Map, Value};
-
-
-
-
 
 pub fn resolve_tool_name(name: &str, known: &[String]) -> Option<String> {
     let cleaned = strip_template_tokens(name);
@@ -31,8 +16,6 @@ pub fn resolve_tool_name(name: &str, known: &[String]) -> Option<String> {
         }
     }
 
-
-
     let pieces = name_pieces(name);
     for p in &pieces {
         if let Some(hit) = known.iter().find(|k| normalize_name(k) == normalize_name(p)) {
@@ -46,8 +29,6 @@ pub fn resolve_tool_name(name: &str, known: &[String]) -> Option<String> {
     }
     None
 }
-
-
 
 fn name_pieces(name: &str) -> Vec<String> {
     let mut s = String::with_capacity(name.len());
@@ -68,11 +49,6 @@ fn name_pieces(name: &str) -> Vec<String> {
         .collect()
 }
 
-
-
-
-
-
 pub fn strip_template_tokens(name: &str) -> String {
     let s: String = name.chars().filter(|c| !matches!(c, '\u{200B}' | '\u{200C}' | '\u{200D}' | '\u{FEFF}')).collect();
     let s = match s.find("to=") {
@@ -83,8 +59,6 @@ pub fn strip_template_tokens(name: &str) -> String {
     s.split(|c: char| c.is_whitespace() || c == '<').find(|p| !p.is_empty()).unwrap_or("").to_string()
 }
 
-
-
 pub fn has_template_tokens(name: &str) -> bool {
     name.contains("<|") || name.contains("|>") || name.contains("to=") || name.contains('\u{200B}')
 }
@@ -92,7 +66,6 @@ pub fn has_template_tokens(name: &str) -> bool {
 fn normalize_name(s: &str) -> String {
     s.chars().filter(|c| c.is_ascii_alphanumeric()).map(|c| c.to_ascii_lowercase()).collect()
 }
-
 
 fn alias_target(key: &str) -> Option<&'static str> {
     const TABLE: &[(&str, &[&str])] = &[
@@ -112,13 +85,8 @@ fn alias_target(key: &str) -> Option<&'static str> {
     TABLE.iter().find(|(_, names)| names.contains(&key)).map(|(t, _)| *t)
 }
 
-
-
-
-
 pub fn repair_args(raw: &str, schema: Option<&Value>) -> Result<(Value, Vec<String>), String> {
     let mut notes = Vec::new();
-
 
     let mut obj = parse_object(raw, &mut notes, schema)?;
     if let Some(s) = schema {
@@ -126,7 +94,6 @@ pub fn repair_args(raw: &str, schema: Option<&Value>) -> Result<(Value, Vec<Stri
     }
     Ok((Value::Object(obj), notes))
 }
-
 
 fn with_hint(base: String, schema: Option<&Value>) -> String {
     let hint = schema.map(schema_hint).unwrap_or_default();
@@ -162,7 +129,6 @@ fn parse_object(
         }
     }
 
-
     if let Some(v) = unfenced.find('{').and_then(|i| first_object(&unfenced[i..])) {
         notes.push("ignored trailing text after the JSON arguments".into());
         return into_object(v, notes, schema);
@@ -178,7 +144,6 @@ fn parse_object(
         None => Err(with_hint(strict_err, schema)),
     }
 }
-
 
 fn first_object(s: &str) -> Option<Value> {
     let mut it = serde_json::Deserializer::from_str(s).into_iter::<Value>();
@@ -222,7 +187,6 @@ fn type_name(v: &Value) -> &'static str {
     }
 }
 
-
 fn strip_fences(s: &str) -> &str {
     let mut t = s;
     if let Some(rest) = t.strip_prefix("```") {
@@ -239,7 +203,6 @@ fn strip_fences(s: &str) -> &str {
     t
 }
 
-
 fn extract_braced(s: &str) -> Option<&str> {
     let start = s.find('{')?;
     match s.rfind('}') {
@@ -248,9 +211,6 @@ fn extract_braced(s: &str) -> Option<&str> {
         _ => Some(&s[start..]),
     }
 }
-
-
-
 
 fn normalize_json_text(s: &str) -> String {
     let chars: Vec<char> = s.chars().collect();
@@ -344,7 +304,6 @@ fn normalize_json_text(s: &str) -> String {
     out
 }
 
-
 fn schema_type(prop: &Value) -> Option<&str> {
     match prop.get("type")? {
         Value::String(s) => Some(s.as_str()),
@@ -352,9 +311,6 @@ fn schema_type(prop: &Value) -> Option<&str> {
         _ => None,
     }
 }
-
-
-
 
 fn coerce_object(obj: &mut Map<String, Value>, schema: &Value, path: &str, notes: &mut Vec<String>) {
     let Some(props) = schema.get("properties").and_then(|p| p.as_object()) else { return };
@@ -403,8 +359,6 @@ fn coerce_object(obj: &mut Map<String, Value>, schema: &Value, path: &str, notes
     }
 }
 
-
-
 fn near_miss_key(key: &str, props: &Map<String, Value>, obj: &Map<String, Value>) -> Option<String> {
     let norm = normalize_name(key);
     let free = |name: &str| props.contains_key(name) && !obj.contains_key(name);
@@ -418,7 +372,6 @@ fn near_miss_key(key: &str, props: &Map<String, Value>, obj: &Map<String, Value>
     };
     free(target).then(|| target.to_string())
 }
-
 
 fn coerce_value(v: &Value, ty: &str) -> Option<Value> {
     match (ty, v) {
@@ -449,11 +402,6 @@ fn coerce_value(v: &Value, ty: &str) -> Option<Value> {
     }
 }
 
-
-
-
-
-
 pub fn tool_call_in_text(text: &str, known: &[String]) -> Option<(String, String)> {
     let mut t = text.trim();
     if let Some(inner) = t.strip_prefix("<tool_call>") {
@@ -479,7 +427,6 @@ pub fn tool_call_in_text(text: &str, known: &[String]) -> Option<(String, String
     };
     Some((name, args))
 }
-
 
 pub fn schema_hint(schema: &Value) -> String {
     let Some(props) = schema.get("properties").and_then(|p| p.as_object()) else { return String::new() };
@@ -540,8 +487,6 @@ mod tests {
         })
     }
 
-
-
     #[test]
     fn malformed_arguments_repair_to_expected_objects() {
         let cases: Vec<(&str, Value)> = vec![
@@ -572,7 +517,6 @@ mod tests {
 
     #[test]
     fn error_hints_are_consistent_across_repair_paths() {
-
 
         let schema = read_schema();
         for raw in ["not json at all {{{", "[1, 2, 3]", "\"just a string\""] {

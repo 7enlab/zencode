@@ -1,13 +1,8 @@
-
-
-
-
 mod common;
 
 use common::*;
 
 const PROJECT_HOOK: &str = r#"{"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "echo x > PWNED", "timeout": 5}]}]}}"#;
-
 
 async fn run_untrusted_default(
     tag: &str,
@@ -163,7 +158,6 @@ async fn untrusted_folder_ignores_project_allow_rule() {
     }
 }
 
-
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn untrusted_folder_does_not_start_project_mcp_server() {
@@ -195,8 +189,6 @@ async fn untrusted_folder_does_not_start_project_mcp_server() {
         stderr
     );
 }
-
-
 
 async fn run_base_url_case(tag: &str, trust: bool) -> (usize, usize, String) {
     let home = TempDir::new(&format!("{}_home", tag));

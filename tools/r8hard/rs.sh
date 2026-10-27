@@ -1,10 +1,7 @@
-
-
 _r8_cargo_toml() {
   printf '[package]\nname = "%s"\nversion = "0.1.0"\nedition = "2021"\n\n[dependencies]\n' "$1" > Cargo.toml
   printf 'target/\n' > .gitignore
 }
-
 
 setup_rs_ringbuf_bug() {
   _r8_cargo_toml ringbuf
@@ -137,7 +134,6 @@ open("src/lib.rs", "w").write(s)
 EOF
 }
 
-
 setup_rs_field_rename() {
   _r8_cargo_toml orders
   mkdir -p src tests
@@ -240,7 +236,6 @@ impl std::fmt::Display for LineItem {
 }
 EOF
 }
-
 
 setup_rs_duration_parse() {
   _r8_cargo_toml durparse
@@ -354,7 +349,6 @@ s = s.replace("    let _ = s;\n    todo!()\n", '''    if s.is_empty() {
 open("src/lib.rs", "w").write(s)
 EOF
 }
-
 
 setup_rs_shape_triangle() {
   _r8_cargo_toml shapes
@@ -519,7 +513,6 @@ pub fn total_area(specs: &[&str]) -> Result<f64, String> {
 open("src/registry.rs", "w").write(s)
 EOF
 }
-
 
 setup_rs_wordfreq_bug() {
   _r8_cargo_toml wordfreq

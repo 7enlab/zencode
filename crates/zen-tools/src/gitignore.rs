@@ -1,11 +1,3 @@
-
-
-
-
-
-
-
-
 use globset::{GlobBuilder, GlobMatcher};
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
@@ -16,7 +8,6 @@ pub struct IgnoreRule {
     negated: bool,
     dir_only: bool,
 }
-
 
 pub fn load_ignore_rules(root: &Path) -> Vec<IgnoreRule> {
     let mut rules = Vec::new();
@@ -86,7 +77,6 @@ fn parse_gitignore(text: &str, base: &Path, out: &mut Vec<IgnoreRule>) {
     }
 }
 
-
 pub fn is_ignored(rules: &[IgnoreRule], path: &Path, is_dir: bool) -> bool {
     let mut ignored = false;
     for rule in rules {
@@ -95,7 +85,6 @@ pub fn is_ignored(rules: &[IgnoreRule], path: &Path, is_dir: bool) -> bool {
             continue;
         }
         if rule.dir_only && !is_dir {
-
 
             continue;
         }

@@ -1,21 +1,12 @@
-
-
-
-
-
-
 mod common;
 
 use common::*;
-
-
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn pre_tool_use_exit_2_blocks_tool() {
     let home = TempDir::new("hook_pre2_home");
     let cwd = TempDir::new("hook_pre2_cwd");
     cwd.write("test.txt", "existing");
-
 
     let hook_config = r#"{
         "hooks": {
@@ -55,7 +46,6 @@ async fn pre_tool_use_exit_2_blocks_tool() {
     let v = last_result(&stdout);
     assert_eq!(v["result"], "hook blocked it");
 
-
     let requests = server.requests().await;
     assert_eq!(requests.len(), 2);
     let second_req = request_messages_text(&requests[1]);
@@ -63,7 +53,6 @@ async fn pre_tool_use_exit_2_blocks_tool() {
 
     assert_eq!(std::fs::read_to_string(cwd.path().join("test.txt")).unwrap(), "existing");
 }
-
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn pre_tool_use_exit_0_allows_tool() {
@@ -114,7 +103,6 @@ async fn pre_tool_use_exit_0_allows_tool() {
     assert_eq!(std::fs::read_to_string(cwd.path().join("out.txt")).unwrap(), "hello");
 }
 
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn pre_tool_use_other_exit_logs_but_allows() {
     let home = TempDir::new("hook_pre3_home");
@@ -162,7 +150,6 @@ async fn pre_tool_use_other_exit_logs_but_allows() {
     assert!(stderr.contains("hook error") || stderr.contains("exit code 3"), "hook error should be logged: {}", stderr);
 }
 
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn user_prompt_submit_hook_adds_context() {
     let home = TempDir::new("hook_ups_home");
@@ -196,7 +183,6 @@ async fn user_prompt_submit_hook_adds_context() {
     assert!(msgs_text.contains("EXTRA CONTEXT FROM HOOK"), "hook stdout should be added to prompt: {}", msgs_text);
 }
 
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn user_prompt_submit_exit_2_blocks_prompt() {
     let home = TempDir::new("hook_ups2_home");
@@ -223,8 +209,6 @@ async fn user_prompt_submit_exit_2_blocks_prompt() {
     .await
     .expect("timed out");
 
-
-
     assert_eq!(code, 1, "stderr: {}", stderr);
     let v = last_result(&stdout);
     assert_eq!(v["is_error"], true, "{}", v);
@@ -234,8 +218,6 @@ async fn user_prompt_submit_exit_2_blocks_prompt() {
     let requests = server.requests().await;
     assert_eq!(requests.len(), 0, "model should not be called when prompt blocked");
 }
-
-
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn stop_hook_feedback_continues_loop() {
@@ -276,7 +258,6 @@ async fn stop_hook_feedback_continues_loop() {
     assert!(second.contains("CONTINUE: do one more thing"), "stop feedback missing: {}", second);
 }
 
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn session_start_hook_runs() {
     let home = TempDir::new("hook_sess_home");
@@ -310,7 +291,6 @@ async fn session_start_hook_runs() {
     let text = request_messages_text(&requests[0]);
     assert!(text.contains("SESSION STARTED"), "SessionStart context missing: {}", text);
 }
-
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn multiple_pre_tool_use_hooks_one_blocks() {

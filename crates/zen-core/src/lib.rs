@@ -1,15 +1,9 @@
-
-
-
-
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-
-
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct FunctionDefinition {
@@ -80,16 +74,12 @@ pub struct Usage {
     #[serde(default)]
     pub total_tokens: u64,
 
-
-
     #[serde(default)]
     pub cache_read_input_tokens: u64,
-
 
     #[serde(default)]
     pub cache_creation_input_tokens: u64,
 }
-
 
 pub fn cache_hit_rate(cache_read_input_tokens: u64, prompt_tokens: u64) -> f64 {
     if prompt_tokens == 0 {
@@ -115,13 +105,10 @@ pub struct ChatResponse {
     pub finish_reason: Option<String>,
 }
 
-
 #[async_trait]
 pub trait LlmBackend: Send + Sync {
     async fn chat(&self, req: ChatRequest) -> anyhow::Result<ChatResponse>;
 }
-
-
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -164,8 +151,6 @@ pub enum OutputFormat {
     StreamJson,
 }
 
-
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct ToolOutput {
     pub content: String,
@@ -180,7 +165,6 @@ impl ToolOutput {
     }
 }
 
-
 #[derive(Clone)]
 pub struct ToolContext {
 
@@ -190,37 +174,27 @@ pub struct ToolContext {
 
     pub env: HashMap<String, String>,
 
-
     pub api_key_env: Option<String>,
 
     pub allow_private_network: bool,
-
-
 
     pub read_files: Arc<Mutex<HashMap<PathBuf, u64>>>,
 
     pub todos: Arc<Mutex<Vec<TodoItem>>>,
     pub session_id: String,
 
-
     pub current_tool_use_id: Option<String>,
-
 
     pub session_dir: Option<PathBuf>,
 
-
     pub tool_timeout_ms: Option<u64>,
-
 
     pub checkpoints: Option<Arc<dyn FileCheckpoints>>,
 }
 
-
-
 pub trait FileCheckpoints: Send + Sync {
 
     fn begin_turn(&self, prompt: &str);
-
 
     fn before_write(&self, path: &Path) -> Option<String>;
 
@@ -294,7 +268,6 @@ pub trait Tool: Send + Sync {
     }
 }
 
-
 #[derive(Clone, Default)]
 pub struct ToolRegistry {
     tools: Vec<Arc<dyn Tool>>,
@@ -322,8 +295,6 @@ impl ToolRegistry {
     }
 }
 
-
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum PermissionDecision {
     Allow,
@@ -337,12 +308,10 @@ pub trait PermissionChecker: Send + Sync {
 
     fn add_allow_rule(&self, _rule: &str) {}
 
-
     fn ask_rule_matches(&self, _tool_name: &str, _input: &Value, _ctx: &ToolContext) -> bool {
         false
     }
 }
-
 
 pub trait Prompter: Send + Sync {
     fn ask_permission(&self, tool_name: &str, input: &Value) -> PromptAnswer;
@@ -360,8 +329,6 @@ pub struct PermissionDenial {
     pub tool_use_id: String,
     pub tool_input: Value,
 }
-
-
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum HookEvent {
@@ -429,10 +396,8 @@ pub struct HookOutcome {
 #[async_trait]
 pub trait HookRunner: Send + Sync {
 
-
     async fn run(&self, event: HookEvent, matcher_target: &str, payload: Value) -> HookOutcome;
 }
-
 
 pub struct NoHooks;
 #[async_trait]
@@ -442,25 +407,15 @@ impl HookRunner for NoHooks {
     }
 }
 
-
-
-
-
-
-
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub enum AgentEvent {
 
     Assistant { message: ChatMessage, parent_tool_use_id: Option<String> },
 
-
-
     ToolResult { tool_use_id: String, content: String, is_error: bool, parent_tool_use_id: Option<String>, parallel: bool },
 
     TextDelta { text: String },
-
-
 
     ToolProgress { tool_use_id: String, tool_name: String, elapsed_ms: u64 },
     ApiRetry { attempt: u32, max_retries: u32, retry_delay_ms: u64, error_status: Option<u16>, error: String },
@@ -468,7 +423,6 @@ pub enum AgentEvent {
 
     Pruned { pruned: usize, tokens_saved: u64 },
     PermissionDenied(PermissionDenial),
-
 
     SystemMessage { event: String, text: String },
 }
@@ -481,30 +435,14 @@ impl EventSink for NullSink {
     fn emit(&self, _: AgentEvent) {}
 }
 
-
-
-
 pub trait ToolJournal: Send + Sync {
 
     fn assistant(&self, message: &ChatMessage);
 
-
     fn tool_result(&self, tool_use_id: &str, content: &str, is_error: bool, final_result: bool);
 }
 
-
-
-
-
-
-
-
-
-
-
 pub const CACHE_VOLATILE_MARKER: &str = "\n\n<!-- zen-cache: volatile context below -->\n\n";
-
-
 
 pub fn split_stable_volatile(prompt: &str) -> (&str, &str) {
     match prompt.split_once(CACHE_VOLATILE_MARKER) {
@@ -518,7 +456,6 @@ pub struct UsageStats {
     pub input_tokens: u64,
     pub output_tokens: u64,
 
-
     #[serde(default)]
     pub cache_read_input_tokens: u64,
 }
@@ -529,7 +466,6 @@ impl UsageStats {
         cache_hit_rate(self.cache_read_input_tokens, self.input_tokens)
     }
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct RunResult {
@@ -547,9 +483,6 @@ pub struct RunResult {
     pub model: String,
     pub permission_denials: Vec<PermissionDenial>,
 }
-
-
-
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -573,14 +506,12 @@ pub struct Settings {
     #[serde(default)]
     pub auto_compact: Option<Value>,
 
-
     #[serde(default)]
     pub auto_commit: Option<bool>,
     #[serde(default)]
     pub max_turns: Option<usize>,
     #[serde(default)]
     pub context_window: Option<u64>,
-
 
     #[serde(default)]
     pub allow_private_network: bool,
@@ -590,9 +521,6 @@ pub struct Settings {
     #[serde(flatten)]
     pub extra: HashMap<String, Value>,
 }
-
-
-
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -645,8 +573,6 @@ pub struct AgentDefinition {
     pub skills: Vec<String>,
 }
 
-
-
 #[async_trait]
 pub trait SubAgentRunner: Send + Sync {
     async fn run_subagent(
@@ -656,7 +582,6 @@ pub trait SubAgentRunner: Send + Sync {
         parent_tool_use_id: &str,
     ) -> anyhow::Result<String>;
 }
-
 
 pub fn estimate_tokens(messages: &[ChatMessage]) -> u64 {
     messages
@@ -669,15 +594,10 @@ pub fn estimate_tokens(messages: &[ChatMessage]) -> u64 {
         / 4
 }
 
-
-
 pub fn extra_root_pem() -> Option<Vec<u8>> {
     let p = std::env::var_os("SSL_CERT_FILE")?;
     std::fs::read(p).ok()
 }
-
-
-
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ShellKind {
@@ -688,7 +608,6 @@ pub enum ShellKind {
 
     Cmd,
 }
-
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShellSpec {
@@ -708,10 +627,6 @@ impl ShellSpec {
         }
     }
 }
-
-
-
-
 
 pub fn pick_shell(
     preferred: &str,
@@ -744,15 +659,9 @@ pub fn pick_shell(
     ShellSpec { program: "cmd".into(), kind: ShellKind::Cmd }
 }
 
-
 pub fn program_on_path(name: &str) -> bool {
     find_program(name).is_some()
 }
-
-
-
-
-
 
 pub fn find_program(name: &str) -> Option<PathBuf> {
     let system_root = std::env::var("SystemRoot").or_else(|_| std::env::var("WINDIR")).ok();
@@ -777,8 +686,6 @@ pub fn find_program(name: &str) -> Option<PathBuf> {
         .find(|p| p.is_file())
 }
 
-
-
 pub fn is_wsl_launcher(path: &Path, system_root: Option<&str>) -> bool {
     let Some(root) = system_root.map(str::trim).filter(|r| !r.is_empty()) else { return false };
     let norm = |s: &str| s.replace('/', "\\").trim_end_matches('\\').to_ascii_lowercase();
@@ -787,10 +694,6 @@ pub fn is_wsl_launcher(path: &Path, system_root: Option<&str>) -> bool {
     let base = file.strip_suffix(".exe").unwrap_or(file);
     matches!(base, "bash" | "sh") && p.starts_with(&format!("{}\\", norm(root)))
 }
-
-
-
-
 
 pub fn api_key_env_names(api_key_env: Option<&str>) -> Vec<String> {
     let mut names = vec!["ZEN_API_KEY".to_string(), "OPENAI_API_KEY".to_string()];
@@ -803,7 +706,6 @@ pub fn api_key_env_names(api_key_env: Option<&str>) -> Vec<String> {
     names
 }
 
-
 pub fn resolve_shell(preferred: &str) -> ShellSpec {
     use std::collections::HashMap;
     use std::sync::{Mutex, OnceLock};
@@ -814,7 +716,6 @@ pub fn resolve_shell(preferred: &str) -> ShellSpec {
     }
     let zen_shell = std::env::var("ZEN_SHELL").ok();
     let mut spec = pick_shell(preferred, cfg!(windows), zen_shell.as_deref(), &program_on_path);
-
 
     if cfg!(windows) && zen_shell.as_deref().map(str::trim).is_none_or(str::is_empty) {
         if let Some(p) = find_program(&spec.program) {
@@ -919,7 +820,6 @@ mod cache_tests {
     #[test]
     fn usage_deserializes_old_json_without_cache_fields() {
 
-
         let u: Usage = serde_json::from_str(r#"{"prompt_tokens":5,"completion_tokens":2,"total_tokens":7}"#).unwrap();
         assert_eq!(u.cache_read_input_tokens, 0);
         assert_eq!(u.cache_creation_input_tokens, 0);
@@ -927,22 +827,6 @@ mod cache_tests {
         assert_eq!(s.cache_read_input_tokens, 0);
     }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 pub fn glob_match(pattern: &str, path: &str) -> bool {
     let pat: Vec<&str> = pattern.split('/').collect();
@@ -963,7 +847,6 @@ fn match_segments(pat: &[&str], path: &[&str]) -> bool {
     }
     match_segments(&pat[1..], &path[1..])
 }
-
 
 fn match_segment(pat: &str, s: &str) -> bool {
     let p: Vec<char> = pat.chars().collect();

@@ -1,15 +1,4 @@
-
-
-
-
-
-
-
-
 pub const MAX_LOOP_ITERATIONS: u32 = 100;
-
-
-
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Theme {
@@ -41,12 +30,9 @@ impl Theme {
         }
     }
 
-
-
     pub fn colors_disabled() -> bool {
         std::env::var_os("NO_COLOR").is_some()
     }
-
 
     pub fn effective(self) -> Self {
         if Self::colors_disabled() {
@@ -55,8 +41,6 @@ impl Theme {
             self
         }
     }
-
-
 
     pub fn paint(self, role: ColorRole, text: &str) -> String {
         let theme = self.effective();
@@ -80,7 +64,6 @@ impl Theme {
     }
 }
 
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ColorRole {
     Prompt,
@@ -89,9 +72,6 @@ pub enum ColorRole {
     Success,
     Dim,
 }
-
-
-
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Personality {
@@ -120,8 +100,6 @@ impl Personality {
         }
     }
 
-
-
     pub fn system_suffix(self) -> &'static str {
         match self {
             Personality::Concise => "\n\n[personality: concise] Be concise: skip preamble and \
@@ -133,10 +111,6 @@ impl Personality {
         }
     }
 }
-
-
-
-
 
 pub fn parse_loop_args(arg: &str) -> Result<(u32, String), String> {
     let mut it = arg.splitn(2, char::is_whitespace);
@@ -159,13 +133,7 @@ pub fn parse_loop_args(arg: &str) -> Result<(u32, String), String> {
     Ok((n, prompt.to_string()))
 }
 
-
-
-
 pub const GOAL_PREVIEW_LEN: usize = 48;
-
-
-
 
 pub fn prompt_text(theme: Theme, goal: &Option<String>) -> String {
     let mut out = String::new();
@@ -182,8 +150,6 @@ pub fn prompt_text(theme: Theme, goal: &Option<String>) -> String {
     out.push_str(&theme.paint(ColorRole::Prompt, "> "));
     out
 }
-
-
 
 #[cfg(test)]
 mod tests {

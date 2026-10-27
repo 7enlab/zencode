@@ -1,4 +1,3 @@
-
 """Cold-start benchmarks for the `zen` binary.
 
 Measures, with no third-party dependencies (stdlib only, cross-platform):
@@ -61,9 +60,6 @@ MOCK_COMPLETION = {
     "usage": {"prompt_tokens": 10, "completion_tokens": 1, "total_tokens": 11},
 }
 
-
-
-
 def stats(samples):
     """Return dict with median/p95/mean/stdev/cv for a sample list."""
     s = sorted(samples)
@@ -82,10 +78,6 @@ def stats(samples):
         "min": s[0],
         "max": s[-1],
     }
-
-
-
-
 
 def run_timed(argv, env, stdin_data=None, timeout=60):
     """Run argv, return (elapsed_ms, returncode, stdout_bytes, stderr_bytes, rss_mb).
@@ -125,7 +117,6 @@ def run_timed(argv, env, stdin_data=None, timeout=60):
         except BrokenPipeError:
             pass
 
-
     deadline = start + timeout
     ru = None
     status = None
@@ -160,7 +151,6 @@ def run_timed(argv, env, stdin_data=None, timeout=60):
             rss_mb = ru.ru_maxrss / (1024.0 * 1024.0)
     return elapsed_ms, rc, b"".join(out_chunks), b"".join(err_chunks), rss_mb
 
-
 def isolated_env(extra=None):
     """Env with HOME etc. pointed at a fresh temp dir."""
     home = tempfile.mkdtemp(prefix="zen-bench-home-")
@@ -175,9 +165,6 @@ def isolated_env(extra=None):
     if extra:
         env.update(extra)
     return env, home
-
-
-
 
 class _MockHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
@@ -200,16 +187,12 @@ class _MockHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
         type(self).request_count += 1
 
-
 def start_mock_server():
     server = ThreadingHTTPServer(("127.0.0.1", 0), _MockHandler)
     port = server.server_address[1]
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     return server, port
-
-
-
 
 def measure_cold_startup(zen, runs):
     """Fresh copy per iteration -> page cache cold."""
@@ -227,7 +210,6 @@ def measure_cold_startup(zen, runs):
             samples.append(ms)
     return samples
 
-
 def measure_warm(zen, args, runs):
     samples, rss = [], []
     for _ in range(runs):
@@ -238,7 +220,6 @@ def measure_warm(zen, args, runs):
         if r is not None:
             rss.append(r)
     return samples, rss
-
 
 def measure_repl_prompt(zen, runs):
     """Time from spawn until the REPL prints its first '> ' prompt."""
@@ -255,8 +236,6 @@ def measure_repl_prompt(zen, runs):
         buf = b""
         deadline = start + REPL_TIMEOUT_S
         try:
-
-
 
             while time.perf_counter() < deadline:
                 chunk = proc.stdout.read(1)
@@ -284,7 +263,6 @@ def measure_repl_prompt(zen, runs):
         shutil.rmtree(workdir, ignore_errors=True)
         shutil.rmtree(home, ignore_errors=True)
     return samples
-
 
 def measure_first_token(zen, runs):
     """Time from spawn until the first stdout byte of `zen -p` vs mock server."""
@@ -327,9 +305,6 @@ def measure_first_token(zen, runs):
         server.shutdown()
     return samples, _MockHandler.request_count
 
-
-
-
 def run_all(zen, runs, cold_runs):
     results = {"binary": zen, "runs": runs, "cold_runs": cold_runs,
                "platform": sys.platform}
@@ -357,7 +332,6 @@ def run_all(zen, runs, cold_runs):
 
     return results
 
-
 def check_stability(results):
     """Fail (exit 2) if any warm measurement has excessive variance."""
     bad = []
@@ -366,7 +340,6 @@ def check_stability(results):
         if cv > CV_LIMIT:
             bad.append(f"{key}: cv={cv:.2f} > {CV_LIMIT}")
     return bad
-
 
 def check_thresholds(results, thresholds):
     """Fail (exit 1) if any median exceeds its threshold."""
@@ -377,7 +350,6 @@ def check_thresholds(results, thresholds):
                 f"{key}: median={results[key]['median']:.1f}ms > threshold={limit}ms"
             )
     return bad
-
 
 def markdown_table(results):
     lines = [
@@ -403,7 +375,6 @@ def markdown_table(results):
             f"{r['p95']:.1f} MB | {r['mean']:.1f} MB | {r['cv']:.2f} |"
         )
     return "\n".join(lines)
-
 
 def self_test(zen):
     """Quick validation: stats math, mock server shape, one smoke timing each."""
@@ -432,7 +403,6 @@ def self_test(zen):
     s, reqs = measure_first_token(zen, 1)
     assert s[0] > 0 and reqs >= 1
     print("self-test: OK (stats, mock server, --version, doctor, REPL, -p)")
-
 
 def main():
     ap = argparse.ArgumentParser(description="Cold-start benchmarks for zen")
@@ -480,7 +450,6 @@ def main():
 
     print(f"\nresults written to {args.out_dir}/")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

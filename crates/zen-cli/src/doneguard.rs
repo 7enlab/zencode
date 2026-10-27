@@ -1,24 +1,7 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 use std::path::Path;
 use std::process::Stdio;
 use std::time::Duration;
 use zen_core::{glob_match, TodoItem};
-
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProjectKind {
@@ -28,7 +11,6 @@ pub enum ProjectKind {
     Go,
     Unknown,
 }
-
 
 pub fn detect_project(cwd: &Path) -> ProjectKind {
     if cwd.join("Cargo.toml").is_file() {
@@ -44,12 +26,10 @@ pub fn detect_project(cwd: &Path) -> ProjectKind {
     }
 }
 
-
 pub struct CheckCommands {
     pub test: Option<(String, Vec<String>)>,
     pub lint: Option<(String, Vec<String>)>,
 }
-
 
 pub fn check_commands_for(kind: ProjectKind, cwd: &Path) -> CheckCommands {
     let has_eslint = [
@@ -114,11 +94,9 @@ pub fn check_commands_for(kind: ProjectKind, cwd: &Path) -> CheckCommands {
     }
 }
 
-
 pub const CHECK_TIMEOUT: Duration = Duration::from_secs(600);
 const TAIL_LINES: usize = 30;
 const TAIL_CHARS: usize = 3000;
-
 
 pub async fn run_check_command(label: &str, argv: &[String], cwd: &Path) -> (bool, String) {
     let mut c = tokio::process::Command::new(&argv[0]);
@@ -161,14 +139,12 @@ pub async fn run_check_command(label: &str, argv: &[String], cwd: &Path) -> (boo
     )
 }
 
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CheckStatus {
     Pass,
     Fail,
     Skip,
 }
-
 
 pub struct DoneCheck {
     pub name: &'static str,
@@ -184,13 +160,10 @@ fn check(name: &'static str, status: CheckStatus, detail: impl Into<String>) -> 
     }
 }
 
-
-
 pub async fn run_done_checks(cwd: &Path, todos: &[TodoItem]) -> Vec<DoneCheck> {
     let cmds = check_commands_for(detect_project(cwd), cwd);
     run_done_checks_with(cwd, todos, &cmds).await
 }
-
 
 pub async fn run_done_checks_with(
     cwd: &Path,
@@ -270,8 +243,6 @@ pub async fn run_done_checks_with(
     out
 }
 
-
-
 pub fn changed_files(cwd: &Path) -> Vec<String> {
     let out = std::process::Command::new("git")
         .args(["status", "--porcelain=v1", "-uall", "--", "."])
@@ -285,8 +256,6 @@ pub fn changed_files(cwd: &Path) -> Vec<String> {
     }
     parse_porcelain(&String::from_utf8_lossy(&out.stdout))
 }
-
-
 
 pub fn parse_porcelain(text: &str) -> Vec<String> {
     let mut files = Vec::new();
@@ -334,8 +303,6 @@ fn unquote_path(p: &str) -> String {
     }
 }
 
-
-
 #[derive(Debug, Default, Clone)]
 pub struct ScopeGuard {
     pub declared: Vec<String>,
@@ -351,11 +318,9 @@ impl ScopeGuard {
             .collect();
     }
 
-
     pub fn clear(&mut self) {
         self.declared.clear();
     }
-
 
     pub fn violations(&self, changed: &[String]) -> Vec<String> {
         if self.declared.is_empty() {
@@ -367,9 +332,6 @@ impl ScopeGuard {
             .cloned()
             .collect()
     }
-
-
-
 
     pub fn seed_from_prompt(&mut self, prompt: &str, cwd: &Path) {
         let mut seeds = Vec::new();
@@ -393,18 +355,12 @@ impl ScopeGuard {
     }
 }
 
-
-
-
-
 #[derive(Debug)]
 pub struct YagniFlag {
     pub file: String,
     pub item: String,
     pub kind: &'static str,
 }
-
-
 
 pub fn yagni_scan(cwd: &Path) -> Vec<YagniFlag> {
     let mut flags = Vec::new();
@@ -425,8 +381,6 @@ pub fn yagni_scan(cwd: &Path) -> Vec<YagniFlag> {
     }
     flags
 }
-
-
 
 fn added_pub_items(cwd: &Path, file: &str) -> Vec<(&'static str, String)> {
     let tracked = std::process::Command::new("git")
@@ -458,9 +412,6 @@ fn added_pub_items(cwd: &Path, file: &str) -> Vec<(&'static str, String)> {
         .filter_map(parse_pub_item)
         .collect()
 }
-
-
-
 
 fn parse_pub_item(line: &str) -> Option<(&'static str, String)> {
     let t = line.strip_prefix('+')?.trim_start();
@@ -510,8 +461,6 @@ fn parse_pub_item(line: &str) -> Option<(&'static str, String)> {
     None
 }
 
-
-
 fn caller_count(cwd: &Path, def_file: &str, kind: &str, name: &str) -> usize {
     let mut count = 0;
     let mut stack = vec![cwd.to_path_buf()];
@@ -559,7 +508,6 @@ fn is_ident_byte(c: u8) -> bool {
     c.is_ascii_alphanumeric() || c == b'_'
 }
 
-
 fn count_word(text: &str, word: &str) -> usize {
     let b = text.as_bytes();
     let w = word.as_bytes();
@@ -582,7 +530,6 @@ fn count_word(text: &str, word: &str) -> usize {
     n
 }
 
-
 pub struct DoneReport {
     pub checks: Vec<DoneCheck>,
     pub changed: Vec<String>,
@@ -593,8 +540,6 @@ pub struct DoneReport {
 
     pub yagni: Vec<YagniFlag>,
 }
-
-
 
 pub fn format_report(cwd: &Path, r: &DoneReport) -> String {
     let mut s = String::new();
@@ -859,7 +804,6 @@ mod tests {
         assert_eq!(flags[0].kind, "fn");
     }
 
-
     fn sh(script: &str) -> Vec<String> {
         #[cfg(windows)]
         {
@@ -894,7 +838,6 @@ mod tests {
 
     #[tokio::test]
     async fn run_check_command_timeout_is_failure() {
-
 
         let d = tmpdir("checkto");
         let mut c = tokio::process::Command::new(&sleep_cmd()[0]);

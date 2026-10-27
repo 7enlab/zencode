@@ -1,38 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::Value;
@@ -41,9 +6,7 @@ use std::time::{Duration, Instant};
 use zen_core::*;
 use crate::safety::{self, ErrorClass, RateLimiter};
 
-
 const MAX_ATTEMPTS: u32 = 6;
-
 
 pub const MID_RESPONSE_MAX_RETRIES: u32 = 3;
 
@@ -53,22 +16,14 @@ pub const DEFAULT_MAX_TOTAL_WAIT_MS: u64 = 300_000;
 
 pub const DEFAULT_REQUEST_TIMEOUT_SECS: u64 = 300;
 
-
 pub const LOCAL_REQUEST_TIMEOUT_SECS: u64 = 900;
 
 pub const CONNECT_TIMEOUT_SECS: u64 = 10;
-
-
-
-
-
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HttpTimeouts {
 
     pub request: Option<Duration>,
-
-
 
     pub idle: Option<Duration>,
 
@@ -80,7 +35,6 @@ impl HttpTimeouts {
     pub fn for_url(base_url: &str) -> Self {
         Self::from_secs(base_url, None, None)
     }
-
 
     pub fn from_secs(base_url: &str, request_secs: Option<u64>, idle_secs: Option<u64>) -> Self {
         let default = if is_local_url(base_url) || base_url.to_ascii_lowercase().contains("ollama") {
@@ -107,7 +61,6 @@ impl HttpTimeouts {
         b
     }
 
-
     fn describe(&self, elapsed: Duration) -> String {
         match (self.request, self.idle) {
             (Some(r), _) if elapsed + Duration::from_millis(50) >= r => {
@@ -127,14 +80,10 @@ fn fmt_secs(d: Duration) -> String {
     }
 }
 
-
-
 const REQUEST_ID_HEADERS: [&str; 5] =
     ["x-request-id", "request-id", "x-amzn-requestid", "x-amz-request-id", "x-correlation-id"];
 
-
 const REQUEST_ID_MARK: &str = "[request id: ";
-
 
 fn clean_request_id(s: &str) -> Option<String> {
     let s = s.trim();
@@ -143,8 +92,6 @@ fn clean_request_id(s: &str) -> Option<String> {
         && s.chars().all(|c| c.is_ascii_graphic() && c != '[' && c != ']'))
     .then(|| s.to_string())
 }
-
-
 
 pub(crate) fn request_id(headers: &reqwest::header::HeaderMap, body: &str) -> Option<String> {
     for h in REQUEST_ID_HEADERS {
@@ -158,7 +105,6 @@ pub(crate) fn request_id(headers: &reqwest::header::HeaderMap, body: &str) -> Op
         .find_map(|p| v.pointer(p).and_then(|x| x.as_str()).and_then(clean_request_id))
 }
 
-
 fn with_request_id(msg: String, id: Option<&str>) -> String {
     match id {
         Some(id) => format!("{} {}{}]", msg, REQUEST_ID_MARK, id),
@@ -166,14 +112,11 @@ fn with_request_id(msg: String, id: Option<&str>) -> String {
     }
 }
 
-
-
 pub fn request_id_from_error(msg: &str) -> Option<String> {
     let start = msg.rfind(REQUEST_ID_MARK)? + REQUEST_ID_MARK.len();
     let end = msg[start..].find(']')? + start;
     clean_request_id(&msg[start..end])
 }
-
 
 pub(crate) fn build_http(base_url: &str, timeouts: &HttpTimeouts, user_agent: bool) -> reqwest::Client {
     let mut builder = timeouts.apply(with_extra_roots(reqwest::Client::builder()));
@@ -186,32 +129,21 @@ pub(crate) fn build_http(base_url: &str, timeouts: &HttpTimeouts, user_agent: bo
     builder.build().unwrap_or_else(|_| reqwest::Client::new())
 }
 
-
-
-
-
-
 pub struct OpenAiClient {
-
 
     pub base_url: String,
     api_key: Option<String>,
-
 
     pub sink: Arc<dyn EventSink>,
 
     pub base_retry_delay_ms: u64,
 
-
     pub max_retry_delay_ms: u64,
-
-
 
     pub max_total_wait_ms: u64,
 
     timeouts: HttpTimeouts,
     http: reqwest::Client,
-
 
     pacer: Arc<Mutex<Option<RateLimiter>>>,
 
@@ -219,8 +151,6 @@ pub struct OpenAiClient {
 
     provider_name: String,
 }
-
-
 
 fn with_extra_roots(mut b: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
     if let Some(pem) = zen_core::extra_root_pem() {
@@ -233,12 +163,10 @@ fn with_extra_roots(mut b: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
     b
 }
 
-
 fn is_local_url(url: &str) -> bool {
     let b = url.to_ascii_lowercase();
     b.contains("://127.0.0.1") || b.contains("://localhost") || b.contains("://[::1]")
 }
-
 
 fn provider_name_for_url(url: &str) -> String {
     let l = url.to_ascii_lowercase();
@@ -261,12 +189,10 @@ fn provider_name_for_url(url: &str) -> String {
 
 impl OpenAiClient {
 
-
     pub fn new(base_url: impl Into<String>, api_key: Option<String>, sink: Arc<dyn EventSink>) -> Self {
         let base_url = base_url.into();
         let timeouts = HttpTimeouts::for_url(&base_url);
         let http = build_http(&base_url, &timeouts, true);
-
 
         let pacer = RateLimiter::for_provider(&base_url);
         let provider_name = provider_name_for_url(&base_url);
@@ -285,23 +211,19 @@ impl OpenAiClient {
         }
     }
 
-
     pub fn set_timeouts(&mut self, timeouts: HttpTimeouts) {
         self.http = build_http(&self.base_url, &timeouts, true);
         self.timeouts = timeouts;
     }
 
-
     pub fn timeouts(&self) -> HttpTimeouts {
         self.timeouts
     }
-
 
     pub fn with_provider_name(mut self, name: impl Into<String>) -> Self {
         self.provider_name = name.into();
         self
     }
-
 
     pub fn recent_429_count(&self) -> usize {
         let mut v = self.recent_429s.lock().unwrap();
@@ -313,8 +235,6 @@ impl OpenAiClient {
     fn note_429(&self) {
         self.recent_429s.lock().unwrap().push(Instant::now());
     }
-
-
 
     fn update_pacer_from_headers(&self, headers: &reqwest::header::HeaderMap) {
         let mut guard = self.pacer.lock().unwrap();
@@ -335,17 +255,14 @@ impl OpenAiClient {
         }
     }
 
-
     #[allow(dead_code)]
     fn key(&self) -> Option<&str> {
         self.api_key.as_deref()
     }
 
-
     fn endpoint(&self) -> String {
         format!("{}/chat/completions", self.base_url.trim_end_matches('/'))
     }
-
 
     fn auth(&self, rb: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
         match &self.api_key {
@@ -393,10 +310,6 @@ struct WireFunc {
     arguments: Option<Value>,
 }
 
-
-
-
-
 pub(crate) fn normalize_arguments(v: Option<Value>) -> String {
     match v {
         None | Some(Value::Null) => "{}".to_string(),
@@ -405,9 +318,6 @@ pub(crate) fn normalize_arguments(v: Option<Value>) -> String {
         Some(other) => other.to_string(),
     }
 }
-
-
-
 
 fn server_retry_hint_ms(header: Option<&str>, body: &str) -> Option<u64> {
     if let Some(secs) = header.and_then(|h| h.trim().parse::<f64>().ok()) {
@@ -420,8 +330,6 @@ fn server_retry_hint_ms(header: Option<&str>, body: &str) -> Option<u64> {
         .and_then(|s| s.as_f64().or_else(|| s.as_str().and_then(|t| t.parse().ok())))?;
     Some((secs.max(0.0) * 1000.0) as u64)
 }
-
-
 
 fn ratelimit_reset_hint_ms(header: Option<&str>, now_ms: u64) -> Option<u64> {
     let v = header?.trim().parse::<f64>().ok()?;
@@ -445,11 +353,6 @@ fn now_unix_ms() -> u64 {
         .unwrap_or(0)
 }
 
-
-
-
-
-
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct MidResponseError {
 
@@ -461,7 +364,6 @@ pub(crate) struct MidResponseError {
 
 impl MidResponseError {
 
-
     pub fn class(&self) -> ErrorClass {
         let ty = self.error_type.as_deref().unwrap_or("");
         match (self.code, ty) {
@@ -472,8 +374,6 @@ impl MidResponseError {
             _ => ErrorClass::Transient,
         }
     }
-
-
 
     pub fn describe(&self) -> String {
         let code = self.code.map(|c| format!(" HTTP {c}")).unwrap_or_default();
@@ -487,7 +387,6 @@ impl MidResponseError {
         format!("{lead}{code}{ty}: {}", first_chars(&self.message, ERROR_BODY_CHARS))
     }
 }
-
 
 pub(crate) fn mid_response_error(body: &str) -> Option<MidResponseError> {
     let v: Value = serde_json::from_str(body).ok()?;
@@ -516,16 +415,12 @@ pub(crate) fn mid_response_error(body: &str) -> Option<MidResponseError> {
     Some(MidResponseError { code, error_type: typed.map(str::to_string), message })
 }
 
-
-
 pub fn is_content_filtered(finish_reason: Option<&str>) -> bool {
     finish_reason.is_some_and(|r| {
         let r = r.to_ascii_lowercase();
         r == "content_filter" || r == "refusal"
     })
 }
-
-
 
 pub(crate) fn payment_required_reason(body: &str) -> Option<String> {
     let v: Value = serde_json::from_str(body).ok()?;
@@ -548,11 +443,9 @@ pub(crate) fn payment_required_reason(body: &str) -> Option<String> {
     })
 }
 
-
 fn is_in_flight_budget_402(code: u16, has_retry_after: bool, body: &str) -> bool {
     code == 402 && has_retry_after && body.contains("openrouter_in_flight_budget")
 }
-
 
 fn first_chars(s: &str, n: usize) -> String {
     s.chars().take(n).collect()
@@ -571,7 +464,6 @@ impl LlmBackend for OpenAiClient {
 
         loop {
             attempt += 1;
-
 
             let pace_wait = self
                 .pacer
@@ -599,9 +491,7 @@ impl LlmBackend for OpenAiClient {
                 }
             };
 
-
             let mut mid_transient = false;
-
 
             let mut server_hint_ms: Option<u64> = None;
             enum Outcome {
@@ -620,7 +510,6 @@ impl LlmBackend for OpenAiClient {
                             Err(e) => Outcome::Classified(ErrorClass::Transient, Some(code), timeout_text(&e)),
                             Ok(body) => {
 
-
                                 if let Some(mid) = mid_response_error(&body) {
                                     let class = mid.class();
                                     if class == ErrorClass::RateLimit {
@@ -636,8 +525,6 @@ impl LlmBackend for OpenAiClient {
                                         with_request_id(mid.describe(), request_id(&headers, &body).as_deref()),
                                     )
                                 } else {
-
-
 
                                 match transient_completion(&body) {
                                     Some(why) if attempt < MAX_ATTEMPTS => Outcome::Classified(
@@ -667,7 +554,6 @@ impl LlmBackend for OpenAiClient {
                         }
                         let mut class = safety::classify_error(Some(code), &body);
 
-
                         if is_in_flight_budget_402(code, header.is_some(), &body) {
                             class = ErrorClass::RateLimit;
                         }
@@ -696,7 +582,6 @@ impl LlmBackend for OpenAiClient {
                 Outcome::Classified(c, st, e) => (c, st, e),
             };
 
-
             match class {
                 ErrorClass::QuotaExhausted => {
                     return Err(anyhow::anyhow!(safety::quota_exhausted_error(
@@ -710,7 +595,6 @@ impl LlmBackend for OpenAiClient {
                 ErrorClass::RateLimit | ErrorClass::Overloaded | ErrorClass::Transient => {}
             }
 
-
             if attempt >= MAX_ATTEMPTS {
                 return Err(anyhow::anyhow!(err_text));
             }
@@ -722,7 +606,6 @@ impl LlmBackend for OpenAiClient {
                 ));
             }
             let budget_left = self.max_total_wait_ms.saturating_sub(waited_ms);
-
 
             if let Some(hint) = server_hint_ms.filter(|h| *h > budget_left) {
                 return Err(anyhow::anyhow!(
@@ -741,7 +624,6 @@ impl LlmBackend for OpenAiClient {
                 ));
             }
 
-
             if status == Some(429) && !warned_first_429 {
                 warned_first_429 = true;
                 eprintln!("{}", safety::first_429_notice(&self.provider_name));
@@ -752,15 +634,12 @@ impl LlmBackend for OpenAiClient {
                 eprintln!("{}", safety::repeated_429_warning(recent as u32, &self.provider_name));
             }
 
-
-
             let jittered = safety::backoff_with_jitter(
                 attempt,
                 self.base_retry_delay_ms,
                 self.max_retry_delay_ms,
                 safety::jitter_now_nanos(),
             );
-
 
             let delay_ms = jittered
                 .min(self.max_retry_delay_ms.max(self.base_retry_delay_ms))
@@ -785,11 +664,6 @@ impl LlmBackend for OpenAiClient {
 
 }
 
-
-
-
-
-
 pub(crate) fn transient_completion(body: &str) -> Option<String> {
     let v: Value = serde_json::from_str(body).ok()?;
     if let Some(err) = v.get("error").filter(|e| !e.is_null()) {
@@ -809,10 +683,6 @@ pub(crate) fn transient_completion(body: &str) -> Option<String> {
     let has_calls = msg.get("tool_calls").and_then(Value::as_array).is_some_and(|c| !c.is_empty());
     (!has_text && !has_calls).then(|| "model returned an empty message".into())
 }
-
-
-
-
 
 pub(crate) fn parse_completion(body: &str) -> anyhow::Result<ChatResponse> {
     let parsed: WireResp = serde_json::from_str(body).map_err(|e| {
@@ -844,7 +714,6 @@ pub(crate) fn parse_completion(body: &str) -> anyhow::Result<ChatResponse> {
     });
     let content = match choice.message.content {
 
-
         Some(s) if s.is_empty() && tool_calls.is_some() => None,
         other => other,
     };
@@ -855,8 +724,6 @@ pub(crate) fn parse_completion(body: &str) -> anyhow::Result<ChatResponse> {
     };
     let mut usage = parsed.usage;
 
-
-
     usage.cache_read_input_tokens = openai_cached_tokens(body);
     Ok(ChatResponse {
         message: ChatMessage::assistant(content, tool_calls),
@@ -864,9 +731,6 @@ pub(crate) fn parse_completion(body: &str) -> anyhow::Result<ChatResponse> {
         finish_reason: choice.finish_reason,
     })
 }
-
-
-
 
 pub(crate) fn openai_cached_tokens(body: &str) -> u64 {
     let v: Value = match serde_json::from_str(body) {
@@ -877,8 +741,6 @@ pub(crate) fn openai_cached_tokens(body: &str) -> u64 {
         .and_then(Value::as_u64)
         .unwrap_or(0)
 }
-
-
 
 pub(crate) async fn chat_with_fallback(
     llm: &Arc<dyn LlmBackend>,
@@ -950,7 +812,6 @@ mod tests {
 
     #[test]
     fn parse_completion_reads_openai_cached_tokens() {
-
 
         let body = json!({
             "choices": [{"message": {"content": "hi"}, "finish_reason": "stop"}],
@@ -1050,7 +911,6 @@ mod tests {
         assert_eq!(server_retry_hint_ms(None, "not json"), None);
         assert_eq!(server_retry_hint_ms(Some("Wed, 21 Oct 2026 07:28:00 GMT"), "{}"), None);
 
-
         use crate::safety::backoff_with_jitter;
         let b1 = backoff_with_jitter(1, 1000, 60_000, 42);
         assert!((750..=1250).contains(&b1), "b1={b1}");
@@ -1083,8 +943,6 @@ mod tests {
         assert!(transient_completion(call).is_none());
         assert!(transient_completion("not json").is_none(), "malformed JSON stays a hard error");
     }
-
-
 
     #[tokio::test]
     async fn c3_client_resamples_gateway_error_and_empty_message() {
@@ -1126,47 +984,22 @@ mod tests {
     }
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 const ANTHROPIC_VERSION: &str = "2023-06-01";
 
 const ANTHROPIC_CACHE_BETA: &str = "prompt-caching-2024-07-31";
 
 const ANTHROPIC_DEFAULT_MAX_TOKENS: u32 = 4096;
 
-
 pub fn is_anthropic_url(base_url: &str) -> bool {
     let u = base_url.trim().to_ascii_lowercase();
     u.contains("anthropic.com") || u.contains("api.anthropic")
 }
 
-
 fn cache_control() -> Value {
     serde_json::json!({"type": "ephemeral"})
 }
 
-
-
-
-
-
 pub struct AnthropicClient {
-
 
     pub base_url: String,
     api_key: Option<String>,
@@ -1200,12 +1033,10 @@ impl AnthropicClient {
         }
     }
 
-
     pub fn set_timeouts(&mut self, timeouts: HttpTimeouts) {
         self.http = build_http(&self.base_url, &timeouts, false);
         self.timeouts = timeouts;
     }
-
 
     pub fn timeouts(&self) -> HttpTimeouts {
         self.timeouts
@@ -1215,12 +1046,6 @@ impl AnthropicClient {
         format!("{}/messages", self.base_url.trim_end_matches('/'))
     }
 }
-
-
-
-
-
-
 
 pub(crate) fn anthropic_system_blocks(system_text: &str) -> Vec<Value> {
     let (stable, volatile) = zen_core::split_stable_volatile(system_text);
@@ -1237,12 +1062,6 @@ pub(crate) fn anthropic_system_blocks(system_text: &str) -> Vec<Value> {
     }
     blocks
 }
-
-
-
-
-
-
 
 pub(crate) fn anthropic_request_body(req: &ChatRequest) -> Value {
     let mut system_parts: Vec<String> = Vec::new();
@@ -1290,8 +1109,6 @@ pub(crate) fn anthropic_request_body(req: &ChatRequest) -> Value {
         }
     }
 
-
-
     let tools: Vec<Value> = req
         .tools
         .iter()
@@ -1324,9 +1141,6 @@ pub(crate) fn anthropic_request_body(req: &ChatRequest) -> Value {
     }
     body
 }
-
-
-
 
 pub(crate) fn parse_anthropic_response(body: &str) -> anyhow::Result<ChatResponse> {
     let v: Value = serde_json::from_str(body).map_err(|e| {
@@ -1504,9 +1318,6 @@ impl LlmBackend for AnthropicClient {
     }
 }
 
-
-
-
 pub fn make_backend(
     base_url: impl Into<String>,
     api_key: Option<String>,
@@ -1517,7 +1328,6 @@ pub fn make_backend(
     let timeouts = HttpTimeouts::for_url(&base_url);
     make_backend_with(base_url, api_key, sink, max_total_wait_ms, timeouts)
 }
-
 
 pub fn make_backend_with(
     base_url: impl Into<String>,
@@ -1543,8 +1353,6 @@ pub fn make_backend_with(
         Arc::new(c)
     }
 }
-
-
 
 #[cfg(test)]
 mod anthropic_tests {
@@ -1574,10 +1382,6 @@ mod anthropic_tests {
     #[test]
     fn make_backend_routes_by_url() {
         let sink: Arc<dyn EventSink> = Arc::new(NullSink);
-
-
-
-
 
         let _ = make_backend("https://api.anthropic.com", None, sink.clone(), 1000);
         let _ = make_backend("https://openrouter.ai/api/v1", None, sink.clone(), 1000);
@@ -1656,7 +1460,6 @@ mod anthropic_tests {
         let tools = body["tools"].as_array().unwrap();
         assert_eq!(tools.len(), 2);
 
-
         assert!(tools[0].get("cache_control").is_none());
         assert_eq!(tools[1]["cache_control"]["type"], "ephemeral");
         assert_eq!(tools[1]["name"], "Bash");
@@ -1664,9 +1467,6 @@ mod anthropic_tests {
 
     #[test]
     fn request_body_is_deterministic_across_builds() {
-
-
-
 
         let mut r = req();
         r.messages.push(ChatMessage::system(format!(
@@ -1796,8 +1596,6 @@ mod anthropic_tests {
         assert!(parse_anthropic_response("not json").is_err());
     }
 
-
-
     #[tokio::test]
     async fn mock_server_receives_cache_control_and_beta_header() {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -1868,7 +1666,6 @@ mod anthropic_tests {
         assert!(req_text.contains("prompt-caching-2024-07-31"), "missing beta header");
 
         assert!(req_text.contains("POST /messages"));
-
 
         let body_start = req_text.find("\r\n\r\n").unwrap() + 4;
         let body: Value = serde_json::from_str(&req_text[body_start..]).unwrap();

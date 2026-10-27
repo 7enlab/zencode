@@ -1,30 +1,7 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 use std::collections::HashMap;
 
 use serde_json::Value;
 use zen_core::ChatMessage;
-
 
 pub const DEFAULT_PRUNE_AFTER: usize = 5;
 
@@ -36,11 +13,9 @@ pub const RECENT_TURN_FLOOR: usize = 2;
 
 pub const UNIDENTIFIED_MULTIPLIER: u64 = 2;
 
-
 pub const PRUNE_MARKER: &str = "[zen: pruned";
 
 pub const TRUNCATE_MARKER: &str = "[zen: truncated";
-
 
 #[derive(Debug, Clone)]
 pub struct PruneConfig {
@@ -76,12 +51,10 @@ impl PruneConfig {
         }
     }
 
-
     pub fn min_age(&self) -> usize {
         self.prune_after.max(RECENT_TURN_FLOOR)
     }
 }
-
 
 #[derive(Debug, Clone, Default)]
 pub struct PruneStats {
@@ -102,15 +75,9 @@ impl PruneStats {
     }
 }
 
-
 pub fn est_tokens(s: &str) -> u64 {
     (s.len() as u64).div_ceil(4)
 }
-
-
-
-
-
 
 pub fn extract_identifier(tool_name: &str, arguments: &str) -> Option<String> {
     let _ = tool_name;
@@ -121,15 +88,12 @@ pub fn extract_identifier(tool_name: &str, arguments: &str) -> Option<String> {
         .map(|s| s.to_string())
 }
 
-
 pub fn tool_call_label(tool_name: &str, arguments: &str) -> String {
     match extract_identifier(tool_name, arguments) {
         Some(id) => format!("{} {}", tool_name, truncate_chars(&id, 60)),
         None => tool_name.to_string(),
     }
 }
-
-
 
 fn truncate_chars(s: &str, max_chars: usize) -> String {
     if s.chars().count() <= max_chars {
@@ -143,11 +107,9 @@ fn truncate_chars(s: &str, max_chars: usize) -> String {
     format!("{}…", &s[..end])
 }
 
-
 fn first_line(s: &str, max_chars: usize) -> String {
     truncate_chars(s.lines().next().unwrap_or("").trim(), max_chars)
 }
-
 
 pub fn summarize_pruned(label: &str, identifier: Option<&str>, tokens: u64, age: usize) -> String {
     let id_note = match identifier {
@@ -159,8 +121,6 @@ pub fn summarize_pruned(label: &str, identifier: Option<&str>, tokens: u64, age:
         PRUNE_MARKER, tokens, label, age, id_note,
     )
 }
-
-
 
 pub fn cap_content(content: &str, label: &str, max_tokens: u64) -> (String, u64) {
     let tokens = est_tokens(content);
@@ -184,7 +144,6 @@ pub fn cap_content(content: &str, label: &str, max_tokens: u64) -> (String, u64)
     }
 }
 
-
 fn tool_call_args(messages: &[ChatMessage]) -> HashMap<String, (String, String)> {
     let mut out = HashMap::new();
     for m in messages {
@@ -200,16 +159,9 @@ fn tool_call_args(messages: &[ChatMessage]) -> HashMap<String, (String, String)>
     out
 }
 
-
-
-
-
 pub(crate) fn turn_of(turn_starts: &[usize], index: usize) -> usize {
     turn_starts.partition_point(|&s| s <= index).saturating_sub(1)
 }
-
-
-
 
 fn should_prune(
     tokens: u64,
@@ -251,15 +203,6 @@ fn should_prune(
     }
 }
 
-
-
-
-
-
-
-
-
-
 pub fn prune_messages(
     messages: &mut [ChatMessage],
     turn_starts: &[usize],
@@ -272,7 +215,6 @@ pub fn prune_messages(
         return stats;
     }
     let args_by_id = tool_call_args(messages);
-
 
     let mut candidates: Vec<(usize, String, Option<String>, u64, usize)> = Vec::new();
     for (i, m) in messages.iter().enumerate() {
@@ -458,9 +400,6 @@ mod tests {
         assert_eq!(saved, 0);
     }
 
-
-
-
     fn fixture_15_turns() -> (Vec<ChatMessage>, Vec<usize>) {
         let mut messages = vec![ChatMessage::user("do the thing")];
         let mut turn_starts = vec![0usize];
@@ -475,8 +414,6 @@ mod tests {
 
             let body = format!("// file{} contents\n", turn) + &"x".repeat(20_000);
             messages.push(tool_msg(&call_id, &body));
-
-
 
             if turn > 1 {
                 messages.push(ChatMessage::assistant(
@@ -500,8 +437,6 @@ mod tests {
 
         let stats = prune_messages(&mut messages, &turn_starts, current_turn, &cfg(), "");
 
-
-
         assert_eq!(stats.pruned, 10, "turns 1-10 pruned, got {:?}", stats);
         assert!(stats.pruned_tokens > 45_000);
 
@@ -516,7 +451,6 @@ mod tests {
             before,
             after
         );
-
 
         let pruned_msg = &messages[2];
         let content = pruned_msg.content.as_deref().unwrap();

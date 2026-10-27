@@ -1,14 +1,10 @@
 ## What and why
 
-
 ## Testing
-
 
 ## Risk
 
-
 ## How to revert
-
 
 ## Checklist
 - [ ] Tests added or updated for the behaviour change

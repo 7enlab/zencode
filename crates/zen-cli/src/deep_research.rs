@@ -1,26 +1,8 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 use anyhow::Result;
 use chrono::Utc;
 use serde_json::json;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-
 
 pub const DEFAULT_MAX_SUBAGENTS: usize = 4;
 
@@ -32,12 +14,9 @@ pub const MIN_RESEARCHER_TIMEOUT_SECS: u64 = 30;
 
 pub const MAX_FINDING_CHARS: usize = 4000;
 
-
-
 pub const ESTIMATED_USD_PER_RESEARCHER: f64 = 0.25;
 
 pub const ESTIMATED_USD_SYNTHESIS: f64 = 0.10;
-
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct DeepResearchOptions {
@@ -46,8 +25,6 @@ pub struct DeepResearchOptions {
     pub researcher_timeout_secs: u64,
     pub max_budget_usd: Option<f64>,
 }
-
-
 
 fn tokenize(args: &str) -> Vec<String> {
     let mut out = Vec::new();
@@ -77,7 +54,6 @@ fn tokenize(args: &str) -> Vec<String> {
     }
     out
 }
-
 
 pub fn parse_deep_research_args(args: &str) -> Result<DeepResearchOptions, String> {
     let tokens = tokenize(args);
@@ -135,14 +111,12 @@ pub fn parse_deep_research_args(args: &str) -> Result<DeepResearchOptions, Strin
     })
 }
 
-
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ResearchAngle {
     pub name: &'static str,
     pub title: &'static str,
     pub brief: &'static str,
 }
-
 
 pub static RESEARCH_ANGLES: &[ResearchAngle] = &[
     ResearchAngle {
@@ -172,11 +146,9 @@ pub static RESEARCH_ANGLES: &[ResearchAngle] = &[
     },
 ];
 
-
 pub fn research_angles(max: usize) -> Vec<&'static ResearchAngle> {
     RESEARCH_ANGLES.iter().take(max.min(RESEARCH_ANGLES.len())).collect()
 }
-
 
 pub fn researcher_prompt(topic: &str, angle: &ResearchAngle) -> String {
     format!(
@@ -199,12 +171,9 @@ pub fn researcher_prompt(topic: &str, angle: &ResearchAngle) -> String {
     )
 }
 
-
 pub fn estimate_cost_usd(max_subagents: usize) -> f64 {
     max_subagents as f64 * ESTIMATED_USD_PER_RESEARCHER + ESTIMATED_USD_SYNTHESIS
 }
-
-
 
 pub fn check_budget_usd(max_budget_usd: Option<f64>, max_subagents: usize) -> Result<(), String> {
     if let Some(cap) = max_budget_usd {
@@ -224,8 +193,6 @@ pub fn check_budget_usd(max_budget_usd: Option<f64>, max_subagents: usize) -> Re
     Ok(())
 }
 
-
-
 pub fn resolve_budget_usd(flag: Option<f64>) -> Option<f64> {
     if flag.is_some() {
         return flag;
@@ -236,7 +203,6 @@ pub fn resolve_budget_usd(flag: Option<f64>) -> Option<f64> {
         .filter(|f| *f > 0.0)
 }
 
-
 #[derive(Debug, Clone)]
 pub struct ResearchFinding {
     pub angle_name: String,
@@ -245,8 +211,6 @@ pub struct ResearchFinding {
     pub ok: bool,
     pub elapsed_secs: u64,
 }
-
-
 
 pub async fn fan_out_research(
     task_tool: &Arc<dyn zen_core::Tool>,
@@ -318,8 +282,6 @@ pub async fn fan_out_research(
     indexed.into_iter().map(|(_, f)| f).collect()
 }
 
-
-
 pub fn synthesis_prompt(topic: &str, findings: &[ResearchFinding]) -> String {
     let mut p = format!(
         "Synthesize the following {n} parallel research reports on \"{topic}\" into ONE cited markdown report.\n\n",
@@ -355,7 +317,6 @@ pub fn synthesis_prompt(topic: &str, findings: &[ResearchFinding]) -> String {
     p
 }
 
-
 fn truncate(s: &str, max: usize) -> String {
     if s.len() <= max {
         return s.to_string();
@@ -366,7 +327,6 @@ fn truncate(s: &str, max: usize) -> String {
     }
     format!("{}…\n\n(truncated from {} chars)", &s[..end], s.len())
 }
-
 
 pub fn render_report(
     topic: &str,
@@ -398,8 +358,6 @@ pub fn render_report(
     }
     out
 }
-
-
 
 pub fn render_fallback_report(
     topic: &str,
@@ -555,7 +513,6 @@ mod tests {
         assert!(t.contains("truncated from"));
         assert_eq!(truncate("short", 100), "short");
     }
-
 
     struct FakeTask {
         calls: Arc<AtomicUsize>,

@@ -1,30 +1,14 @@
-
-
-
-
-
-
-
-
-
-
-
-
 use anyhow::{anyhow, Context, Result};
 use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
-
-
 pub const EXPORT_FORMAT_VERSION: u32 = 1;
-
 
 pub fn exporter_version() -> String {
     format!("zen {}", env!("CARGO_PKG_VERSION"))
 }
-
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum ExportFormat {
@@ -36,9 +20,6 @@ pub enum ExportFormat {
     Html,
 }
 
-
-
-
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ExportedMessage {
 
@@ -49,19 +30,14 @@ pub struct ExportedMessage {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub uuid: Option<String>,
 
-
-
     pub payload: Value,
 }
-
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct ExportedUsage {
     pub input_tokens: u64,
     pub output_tokens: u64,
 }
-
-
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct SessionExport {
@@ -75,16 +51,12 @@ pub struct SessionExport {
     pub model: Option<String>,
     pub usage: ExportedUsage,
 
-
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cost_usd: Option<f64>,
 
     pub redacted: bool,
     pub messages: Vec<ExportedMessage>,
 }
-
-
-
 
 #[derive(Debug)]
 pub struct LoadedSession {
@@ -98,12 +70,6 @@ pub struct LoadedSession {
 fn record_str(v: &Value, key: &str) -> Option<String> {
     v.get(key).and_then(|x| x.as_str()).map(String::from)
 }
-
-
-
-
-
-
 
 pub fn load_session_for_export(path: &Path) -> Result<LoadedSession> {
     let session_id = path
@@ -202,11 +168,6 @@ pub fn load_session_for_export(path: &Path) -> Result<LoadedSession> {
     Ok(out)
 }
 
-
-
-
-
-
 const SECRET_PREFIXES: &[&str] = &[
     "sk-ant-",
     "sk-",
@@ -218,7 +179,6 @@ const SECRET_PREFIXES: &[&str] = &[
     "AKIA",
 ];
 
-
 const KEY_WORDS: &[&str] = &[
     "api_key", "apikey", "api-key", "token", "secret", "password", "passwd", "pwd", "auth",
 ];
@@ -227,11 +187,8 @@ fn is_token_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '~' | '+' | '/' | '=')
 }
 
-
 pub fn redact_str(s: &str) -> String {
     let mut out = s.to_string();
-
-
 
     let mut search_from = 0;
     while let Some(rel) = out[search_from..].find("-----BEGIN") {
@@ -264,9 +221,7 @@ pub fn redact_str(s: &str) -> String {
         }
     }
 
-
     out = redact_after_marker(&out, "Bearer ", "[REDACTED]");
-
 
     for prefix in SECRET_PREFIXES {
         let mut search_from = 0;
@@ -287,12 +242,8 @@ pub fn redact_str(s: &str) -> String {
         }
     }
 
-
-
-
     redact_assignments_second_pass(&out)
 }
-
 
 fn redact_after_marker(s: &str, marker: &str, replacement: &str) -> String {
     let mut out = String::with_capacity(s.len());
@@ -316,10 +267,6 @@ fn redact_after_marker(s: &str, marker: &str, replacement: &str) -> String {
     out.push_str(rest);
     out
 }
-
-
-
-
 
 fn redact_assignments_second_pass(s: &str) -> String {
     let lower = s.to_ascii_lowercase();
@@ -387,7 +334,6 @@ fn redact_assignments_second_pass(s: &str) -> String {
     out
 }
 
-
 pub fn redact_value(v: &mut Value) {
     match v {
         Value::String(s) => {
@@ -422,12 +368,6 @@ pub fn redact_value(v: &mut Value) {
     }
 }
 
-
-
-
-
-
-
 fn payload_text(payload: &Value) -> String {
     match payload {
         Value::String(s) => s.clone(),
@@ -457,7 +397,6 @@ fn payload_text(payload: &Value) -> String {
         _ => serde_json::to_string(payload).unwrap_or_default(),
     }
 }
-
 
 fn tool_calls_note(payload: &Value) -> Option<String> {
     let calls = payload.get("tool_calls")?.as_array()?;
@@ -498,7 +437,6 @@ fn truncate(s: &str, limit: usize) -> String {
         s.len()
     )
 }
-
 
 pub fn render_markdown(exp: &SessionExport) -> String {
     let mut out = format!("# zen session {}\n\n", exp.session_id);
@@ -588,7 +526,6 @@ fn escape_html(s: &str) -> String {
     out
 }
 
-
 pub fn render_html(exp: &SessionExport) -> String {
     let mut body = String::new();
     body.push_str(&format!(
@@ -650,13 +587,9 @@ pub fn render_html(exp: &SessionExport) -> String {
     )
 }
 
-
 pub fn render_json(exp: &SessionExport) -> Result<String> {
     serde_json::to_string_pretty(exp).context("cannot serialize session export")
 }
-
-
-
 
 fn resolve_session_path(
     cwd: &Path,
@@ -678,7 +611,6 @@ fn resolve_session_path(
         }
     }
 }
-
 
 pub fn export_session(path: &Path, redact: bool) -> Result<SessionExport> {
     let loaded = load_session_for_export(path)?;
@@ -702,7 +634,6 @@ pub fn export_session(path: &Path, redact: bool) -> Result<SessionExport> {
     }
     Ok(exp)
 }
-
 
 pub fn run_export(
     cwd: &Path,
@@ -729,7 +660,6 @@ pub fn run_export(
     }
     Ok(())
 }
-
 
 pub fn run_import(cwd: &Path, home: Option<&Path>, file: &Path) -> Result<String> {
     let home = home.ok_or_else(|| anyhow!("cannot determine home directory"))?;
@@ -797,8 +727,6 @@ pub fn run_import(cwd: &Path, home: Option<&Path>, file: &Path) -> Result<String
     Ok(new_id)
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -810,7 +738,6 @@ mod tests {
         fs::create_dir_all(&p).unwrap();
         p
     }
-
 
     fn sample_transcript(home: &Path, cwd: &Path, sid: &str) -> PathBuf {
         let path = crate::session::ensure_session_path(home, cwd, sid).unwrap();
@@ -989,7 +916,6 @@ mod tests {
         fs::write(&file, render_json(&exp).unwrap()).unwrap();
         let new_id = run_import(&cwd, Some(home.as_path()), &file).unwrap();
         assert_ne!(new_id, "sess-rt-1");
-
 
         let new_path = crate::session::find_session_path(&home, &new_id).unwrap();
         let exp2 = export_session(&new_path, false).unwrap();

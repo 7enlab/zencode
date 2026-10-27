@@ -1,9 +1,3 @@
-
-
-
-
-
-
 use std::sync::Arc;
 use zen_agent::tool_bundles::{
     definitions_for_bundle, estimate_schema_tokens, per_tool_costs, total_schema_tokens,
@@ -28,8 +22,6 @@ fn all_builtin_tools() -> Vec<Arc<dyn Tool>> {
     v
 }
 
-
-
 #[test]
 fn schema_token_budgets_hold() {
     let r = builtin_registry();
@@ -47,8 +39,6 @@ fn schema_token_budgets_hold() {
         );
     }
 }
-
-
 
 #[test]
 fn builtin_descriptions_are_one_liners() {
@@ -70,7 +60,6 @@ fn builtin_descriptions_are_one_liners() {
     }
 }
 
-
 #[test]
 fn tool_bundle_flag_parses() {
     use clap::Parser;
@@ -90,14 +79,12 @@ fn tool_bundle_flag_parses() {
     assert!(Cli::try_parse_from(["zen", "--tool-bundle", "nope", "-p", "hi"]).is_err());
 }
 
-
 #[test]
 fn tool_help_known_and_unknown() {
     let out = zen_cli::commands::tool_help("Read");
     assert!(out.contains("phase: read"), "missing phase:\n{out}");
     assert!(out.contains("schema tokens"), "missing token cost:\n{out}");
     assert!(out.contains("# Read"), "missing full docs:\n{out}");
-
 
     let out2 = zen_cli::commands::tool_help("read");
     assert!(out2.contains("# Read"));
@@ -106,8 +93,6 @@ fn tool_help_known_and_unknown() {
     assert!(unknown.contains("Unknown tool"), "unexpected:\n{unknown}");
     assert!(unknown.contains("Read"), "should list available tools");
 }
-
-
 
 #[test]
 fn read_bundle_stubs_write_tools() {
@@ -130,7 +115,6 @@ fn read_bundle_stubs_write_tools() {
         estimate_schema_tokens(write) < estimate_schema_tokens(read) / 2,
         "stub should be much cheaper than a full schema"
     );
-
 
     let costs = per_tool_costs(&defs);
     assert_eq!(costs.len(), defs.len());

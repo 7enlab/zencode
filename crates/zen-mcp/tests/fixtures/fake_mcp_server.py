@@ -1,4 +1,3 @@
-
 """
 Fake MCP Server for testing zen-mcp integration.
 Implements a minimal MCP server over stdio that responds to initialize,
@@ -35,7 +34,6 @@ def handle_initialize(request_id):
 def handle_initialized():
     """Handle notifications/initialized."""
     log("Handling initialized notification")
-
 
 def handle_tools_list(request_id):
     """Handle tools/list request."""
@@ -157,9 +155,6 @@ def main():
     log("Starting fake MCP server")
     request_id = 1
 
-
-
-
     for line in sys.stdin:
         line = line.strip()
         if not line:
@@ -169,13 +164,11 @@ def main():
             request = json.loads(line)
             log(f"Received request: {request}")
 
-
             if "id" not in request:
                 method = request.get("method")
                 if method == "notifications/initialized":
                     handle_initialized()
                 continue
-
 
             req_id = request.get("id", request_id)
             method = request.get("method")

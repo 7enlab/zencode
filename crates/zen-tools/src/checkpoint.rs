@@ -1,11 +1,3 @@
-
-
-
-
-
-
-
-
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::io;
@@ -14,9 +6,7 @@ use std::sync::Mutex;
 
 use zen_core::FileCheckpoints;
 
-
 pub const DEFAULT_MAX_FILE_BYTES: u64 = 10 * 1024 * 1024;
-
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Before {
@@ -28,7 +18,6 @@ pub enum Before {
     Skipped(String),
 }
 
-
 #[derive(Debug, Clone)]
 pub struct Entry {
     pub path: PathBuf,
@@ -37,7 +26,6 @@ pub struct Entry {
     after: Option<u64>,
 }
 
-
 #[derive(Debug, Clone)]
 pub struct Turn {
     pub id: u64,
@@ -45,7 +33,6 @@ pub struct Turn {
     pub label: String,
     pub entries: Vec<Entry>,
 }
-
 
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct UndoReport {
@@ -58,7 +45,6 @@ pub struct UndoReport {
 
     pub skipped: Vec<(PathBuf, String)>,
 }
-
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum UndoError {
@@ -100,7 +86,6 @@ struct State {
     current: Option<Turn>,
     done: Vec<Turn>,
 }
-
 
 pub struct Checkpoints {
     dir: PathBuf,
@@ -146,7 +131,6 @@ impl Checkpoints {
         &self.dir
     }
 
-
     pub fn start_turn(&self, prompt: &str) {
         let mut st = self.state.lock().unwrap();
         Self::close_current(&mut st);
@@ -167,13 +151,11 @@ impl Checkpoints {
         }
     }
 
-
     pub fn last_turn(&self) -> Option<Turn> {
         let mut st = self.state.lock().unwrap();
         Self::close_current(&mut st);
         st.done.last().cloned()
     }
-
 
     pub fn depth(&self) -> usize {
         let mut st = self.state.lock().unwrap();
@@ -201,8 +183,6 @@ impl Checkpoints {
             Err(e) => Before::Skipped(format!("could not save a copy: {e}")),
         }
     }
-
-
 
     pub fn undo(&self, force: bool) -> Result<UndoReport, UndoError> {
         let mut st = self.state.lock().unwrap();
@@ -261,9 +241,6 @@ impl Checkpoints {
         let _ = std::fs::remove_dir_all(self.dir.join(turn.id.to_string()));
         Ok(report)
     }
-
-
-
 
     pub fn diff_last_turn(&self, base: &Path) -> Option<(Turn, String)> {
         let turn = self.last_turn()?;
@@ -343,10 +320,7 @@ impl FileCheckpoints for Checkpoints {
     }
 }
 
-
 const DIFF_CELLS: usize = 4_000_000;
-
-
 
 pub fn file_diff(label: &str, old: Option<&[u8]>, new: Option<&[u8]>) -> String {
     let (a_name, b_name) = (
@@ -394,7 +368,6 @@ enum Op {
     Del,
     Add,
 }
-
 
 fn line_ops(a: &[&str], b: &[&str]) -> Option<Vec<Op>> {
     let pre = a.iter().zip(b).take_while(|(x, y)| x == y).count();
@@ -447,7 +420,6 @@ fn push_line(out: &mut String, sign: char, line: &str) {
         out.push_str("\n\\ No newline at end of file\n");
     }
 }
-
 
 fn hunks(a: &[&str], b: &[&str], ops: &[Op], ctx: usize) -> String {
 

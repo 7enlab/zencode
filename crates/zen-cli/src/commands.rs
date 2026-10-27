@@ -1,9 +1,7 @@
-
 use anyhow::{anyhow, Result};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::Path;
-
 
 pub const BUILTIN_COMMANDS: &[&str] = &[
     "/help", "/clear", "/compact", "/model", "/resume", "/cost", "/status",
@@ -14,15 +12,10 @@ pub const BUILTIN_COMMANDS: &[&str] = &[
     "/scope", "/worktree", "/commit",
 ];
 
-
-
 pub const REPL_ONLY_COMMANDS: &[&str] = &["/undo"];
-
 
 pub const HEADLESS_BUILTINS: &[&str] =
     &["compact", "model", "cost", "mcp", "context", "review", "init", "done"];
-
-
 
 pub fn parse_builtin(prompt: &str) -> Option<(String, String)> {
     let rest = prompt.trim_start().strip_prefix('/')?;
@@ -35,7 +28,6 @@ pub fn parse_builtin(prompt: &str) -> Option<(String, String)> {
     }
     Some((name.to_string(), it.next().unwrap_or("").trim().to_string()))
 }
-
 
 pub fn review_prompt(args: &str) -> String {
     let mut p = String::from(
@@ -50,7 +42,6 @@ pub fn review_prompt(args: &str) -> String {
     p
 }
 
-
 pub fn init_prompt() -> String {
     "Look through this repository (layout, build files, README, tests) and write a concise \
      ZEN.md at the project root for future coding sessions: how to build, test and lint, the \
@@ -58,8 +49,6 @@ pub fn init_prompt() -> String {
      improve it instead of replacing useful content."
         .to_string()
 }
-
-
 
 pub fn init_prompt_with_imports(candidates: &[std::path::PathBuf]) -> String {
     let files = candidates
@@ -77,7 +66,6 @@ pub fn init_prompt_with_imports(candidates: &[std::path::PathBuf]) -> String {
         files
     )
 }
-
 
 pub fn context_report(
     system_prompt: &str,
@@ -121,11 +109,6 @@ pub fn context_report(
     out
 }
 
-
-
-
-
-
 pub fn tool_help(name: &str) -> String {
     let mut registry = zen_core::ToolRegistry::new();
     for t in zen_tools::builtin_tools() {
@@ -166,7 +149,6 @@ pub fn tool_help(name: &str) -> String {
     }
 }
 
-
 pub fn mcp_report(status: &[(String, String)]) -> String {
     if status.is_empty() {
         return "No MCP servers configured.".to_string();
@@ -177,9 +159,6 @@ pub fn mcp_report(status: &[(String, String)]) -> String {
         .collect::<Vec<_>>()
         .join("\n")
 }
-
-
-
 
 pub fn cost_report(usage: &zen_core::UsageStats, model: &str, base_url: &str) -> String {
     let entry = crate::cost::CostEntry {
@@ -192,7 +171,6 @@ pub fn cost_report(usage: &zen_core::UsageStats, model: &str, base_url: &str) ->
     let summary = crate::cost::summarize("current session", std::slice::from_ref(&entry));
     let mut s = crate::cost::render_text(&summary);
 
-
     if usage.input_tokens > 0 && usage.cache_read_input_tokens > 0 {
         s.push_str(&format!(
             "\nPrompt cache: {} tokens served from cache ({:.0}% of input) - ~90% cheaper on paid models",
@@ -202,7 +180,6 @@ pub fn cost_report(usage: &zen_core::UsageStats, model: &str, base_url: &str) ->
     }
     s
 }
-
 
 pub fn transcript_markdown(session_id: &str, messages: &[zen_core::ChatMessage]) -> String {
     let mut out = format!("# zen session {}\n", session_id);
@@ -235,7 +212,6 @@ pub fn transcript_markdown(session_id: &str, messages: &[zen_core::ChatMessage])
     out
 }
 
-
 #[derive(Debug)]
 pub struct CustomCommand {
     pub name: String,
@@ -254,13 +230,9 @@ impl CustomCommand {
         })
     }
 
-
-
-
     pub fn expand(&self, args: &str) -> Result<String> {
         self.expand_in(args, Path::new("."))
     }
-
 
     pub fn expand_in(&self, args: &str, base: &Path) -> Result<String> {
         let parts: Vec<&str> = args.split_whitespace().collect();
@@ -327,7 +299,6 @@ fn parse_yaml_frontmatter(text: &str) -> HashMap<String, Value> {
     map
 }
 
-
 fn expand_file_refs(body: &str, base: &Path) -> Result<String> {
 
     let mut out = String::new();
@@ -362,7 +333,6 @@ fn expand_file_refs(body: &str, base: &Path) -> Result<String> {
     Ok(out)
 }
 
-
 fn read_ref(path: &str, base: &Path) -> Option<String> {
     let p = base.join(path);
     let p = if p.is_file() { p } else { Path::new(path).to_path_buf() };
@@ -373,7 +343,6 @@ fn read_ref(path: &str, base: &Path) -> Option<String> {
     }
 }
 
-
 fn custom_commands_dirs(cwd: &Path, home: Option<&Path>) -> Vec<std::path::PathBuf> {
     let mut dirs = vec![];
     let proj = cwd.join(".zen").join("commands");
@@ -383,7 +352,6 @@ fn custom_commands_dirs(cwd: &Path, home: Option<&Path>) -> Vec<std::path::PathB
     }
     dirs
 }
-
 
 pub fn load_custom_commands(cwd: &Path, home: Option<&Path>) -> Vec<CustomCommand> {
     let dirs = custom_commands_dirs(cwd, home);
@@ -425,7 +393,6 @@ fn dedup_keep_project_first(cmds: &mut Vec<CustomCommand>) {
     }
 }
 
-
 #[derive(Debug)]
 pub enum SlashResult {
     Handled,
@@ -444,17 +411,10 @@ pub fn dispatch_builtin(cmd: &str, _arg: &str) -> SlashResult {
     }
 }
 
-
-
-
-
-
 pub fn mcp_scope_path(scope: &str, cwd: &Path, home: Option<&Path>) -> Result<std::path::PathBuf> {
     let scope = if scope.is_empty() { "local" } else { scope };
     zen_mcp::scope_path(scope, cwd, home)
 }
-
-
 
 pub fn split_kv(entry: &str) -> Option<(String, String)> {
     let idx = entry.find([':', '='])?;
@@ -487,7 +447,6 @@ fn write_mcp_file(path: &Path, root: &Value) -> Result<()> {
     std::fs::write(path, format!("{}\n", serde_json::to_string_pretty(root)?))?;
     Ok(())
 }
-
 
 pub async fn mcp_command(
     cwd: &Path,
@@ -613,12 +572,6 @@ pub async fn mcp_command(
     }
 }
 
-
-
-
-
-
-
 pub async fn sessions_command(
     cli: &crate::cli::Cli,
     cwd: &Path,
@@ -682,8 +635,6 @@ pub async fn sessions_command(
         }
     }
 }
-
-
 
 #[cfg(test)]
 mod tests {
@@ -839,4 +790,3 @@ mod tests {
         assert!(!r.contains("Prompt cache"), "{}", r);
     }
 }
-

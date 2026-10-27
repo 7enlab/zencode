@@ -1,5 +1,3 @@
-
-
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -8,7 +6,6 @@ use serde_json::{json, Value};
 use zen_core::*;
 
 use crate::testutil::*;
-
 
 struct SlowTool {
     name: &'static str,

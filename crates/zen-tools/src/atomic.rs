@@ -1,38 +1,13 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-
 const MAX_SYMLINK_HOPS: usize = 40;
-
 
 pub const TEMP_PREFIX: &str = ".zen-tmp-";
 
 static COUNTER: AtomicU64 = AtomicU64::new(0);
-
-
-
 
 pub fn resolve_write_target(path: &Path) -> io::Result<PathBuf> {
     let mut cur = path.to_path_buf();
@@ -63,7 +38,6 @@ fn temp_path(dir: &Path, name: &std::ffi::OsStr) -> PathBuf {
     dir.join(file)
 }
 
-
 fn create_temp(dir: &Path, name: &std::ffi::OsStr) -> io::Result<(PathBuf, File)> {
     let mut last = None;
     for _ in 0..16 {
@@ -76,8 +50,6 @@ fn create_temp(dir: &Path, name: &std::ffi::OsStr) -> io::Result<(PathBuf, File)
     }
     Err(last.unwrap_or_else(|| io::Error::other("could not create a temp file")))
 }
-
-
 
 pub fn write_atomic(path: &Path, data: &[u8]) -> io::Result<Option<String>> {
     let target = resolve_write_target(path)?;
@@ -139,7 +111,6 @@ pub fn write_atomic(path: &Path, data: &[u8]) -> io::Result<Option<String>> {
     }
 }
 
-
 fn sync_dir(dir: &Path) {
     #[cfg(unix)]
     if let Ok(d) = File::open(dir) {
@@ -148,7 +119,6 @@ fn sync_dir(dir: &Path) {
     #[cfg(not(unix))]
     let _ = dir;
 }
-
 
 pub async fn write_atomic_async(path: PathBuf, data: Vec<u8>) -> io::Result<Option<String>> {
     tokio::task::spawn_blocking(move || write_atomic(&path, &data))

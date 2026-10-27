@@ -1,23 +1,4 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 use zen_core::*;
-
 
 pub const PLAN_MODE_INSTRUCTION: &str =
     "\n\n# Plan mode (active)\nYou are in plan mode. Mutating tools are unavailable. Research the \
@@ -25,10 +6,7 @@ pub const PLAN_MODE_INSTRUCTION: &str =
      exact file paths and commands. Do not write or edit files. End your final message with the \
      line `ExitPlanMode` once the plan is ready for approval.";
 
-
 pub const PLAN_MODE_INACTIVE_NOTE: &str = "";
-
-
 
 const PLAN_MODE_DENIED_TOOLS: &[&str] = &[
     "Write",
@@ -44,25 +22,15 @@ const PLAN_MODE_DENIED_TOOLS: &[&str] = &[
     "Task",
 ];
 
-
-
-
-
-
 pub fn plan_mode_hides(tool_name: &str) -> bool {
     tool_name.starts_with("mcp__") || PLAN_MODE_DENIED_TOOLS.contains(&tool_name)
 }
-
-
-
-
 
 pub fn plan_mode_tools(defs: Vec<ToolDefinition>) -> Vec<ToolDefinition> {
     defs.into_iter()
         .filter(|d| !plan_mode_hides(&d.function.name))
         .collect()
 }
-
 
 pub fn system_prompt_for_mode(base: &str, mode: PermissionMode) -> String {
     if mode == PermissionMode::Plan && !base.contains("# Plan mode (active)") {
@@ -72,30 +40,10 @@ pub fn system_prompt_for_mode(base: &str, mode: PermissionMode) -> String {
     }
 }
 
-
-
-
 pub fn looks_like_plan_exit(text: &str) -> bool {
     let lower = text.to_ascii_lowercase();
     lower.contains("exitplanmode") || lower.contains("/exitplan")
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 pub fn safe_tail(messages: &[ChatMessage], keep: usize) -> Vec<ChatMessage> {
     if messages.is_empty() {
@@ -103,7 +51,6 @@ pub fn safe_tail(messages: &[ChatMessage], keep: usize) -> Vec<ChatMessage> {
     }
     let n = messages.len();
     let mut start = n.saturating_sub(keep);
-
 
     if start > 0 && start < n && messages[start].role == "tool" {
         let mut run_start = start;
@@ -129,7 +76,6 @@ pub fn safe_tail(messages: &[ChatMessage], keep: usize) -> Vec<ChatMessage> {
             start = run_start - 1;
         }
 
-
     }
 
     while start < n && !window_is_valid(&messages[start..]) {
@@ -142,9 +88,6 @@ pub fn safe_tail(messages: &[ChatMessage], keep: usize) -> Vec<ChatMessage> {
     let (es, ee) = most_recent_complete_exchange(messages);
     messages[es..ee].to_vec()
 }
-
-
-
 
 fn most_recent_complete_exchange(messages: &[ChatMessage]) -> (usize, usize) {
     let n = messages.len();
@@ -173,8 +116,6 @@ fn most_recent_complete_exchange(messages: &[ChatMessage]) -> (usize, usize) {
     (0, 0)
 }
 
-
-
 fn window_is_valid(window: &[ChatMessage]) -> bool {
 
     let mut open: Vec<&str> = Vec::new();
@@ -195,14 +136,6 @@ fn window_is_valid(window: &[ChatMessage]) -> bool {
     }
     open.is_empty()
 }
-
-
-
-
-
-
-
-
 
 pub fn ensure_tool_responses(messages: Vec<ChatMessage>) -> Vec<ChatMessage> {
     let mut out: Vec<ChatMessage> = Vec::with_capacity(messages.len());
@@ -274,15 +207,11 @@ mod tests {
             ChatMessage::assistant(Some("done".into()), None),
         ];
 
-
         let tail = safe_tail(&msgs, 2);
         assert_eq!(tail.len(), 3);
         assert_eq!(tail[0].role, "assistant");
         assert_eq!(tail[2].content.as_deref(), Some("done"));
     }
-
-
-
 
     #[test]
     fn safe_tail_pulls_in_owning_assistant_call() {
@@ -324,7 +253,6 @@ mod tests {
     #[test]
     fn safe_tail_drops_unanswerable_prefix() {
 
-
         let msgs = vec![tool_call_msg("c1"), ChatMessage::user("later")];
         let tail = safe_tail(&msgs, 2);
         assert_eq!(tail.len(), 1);
@@ -333,7 +261,6 @@ mod tests {
 
     #[test]
     fn ensure_tool_responses_drops_orphans_and_fills_gaps() {
-
 
         let msgs = vec![
             tool_call_msg("c1"),
@@ -355,7 +282,6 @@ mod tests {
         let msgs: Vec<ChatMessage> = (0..4).map(|i| ChatMessage::user(format!("m{}", i))).collect();
         assert_eq!(ensure_tool_responses(msgs.clone()), msgs);
     }
-
 
     fn window_ok(window: &[ChatMessage]) -> bool {
         let mut open: Vec<&str> = Vec::new();
@@ -385,7 +311,6 @@ mod tests {
     #[test]
     fn safe_tail_never_discards_freshest_complete_exchange() {
 
-
         let mut msgs = vec![
             ChatMessage::user("u"),
             tool_call_msg("c1"),
@@ -407,8 +332,6 @@ mod tests {
 
     #[test]
     fn safe_tail_grow_does_not_cross_exchange_boundaries() {
-
-
 
         let msgs = vec![
             ChatMessage::user("u"),

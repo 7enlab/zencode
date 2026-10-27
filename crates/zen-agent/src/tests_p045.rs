@@ -1,7 +1,3 @@
-
-
-
-
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -13,7 +9,6 @@ use crate::rategate::{fetch_key_quota, openrouter_key_url, quota_command_report,
 use crate::safety::ErrorClass;
 use crate::testutil::*;
 
-
 #[derive(Clone)]
 struct Answer {
     status: u16,
@@ -24,8 +19,6 @@ struct Answer {
 fn answer(status: u16, headers: &str, body: &str) -> Answer {
     Answer { status, headers: headers.to_string(), body: body.to_string() }
 }
-
-
 
 async fn fake_server(answers: Vec<Answer>) -> (String, Arc<AtomicUsize>, Arc<Mutex<Vec<String>>>) {
     use tokio::io::AsyncWriteExt;
@@ -87,8 +80,6 @@ fn mid_error(code: u16, error_type: &str, msg: &str) -> String {
     })
     .to_string()
 }
-
-
 
 #[test]
 fn p0_4_key_url_only_for_openrouter() {
@@ -156,8 +147,6 @@ async fn p0_4_chat_never_calls_the_key_endpoint() {
     let _ = fetch_key_quota;
 }
 
-
-
 #[tokio::test]
 async fn p0_4_429_waits_until_x_ratelimit_reset() {
     let now_ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64;
@@ -220,8 +209,6 @@ async fn p0_4_402_in_flight_budget_with_retry_after_is_retried() {
     assert_eq!(c.chat(req()).await.unwrap().message.content.as_deref(), Some("ok"));
     assert_eq!(served.load(Ordering::SeqCst), 2);
 }
-
-
 
 #[test]
 fn p0_5_mid_response_error_classification() {

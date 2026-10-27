@@ -1,20 +1,11 @@
-
-
-
-
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-
-
 pub const GIT_TIMEOUT: Duration = Duration::from_secs(2);
 
-
-
 pub const GIT_DIFF_TIMEOUT: Duration = Duration::from_secs(30);
-
 
 struct Probe {
     child: Child,
@@ -40,10 +31,8 @@ fn spawn_probe(program: &str, cwd: &Path, args: &[&str]) -> Option<Probe> {
     Some(Probe { child, reader })
 }
 
-
 fn finish_probe(probe: Option<Probe>, deadline: Instant) -> Option<String> {
     let Probe { mut child, reader } = probe?;
-
 
     let kill_and_reap = |mut child: Child, reader: std::thread::JoinHandle<Vec<u8>>| {
         let _ = child.kill();
@@ -65,7 +54,6 @@ fn finish_probe(probe: Option<Probe>, deadline: Instant) -> Option<String> {
                 }
             }
 
-
             Err(_) => {
                 if Instant::now() < deadline {
                     std::thread::sleep(Duration::from_millis(2));
@@ -77,8 +65,6 @@ fn finish_probe(probe: Option<Probe>, deadline: Instant) -> Option<String> {
         }
     }
 }
-
-
 
 fn run_git(cwd: &Path, args: &[&str], timeout: Duration) -> Option<String> {
     let probe = spawn_probe("git", cwd, args);
@@ -103,8 +89,6 @@ fn parse_status(out: &str) -> String {
     }
 }
 
-
-
 pub fn git_info_with(program: &str, cwd: &Path, timeout: Duration) -> (Option<String>, Option<String>) {
     let deadline = Instant::now() + timeout;
     let branch = spawn_probe(program, cwd, &["rev-parse", "--abbrev-ref", "HEAD"]);
@@ -114,11 +98,9 @@ pub fn git_info_with(program: &str, cwd: &Path, timeout: Duration) -> (Option<St
     (branch, status)
 }
 
-
 pub fn git_info(cwd: &Path) -> (Option<String>, Option<String>) {
     git_info_with("git", cwd, GIT_TIMEOUT)
 }
-
 
 pub fn current_branch(cwd: &Path) -> Option<String> {
 
@@ -127,13 +109,11 @@ pub fn current_branch(cwd: &Path) -> Option<String> {
     finish_probe(p, deadline).and_then(|o| parse_branch(&o))
 }
 
-
 pub fn status_summary(cwd: &Path) -> Option<String> {
     let deadline = Instant::now() + GIT_TIMEOUT;
     let p = spawn_probe("git", cwd, &["status", "--porcelain"]);
     finish_probe(p, deadline).map(|o| parse_status(&o))
 }
-
 
 pub fn is_git_repo(cwd: &Path) -> bool {
     matches!(
@@ -141,7 +121,6 @@ pub fn is_git_repo(cwd: &Path) -> bool {
         Some(o) if o.trim() == "true"
     )
 }
-
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DiffMode {
@@ -153,9 +132,6 @@ pub enum DiffMode {
     Stat,
 }
 
-
-
-
 pub fn git_diff(cwd: &Path, mode: DiffMode, color: bool) -> Option<String> {
     let color_arg = if color { "--color=always" } else { "--color=never" };
     let args: Vec<&str> = match mode {
@@ -166,13 +142,11 @@ pub fn git_diff(cwd: &Path, mode: DiffMode, color: bool) -> Option<String> {
     run_git(cwd, &args, GIT_DIFF_TIMEOUT)
 }
 
-
 fn parse_untracked(porcelain: &str) -> Vec<String> {
     porcelain
         .lines()
         .filter_map(|l| l.strip_prefix("?? "))
         .map(|p| {
-
 
             let p = p.trim();
             if p.len() >= 2 && p.starts_with('"') && p.ends_with('"') {
@@ -184,18 +158,13 @@ fn parse_untracked(porcelain: &str) -> Vec<String> {
         .collect()
 }
 
-
-
 pub fn untracked_files(cwd: &Path) -> Option<Vec<String>> {
     run_git(cwd, &["status", "--porcelain=v1"], GIT_DIFF_TIMEOUT).map(|o| parse_untracked(&o))
 }
 
-
 pub fn os_info() -> String {
     format!("{} ({})", std::env::consts::OS, std::env::consts::ARCH)
 }
-
-
 
 pub fn create_worktree(cwd: &Path, path: &Path, branch: &str) -> Result<PathBuf, String> {
     let out = std::process::Command::new("git")
@@ -211,8 +180,6 @@ pub fn create_worktree(cwd: &Path, path: &Path, branch: &str) -> Result<PathBuf,
         Err(String::from_utf8_lossy(&out.stderr).trim().to_string())
     }
 }
-
-
 
 pub fn list_worktrees(cwd: &Path) -> Vec<(String, String, String)> {
     let p = spawn_probe("git", cwd, &["worktree", "list", "--porcelain"]);
@@ -246,7 +213,6 @@ fn parse_worktree_porcelain(out: &str) -> Vec<(String, String, String)> {
     result
 }
 
-
 pub fn valid_worktree_name(name: &str) -> bool {
     !name.is_empty()
         && !name.starts_with('-')
@@ -254,8 +220,6 @@ pub fn valid_worktree_name(name: &str) -> bool {
         && !name.contains("..")
         && name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
 }
-
-
 
 pub fn remove_worktree(cwd: &Path, path: &Path) -> Result<(), String> {
     let out = std::process::Command::new("git")
@@ -271,8 +235,6 @@ pub fn remove_worktree(cwd: &Path, path: &Path) -> Result<(), String> {
         Err(String::from_utf8_lossy(&out.stderr).trim().to_string())
     }
 }
-
-
 
 pub fn changed_files(cwd: &Path) -> Vec<(String, String)> {
     let p = spawn_probe("git", cwd, &["status", "--porcelain"]);
@@ -293,7 +255,6 @@ pub fn changed_files(cwd: &Path) -> Vec<(String, String)> {
         })
         .collect()
 }
-
 
 pub fn stage_and_commit(cwd: &Path, message: &str) -> Result<String, String> {
     let add = Command::new("git")
@@ -322,14 +283,11 @@ pub fn stage_and_commit(cwd: &Path, message: &str) -> Result<String, String> {
     }
 }
 
-
-
 pub fn suggest_commit_message(files: &[(String, String)]) -> String {
     if files.is_empty() {
         return "chore: update files".to_string();
     }
     let paths: Vec<&str> = files.iter().map(|(_, p)| p.as_str()).collect();
-
 
     let prefix = if paths.iter().all(|p| p.ends_with(".md") || p.contains("CHANGELOG")) {
         "docs"
@@ -344,7 +302,6 @@ pub fn suggest_commit_message(files: &[(String, String)]) -> String {
     } else {
         "chore"
     };
-
 
     let scope = if paths.len() == 1 {
         paths[0].to_string()
@@ -386,7 +343,6 @@ mod tests {
         assert!(!valid_worktree_name(""));
     }
     use std::path::PathBuf;
-
 
     fn init_repo() -> Option<PathBuf> {
         let dir = std::env::temp_dir().join(format!("zen_git_diff_{}", uuid::Uuid::new_v4()));

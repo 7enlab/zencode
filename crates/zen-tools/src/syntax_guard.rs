@@ -1,17 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 use std::path::Path;
 use std::process::Stdio;
 use std::time::Duration;
@@ -37,8 +23,6 @@ fn lang_of(path: &Path) -> Option<Lang> {
     }
 }
 
-
-
 pub async fn syntax_error(path: &Path, text: &str) -> Option<String> {
     let lang = lang_of(path)?;
     match lang {
@@ -51,7 +35,6 @@ pub async fn syntax_error(path: &Path, text: &str) -> Option<String> {
         .await,
         Lang::Shell => {
 
-
             let sh = zen_core::resolve_shell("bash");
             if sh.kind != zen_core::ShellKind::Posix {
                 return None;
@@ -60,10 +43,8 @@ pub async fn syntax_error(path: &Path, text: &str) -> Option<String> {
         }
         Lang::JavaScript => {
 
-
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("js");
             let tmp = std::env::temp_dir().join(format!("zen-syntax-{}.{}", random_suffix(), ext));
-
 
             let mut f = std::fs::OpenOptions::new().write(true).create_new(true).open(&tmp).ok()?;
             {
@@ -80,8 +61,6 @@ pub async fn syntax_error(path: &Path, text: &str) -> Option<String> {
     }
 }
 
-
-
 fn random_suffix() -> String {
     #[cfg(unix)]
     {
@@ -94,8 +73,6 @@ fn random_suffix() -> String {
         }
     }
 
-
-
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
     let mut h = DefaultHasher::new();
@@ -106,7 +83,6 @@ fn random_suffix() -> String {
     std::ptr::addr_of!(stack_var).hash(&mut h);
     format!("{:016x}{:016x}", h.finish(), h.finish().wrapping_mul(0x9e3779b97f4a7c15))
 }
-
 
 async fn run_checker(cmd: &str, args: &[&str], text: &str) -> Option<String> {
     let mut child = tokio::process::Command::new(cmd)
@@ -130,7 +106,6 @@ async fn run_checker(cmd: &str, args: &[&str], text: &str) -> Option<String> {
     Some(if msg.is_empty() { "syntax check failed".into() } else { msg.chars().take(1500).collect() })
 }
 
-
 fn error_line(msg: &str) -> Option<usize> {
     let lower = msg.to_ascii_lowercase();
     if let Some(i) = lower.find("line ") {
@@ -141,7 +116,6 @@ fn error_line(msg: &str) -> Option<usize> {
     }
     msg.split(':').find_map(|p| p.trim().parse::<usize>().ok())
 }
-
 
 fn refusal(path: &Path, new_text: &str, msg: &str) -> String {
     let mut out = format!(
@@ -163,7 +137,6 @@ fn refusal(path: &Path, new_text: &str, msg: &str) -> String {
     out.push_str("The file on disk is unchanged. Fix the syntax (indentation, brackets, quotes) and edit again.");
     out
 }
-
 
 pub async fn guard_write(path: &Path, old_text: Option<&str>, new_text: &str) -> Result<(), String> {
     if std::env::var_os("ZEN_NO_SYNTAX_GUARD").is_some() {

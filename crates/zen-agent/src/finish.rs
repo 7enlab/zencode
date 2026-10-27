@@ -1,26 +1,10 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 use std::path::Path;
 use std::time::Duration;
-
 
 pub const MAX_VERIFY_ROUNDS: usize = 2;
 
 const TAIL_LINES: usize = 40;
 const TAIL_CHARS: usize = 4000;
-
 
 #[derive(Default)]
 pub struct FinishGate {
@@ -31,7 +15,6 @@ pub struct FinishGate {
     reminded: bool,
     verify_rounds: usize,
 }
-
 
 #[derive(Debug, PartialEq)]
 pub enum Decision {
@@ -57,13 +40,10 @@ impl FinishGate {
                 }
             }
 
-
             "Bash" => self.changed_since_command.clear(),
             _ => {}
         }
     }
-
-
 
     pub async fn decide(
         &mut self,
@@ -106,7 +86,6 @@ impl FinishGate {
         Decision::Finish
     }
 }
-
 
 pub(crate) async fn run_command(
     cmd: &str,

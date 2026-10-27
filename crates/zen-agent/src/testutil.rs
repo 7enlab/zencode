@@ -1,10 +1,3 @@
-
-
-
-
-
-
-
 #![cfg(test)]
 
 use std::collections::{HashMap, VecDeque};
@@ -16,10 +9,6 @@ use serde_json::{json, Value};
 use crate::{Agent, AgentConfig};
 use tokio::io::AsyncReadExt;
 use zen_core::*;
-
-
-
-
 
 pub struct MockLlm {
     pub queue: Mutex<VecDeque<anyhow::Result<ChatResponse>>>,
@@ -35,14 +24,12 @@ impl MockLlm {
         })
     }
 
-
     pub fn with_errors(items: Vec<anyhow::Result<ChatResponse>>) -> Arc<Self> {
         Arc::new(Self {
             queue: Mutex::new(items.into()),
             requests: Mutex::new(vec![]),
         })
     }
-
 
     pub fn requests(&self) -> Vec<ChatRequest> {
         self.requests.lock().unwrap().clone()
@@ -59,7 +46,6 @@ impl LlmBackend for MockLlm {
     }
 }
 
-
 pub fn resp(text: &str) -> ChatResponse {
     ChatResponse {
         message: ChatMessage::assistant(Some(text.into()), None),
@@ -67,8 +53,6 @@ pub fn resp(text: &str) -> ChatResponse {
         finish_reason: Some("stop".into()),
     }
 }
-
-
 
 pub fn resp_tool(name: &str, args: &str, id: &str) -> ChatResponse {
     ChatResponse {
@@ -85,8 +69,6 @@ pub fn resp_tool(name: &str, args: &str, id: &str) -> ChatResponse {
     }
 }
 
-
-
 pub fn resp_multi_tool(calls: Vec<(&str, &str, &str)>) -> ChatResponse {
     let tool_calls = calls
         .into_iter()
@@ -102,9 +84,6 @@ pub fn resp_multi_tool(calls: Vec<(&str, &str, &str)>) -> ChatResponse {
         finish_reason: Some("tool_calls".into()),
     }
 }
-
-
-
 
 pub struct ConcurrencyTool {
     pub name: &'static str,
@@ -150,7 +129,6 @@ impl Tool for ConcurrencyTool {
     }
 }
 
-
 pub struct FakeTool {
     pub name: &'static str,
     pub read_only: bool,
@@ -176,7 +154,6 @@ impl Tool for FakeTool {
     }
 }
 
-
 pub struct FakePerms {
     pub decision: PermissionDecision,
     pub always: Mutex<Vec<String>>,
@@ -196,7 +173,6 @@ impl PermissionChecker for FakePerms {
         self.always.lock().unwrap().push(rule.to_string());
     }
 }
-
 
 #[derive(Default)]
 pub struct FakeHooks {
@@ -223,7 +199,6 @@ impl HookRunner for FakeHooks {
     }
 }
 
-
 #[derive(Default)]
 pub struct CollectSink {
     pub events: Mutex<Vec<AgentEvent>>,
@@ -235,13 +210,11 @@ impl EventSink for CollectSink {
     }
 }
 
-
 pub fn temp_ctx() -> ToolContext {
     let dir = std::env::temp_dir().join(format!("zen-agent-test-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
     ToolContext::new(dir, "session-test")
 }
-
 
 pub fn registry_with(tools: Vec<Arc<dyn Tool>>) -> ToolRegistry {
     let mut r = ToolRegistry::new();
@@ -251,7 +224,6 @@ pub fn registry_with(tools: Vec<Arc<dyn Tool>>) -> ToolRegistry {
     r
 }
 
-
 pub fn base_cfg() -> AgentConfig {
     AgentConfig {
         model: "mock-model".into(),
@@ -260,7 +232,6 @@ pub fn base_cfg() -> AgentConfig {
         ..Default::default()
     }
 }
-
 
 pub fn build_agent(
     llm: Arc<MockLlm>,
@@ -282,7 +253,6 @@ pub fn build_agent(
     );
     (agent, sink, hooks)
 }
-
 
 #[allow(dead_code)]
 pub async fn read_full_request(sock: &mut tokio::net::TcpStream) -> String {
@@ -311,7 +281,6 @@ pub async fn read_full_request(sock: &mut tokio::net::TcpStream) -> String {
     }
     String::from_utf8_lossy(&buf).to_string()
 }
-
 
 #[allow(dead_code)]
 pub fn http_response(status: &str, body: &str) -> String {

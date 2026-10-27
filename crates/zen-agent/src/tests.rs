@@ -1,10 +1,3 @@
-
-
-
-
-
-
-
 use std::sync::Arc;
 
 use serde_json::{json, Value};
@@ -22,7 +15,6 @@ fn fake(name: &'static str, read_only: bool, out: &str) -> Arc<dyn Tool> {
 fn allow() -> Arc<FakePerms> {
     FakePerms::new(PermissionDecision::Allow)
 }
-
 
 fn assert_paired(msgs: &[ChatMessage]) {
     for (i, m) in msgs.iter().enumerate() {
@@ -61,9 +53,6 @@ async fn text_reply_is_the_result_and_system_prompt_is_sent_not_stored() {
 #[tokio::test]
 async fn prune_old_tool_results_end_to_end() {
 
-
-
-
     let big = "x".repeat(12_000);
     let mut scripted = vec![];
     for i in 1..=7 {
@@ -83,11 +72,9 @@ async fn prune_old_tool_results_end_to_end() {
     let r = agent.run_turn("go").await;
     assert_eq!(r.subtype, "success");
 
-
     let stats = agent.prune_stats();
     assert!(stats.pruned >= 4, "expected pruning, got {:?}", stats);
     assert!(stats.pruned_tokens > 0);
-
 
     let requests = llm.requests();
     let last_req = requests.last().unwrap();
@@ -108,7 +95,6 @@ async fn prune_old_tool_results_end_to_end() {
     assert!(first.contains("src/f1.rs"), "identifier preserved: {}", first);
     assert!(pruned_summaries[0].tool_call_id.is_some());
 
-
     let events = sink.events.lock().unwrap();
     assert!(
         events.iter().any(|e| matches!(
@@ -118,7 +104,6 @@ async fn prune_old_tool_results_end_to_end() {
         )),
         "expected AgentEvent::Pruned"
     );
-
 
     assert_paired(agent.messages());
 }
@@ -315,8 +300,6 @@ async fn fallback_model_is_used_after_primary_fails() {
     assert_eq!(models, vec!["mock-model".to_string(), "fb-model".to_string()]);
 }
 
-
-
 #[tokio::test]
 async fn c3_10_user_prompt_submit_block_skips_model_and_context_is_appended() {
 
@@ -330,7 +313,6 @@ async fn c3_10_user_prompt_submit_block_skips_model_and_context_is_appended() {
     assert!(r.is_error);
     assert_eq!(r.result, "no secrets");
     assert!(llm.requests().is_empty(), "blocked prompt must not reach the model");
-
 
     let llm = MockLlm::new(vec![resp("ok")]);
     let (mut agent, _s, hooks) = build_agent(llm.clone(), ToolRegistry::new(), allow(), base_cfg());
@@ -401,12 +383,10 @@ async fn c2_13_hook_allow_cannot_override_rule_deny() {
     );
     assert_eq!(combine_permission(PermissionDecision::Allow, None, false), PermissionDecision::Allow);
 
-
     assert_eq!(
         combine_permission(PermissionDecision::Ask, Some(PermissionDecision::Allow), true),
         PermissionDecision::Ask
     );
-
 
     let llm = MockLlm::new(vec![resp_tool("Write", "{}", "w"), resp("ok")]);
     let reg = registry_with(vec![fake("Write", false, "wrote")]);
@@ -420,7 +400,6 @@ async fn c2_13_hook_allow_cannot_override_rule_deny() {
     assert_eq!(r.permission_denials.len(), 1);
 }
 
-
 struct AskPerms {
     ask_rule: bool,
 }
@@ -433,7 +412,6 @@ impl PermissionChecker for AskPerms {
         self.ask_rule
     }
 }
-
 
 #[tokio::test]
 async fn c2_13_hook_allow_cannot_override_ask_rule_end_to_end() {
@@ -570,8 +548,6 @@ async fn system_message_from_hook_is_emitted_to_sink_only() {
     assert!(!sent.contains("heads up"), "systemMessage must not reach the model");
 }
 
-
-
 #[tokio::test]
 async fn c10_manual_compact_replaces_history_keeps_pairs_and_fires_hooks() {
     let llm = MockLlm::new(vec![
@@ -605,7 +581,6 @@ async fn c10_manual_compact_replaces_history_keeps_pairs_and_fires_hooks() {
 
 #[tokio::test]
 async fn compaction_request_is_one_transcript_message_and_summary_tracks_files() {
-
 
     let llm = MockLlm::new(vec![
         resp_tool("Read", r#"{"file_path":"src/a.rs"}"#, "c1"),
@@ -669,8 +644,6 @@ async fn set_messages_replaces_history_for_resume() {
         llm.requests()[0].messages.iter().filter_map(|m| m.content.clone()).collect();
     assert_eq!(sent, vec!["you are a test", "old q", "old a", "new q"]);
 }
-
-
 
 fn executor(llm: Arc<MockLlm>, tools: ToolRegistry, hooks: Arc<FakeHooks>) -> (SubAgentExecutor, Arc<CollectSink>) {
     let sink = Arc::new(CollectSink::default());
@@ -782,7 +755,6 @@ async fn c6_1_preloads_skills_into_subagent_system_prompt() {
 #[tokio::test]
 async fn c6_3_builtin_read_only_agent_and_no_nested_task_by_default() {
 
-
     let llm = MockLlm::new(vec![resp_tool("Grep", "{}", "g1"), resp("only this")]);
     let reg = registry_with(vec![
         fake("Read", true, "r"),
@@ -827,7 +799,6 @@ fn c6_subagent_mode_cannot_escalate() {
     assert_eq!(subagent_mode(Default, None), Default);
 }
 
-
 struct YesPrompter;
 impl Prompter for YesPrompter {
     fn ask_permission(&self, _: &str, _: &Value) -> PromptAnswer {
@@ -851,7 +822,6 @@ async fn c3_2_notification_hook_fires_before_permission_prompt() {
     assert!(n.2["message"].as_str().unwrap().contains("Write"));
 }
 
-
 struct AlwaysTwo;
 
 impl Prompter for AlwaysTwo {
@@ -859,7 +829,6 @@ impl Prompter for AlwaysTwo {
         PromptAnswer::Always("Bash(git add *)\nBash(git commit *)".into())
     }
 }
-
 
 #[tokio::test]
 async fn c2_12_always_allow_persists_one_rule_per_line() {
@@ -883,9 +852,6 @@ async fn c2_12_always_allow_persists_one_rule_per_line() {
         vec!["Bash(git add *)".to_string(), "Bash(git commit *)".to_string()]
     );
 }
-
-
-
 
 struct RecordingTool {
     calls: std::sync::Mutex<Vec<Value>>,
@@ -1027,8 +993,6 @@ async fn r7_well_formed_call_gets_no_repair_note_and_bad_call_lists_fields() {
     assert_eq!(tool.calls.lock().unwrap().len(), 1, "the unrepairable call must not run");
 }
 
-
-
 fn tool_contents(msgs: &[ChatMessage]) -> Vec<String> {
     msgs.iter().filter(|m| m.role == "tool").filter_map(|m| m.content.clone()).collect()
 }
@@ -1046,7 +1010,6 @@ async fn r7_fifth_edit_turn_gets_exactly_one_guard_note() {
     let noted: Vec<usize> =
         tools.iter().enumerate().filter(|(_, c)| c.contains("changed a.rs 4 times")).map(|(i, _)| i).collect();
     assert_eq!(noted, vec![3], "{:#?}", tools);
-
 
     let mut script: Vec<ChatResponse> =
         (0..3).map(|i| resp_tool("Edit", r#"{"file_path":"a.rs"}"#, &format!("f{}", i))).collect();
@@ -1083,7 +1046,6 @@ async fn r7_todos_reinjected_every_sixth_call_and_after_compaction() {
         vec![TodoItem { content: "fix the parser".into(), status: "in_progress".into(), active_form: None }];
     agent.run_turn("go").await;
 
-
     let reqs = llm.requests();
     let with_todo: Vec<usize> = reqs
         .iter()
@@ -1108,8 +1070,6 @@ async fn r7_short_turn_and_empty_todo_list_get_no_notes() {
     agent.run_turn("go").await;
     assert!(agent.messages().iter().all(|m| !m.content.as_deref().unwrap_or("").contains("[zen:")));
 }
-
-
 
 #[tokio::test]
 async fn r7_edit_then_answer_gets_one_reminder_then_bash_then_success() {
@@ -1194,7 +1154,6 @@ async fn r7_tool_call_written_as_text_runs_as_a_call() {
     assert_paired(agent.messages());
 }
 
-
 struct SlowTool {
     delay_ms: u64,
 }
@@ -1218,8 +1177,6 @@ impl Tool for SlowTool {
         ToolOutput::ok("slow done")
     }
 }
-
-
 
 #[tokio::test]
 async fn tool_progress_heartbeat_emitted_for_slow_tool() {
@@ -1258,7 +1215,6 @@ async fn tool_progress_heartbeat_emitted_for_slow_tool() {
     let elapsed: Vec<u64> = progress.iter().map(|(_, _, ms)| *ms).collect();
     assert!(elapsed.windows(2).all(|w| w[1] > w[0]), "elapsed not increasing: {:?}", elapsed);
 }
-
 
 #[tokio::test]
 async fn tool_progress_no_heartbeat_for_fast_tool() {
@@ -1381,8 +1337,6 @@ async fn no_budget_config_means_no_checks() {
 #[tokio::test]
 async fn plan_mode_rejects_hallucinated_mutating_call_by_the_harness() {
 
-
-
     let llm = MockLlm::new(vec![resp_tool("Write", r#"{"path":"x"}"#, "w1"), resp("plan done")]);
     let reg = registry_with(vec![fake("Read", true, "r"), fake("Write", false, "MUTATED")]);
     let cfg = AgentConfig { permission_mode: PermissionMode::Plan, ..base_cfg() };
@@ -1415,11 +1369,7 @@ async fn plan_mode_rejects_hallucinated_mutating_call_by_the_harness() {
     assert_paired(agent.messages());
 }
 
-
-
 use std::sync::atomic::Ordering;
-
-
 
 #[tokio::test]
 async fn parallel_reads_run_concurrently_and_keep_order() {
@@ -1466,7 +1416,6 @@ async fn parallel_reads_run_concurrently_and_keep_order() {
     assert_paired(agent.messages());
 }
 
-
 #[tokio::test]
 async fn max_parallel_tool_calls_caps_concurrency() {
     let (tool, max) = ConcurrencyTool::read(80);
@@ -1497,7 +1446,6 @@ async fn max_parallel_tool_calls_caps_concurrency() {
     assert_paired(agent.messages());
 }
 
-
 #[tokio::test]
 async fn max_parallel_tool_calls_one_is_sequential() {
     let (tool, max) = ConcurrencyTool::read(50);
@@ -1522,7 +1470,6 @@ async fn max_parallel_tool_calls_one_is_sequential() {
     }).all(|p| !p));
     assert_paired(agent.messages());
 }
-
 
 #[tokio::test]
 async fn error_in_one_parallel_call_does_not_block_others() {
@@ -1558,8 +1505,6 @@ async fn error_in_one_parallel_call_does_not_block_others() {
     assert_paired(agent.messages());
 }
 
-
-
 #[tokio::test]
 async fn write_flushes_parallel_batch_and_runs_alone() {
     let (reads, max) = ConcurrencyTool::read(50);
@@ -1577,7 +1522,6 @@ async fn write_flushes_parallel_batch_and_runs_alone() {
     let (mut agent, sink, _h) = build_agent(llm.clone(), reg, allow(), base_cfg());
     let r = agent.run_turn("go").await;
     assert_eq!(r.result, "done");
-
 
     assert!(max.load(Ordering::SeqCst) <= 2);
     let ids: Vec<&str> = agent
@@ -1609,8 +1553,6 @@ async fn result_total_cost_is_priced_from_usage_for_paid_model() {
     cfg.model = "gpt-4o".into();
     let (mut agent, _sink, _h) = build_agent(llm.clone(), ToolRegistry::new(), allow(), cfg);
     let r = agent.run_turn("hi").await;
-
-
 
     let expected = crate::budget::estimate_cost_usd("gpt-4o", 10, 5).expect("gpt-4o is priced");
     assert!(expected > 0.0);

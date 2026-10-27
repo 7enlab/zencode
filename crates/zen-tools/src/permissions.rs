@@ -1,7 +1,3 @@
-
-
-
-
 use crate::builtin::{canonicalize_lenient, resolve_path};
 use globset::GlobBuilder;
 use serde_json::Value;
@@ -10,11 +6,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use zen_core::{PermissionChecker, PermissionDecision, PermissionMode, PermissionSettings, ToolContext};
 
-
 pub fn tool_is_read_only(name: &str) -> bool {
     matches!(name, "Read" | "Glob" | "Grep" | "TodoWrite" | "Task" | "Skill")
 }
-
 
 fn split_rule(rule: &str) -> (&str, Option<&str>) {
     let rule = rule.trim();
@@ -31,10 +25,6 @@ fn path_arg(input: &Value) -> Option<&str> {
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty())
 }
-
-
-
-
 
 fn rule_pattern_path(cwd: &Path, spec: &str) -> (PathBuf, bool) {
     let dir_hint = spec.ends_with('/') || spec.ends_with("/**");
@@ -72,7 +62,6 @@ fn path_rule_matches(cwd: &Path, spec: &str, candidate: &str) -> bool {
     target == pattern_path || (dir_hint && target.starts_with(&pattern_path))
 }
 
-
 fn wildcard_match(pattern: &str, text: &str) -> bool {
     let p: Vec<char> = pattern.chars().collect();
     let t: Vec<char> = text.chars().collect();
@@ -101,9 +90,6 @@ fn wildcard_match(pattern: &str, text: &str) -> bool {
     pi == p.len()
 }
 
-
-
-
 fn bash_rule_matches(spec: &str, command: &str) -> bool {
     let command = command.trim();
     let spec = spec.trim();
@@ -120,9 +106,6 @@ fn bash_rule_matches(spec: &str, command: &str) -> bool {
     }
     wildcard_match(&spec, command)
 }
-
-
-
 
 pub fn split_compound(command: &str) -> Option<Vec<String>> {
     let chars: Vec<char> = command.chars().collect();
@@ -186,8 +169,6 @@ pub fn split_compound(command: &str) -> Option<Vec<String>> {
     Some(out)
 }
 
-
-
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum RuleKind {
     Allow,
@@ -198,7 +179,6 @@ enum RuleKind {
 fn is_edit_tool(name: &str) -> bool {
     matches!(name, "Edit" | "Write" | "MultiEdit" | "NotebookEdit")
 }
-
 
 pub fn rule_matches(rule: &str, tool_name: &str, input: &Value, cwd: &Path) -> bool {
     rule_matches_kind(rule, tool_name, input, cwd, RuleKind::Allow)
@@ -222,7 +202,6 @@ fn rule_matches_kind(rule: &str, tool_name: &str, input: &Value, cwd: &Path, kin
 
     let (rule_tool, spec) = split_rule(rule);
     let spec = spec.map(str::trim).filter(|s| !s.is_empty() && *s != "*");
-
 
     let name_ok = rule_tool.eq_ignore_ascii_case(tool_name)
         || (rule_tool == "Edit" && is_edit_tool(tool_name))
@@ -254,8 +233,6 @@ fn rule_matches_kind(rule: &str, tool_name: &str, input: &Value, cwd: &Path, kin
     }
 }
 
-
-
 fn domain_matches(domain: &str, url: &str) -> bool {
     let domain = domain.trim().to_lowercase();
     let raw = host_raw(url);
@@ -270,8 +247,6 @@ fn domain_matches(domain: &str, url: &str) -> bool {
     }
     host_of(url) == domain.trim_start_matches("www.")
 }
-
-
 
 pub fn rule_removes_tool(rule: &str, tool_name: &str) -> bool {
     let rule = rule.trim();
@@ -292,8 +267,6 @@ fn host_of(url: &str) -> String {
     host_raw(url).trim_start_matches("www.").to_string()
 }
 
-
-
 fn is_simple_fs_command(command: &str) -> bool {
     match split_compound(command) {
         Some(parts) if !parts.is_empty() => parts.iter().all(|p| {
@@ -305,8 +278,6 @@ fn is_simple_fs_command(command: &str) -> bool {
         _ => false,
     }
 }
-
-
 
 fn any_rule<'a>(
     rules: &'a [String],
@@ -327,8 +298,6 @@ fn any_rule<'a>(
     })
 }
 
-
-
 fn allow_covers(rules: &[String], tool_name: &str, input: &Value, cwd: &Path) -> bool {
     let tool_level = |r: &String| {
         let (_, spec) = split_rule(r.trim());
@@ -348,14 +317,6 @@ fn allow_covers(rules: &[String], tool_name: &str, input: &Value, cwd: &Path) ->
         }),
     }
 }
-
-
-
-
-
-
-
-
 
 fn substitution_bodies(command: &str) -> Vec<String> {
     fn scan(chars: &[char], out: &mut Vec<String>) {
@@ -448,9 +409,6 @@ fn substitution_bodies(command: &str) -> Vec<String> {
     out
 }
 
-
-
-
 fn bash_parts(tool_name: &str, input: &Value) -> Option<Option<Vec<String>>> {
     if !tool_name.eq_ignore_ascii_case("Bash") {
         return None;
@@ -461,7 +419,6 @@ fn bash_parts(tool_name: &str, input: &Value) -> Option<Option<Vec<String>>> {
         Some(parts) => {
             let mut seen: HashSet<String> = parts.iter().cloned().collect();
             let mut all = parts;
-
 
             for part in all.clone() {
                 for body in substitution_bodies(&part) {
@@ -485,7 +442,6 @@ fn bash_parts(tool_name: &str, input: &Value) -> Option<Option<Vec<String>>> {
         }
     })
 }
-
 
 pub struct RulePermissions {
     pub mode: PermissionMode,
@@ -519,7 +475,6 @@ impl RulePermissions {
         }
     }
 
-
     pub fn effective_allow(&self) -> Vec<String> {
         let mut v = self.allow.clone();
         v.extend(self.dynamic_allow.lock().unwrap().iter().cloned());
@@ -528,7 +483,6 @@ impl RulePermissions {
 
     fn working_dirs(&self, ctx: &ToolContext) -> Vec<PathBuf> {
 
-
         let mut dirs = vec![canonicalize_lenient(&ctx.cwd())];
         for d in &ctx.extra_dirs {
             dirs.push(canonicalize_lenient(d));
@@ -536,14 +490,11 @@ impl RulePermissions {
         dirs
     }
 
-
     fn path_inside_workdir(&self, input: &Value, ctx: &ToolContext) -> bool {
         let Some(fp) = path_arg(input) else { return false };
         let target = canonicalize_lenient(&resolve_path(&ctx.cwd(), fp));
         self.working_dirs(ctx).iter().any(|d| target.starts_with(d))
     }
-
-
 
     fn fs_args_inside_workdir(&self, command: &str, ctx: &ToolContext) -> bool {
         if command.contains(['`', '>', '<', '$']) {
@@ -564,24 +515,19 @@ impl RulePermissions {
     fn evaluate(&self, tool_name: &str, input: &Value, read_only: bool, ctx: &ToolContext) -> PermissionDecision {
         let cwd = ctx.cwd();
 
-
         if let Some(rule) = any_rule(&self.deny, tool_name, input, &cwd, RuleKind::Deny) {
             return PermissionDecision::Deny(format!("Denied by rule '{}'", rule));
         }
-
 
         if self.mode == PermissionMode::Plan && !read_only {
             return PermissionDecision::Deny("plan mode: only read-only tools are available".into());
         }
 
-
         if let Some(rule) = any_rule(&self.ask, tool_name, input, &cwd, RuleKind::Ask) {
             return self.resolve_ask(format!("Ask rule '{}' matches", rule));
         }
 
-
         let allowed = allow_covers(&self.effective_allow(), tool_name, input, &cwd);
-
 
         if self.mode == PermissionMode::BypassPermissions {
             return PermissionDecision::Allow;
@@ -590,7 +536,6 @@ impl RulePermissions {
         if allowed {
             return PermissionDecision::Allow;
         }
-
 
         if read_only || tool_is_read_only(tool_name) {
             return PermissionDecision::Allow;
@@ -659,7 +604,6 @@ impl PermissionChecker for RulePermissions {
     }
 }
 
-
 pub fn persist_allow_rule(path: &Path, rule: &str) -> anyhow::Result<()> {
     let mut root: Value = match std::fs::read_to_string(path) {
         Ok(text) if !text.trim().is_empty() => serde_json::from_str(&text).unwrap_or_else(|_| Value::Object(Default::default())),
@@ -694,8 +638,6 @@ pub fn persist_allow_rule(path: &Path, rule: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-
-
 pub fn suggested_rule(tool_name: &str, input: &Value) -> Option<String> {
     match tool_name {
         "Bash" => input
@@ -718,8 +660,6 @@ pub fn suggested_rule(tool_name: &str, input: &Value) -> Option<String> {
     }
 }
 
-
-
 pub fn suggested_rules(tool_name: &str, input: &Value) -> Vec<String> {
     if tool_name == "Bash" {
         let cmd = input.get("command").and_then(|v| v.as_str()).unwrap_or("");
@@ -734,7 +674,6 @@ pub fn suggested_rules(tool_name: &str, input: &Value) -> Vec<String> {
     }
     suggested_rule(tool_name, input).into_iter().collect()
 }
-
 
 pub fn dedup(mut rules: Vec<String>) -> Vec<String> {
     let mut seen = HashSet::new();
@@ -770,7 +709,6 @@ mod tests {
         matches!(d, PermissionDecision::Deny(_))
     }
 
-
     #[test]
     fn substitution_deny_bypass_blocked() {
         let perms = test_perms(&["Bash(rm *)"], &["Bash(echo *)"]);
@@ -781,8 +719,6 @@ mod tests {
         assert!(is_deny(&check_bash(&perms, "rm -rf /tmp/x")));
     }
 
-
-
     #[test]
     fn substitution_allow_fails_closed() {
         let perms = test_perms(&[], &["Bash(echo *)", "Bash(date *)"]);
@@ -791,7 +727,6 @@ mod tests {
         assert!(matches!(check_bash(&perms2, "echo $(date)"), PermissionDecision::Ask));
     }
 
-
     #[test]
     fn substitution_inside_double_quotes_blocked() {
         let perms = test_perms(&["Bash(rm *)"], &["Bash(echo *)"]);
@@ -799,7 +734,6 @@ mod tests {
         assert!(is_deny(&check_bash(&perms, "echo \"x `rm -rf ~` y\"")), "dq backtick bypass not blocked");
         assert!(is_deny(&check_bash(&perms, "echo \"${X:-$(rm -rf ~)}\"")), "dq ${{}} bypass not blocked");
     }
-
 
     #[test]
     fn substitution_single_quoted_not_extracted() {
@@ -819,15 +753,12 @@ mod tests {
         assert!(substitution_bodies("echo $(oops").is_empty());
     }
 
-
     #[test]
     fn compound_without_substitution_unchanged() {
         let perms = test_perms(&[], &["Bash(echo *)", "Bash(ls *)"]);
         assert!(matches!(check_bash(&perms, "echo hi && ls /tmp"), PermissionDecision::Allow));
         assert!(matches!(check_bash(&perms, "echo hi && rm -rf /"), PermissionDecision::Ask));
     }
-
-
 
     #[test]
     fn symlink_inside_workdir_blocked() {
@@ -920,8 +851,6 @@ mod permission_tests {
         }
     }
 
-
-
     #[test]
     fn rule_bare_tool_names() {
         let cwd = PathBuf::from("/tmp/work");
@@ -1007,8 +936,6 @@ mod permission_tests {
         assert!(!rule_matches("Bash", "Read", &json!({"file_path": "x"}), &cwd));
         assert!(!rule_matches("Bash(ls)", "Bash", &json!({}), &cwd));
     }
-
-
 
     #[test]
     fn default_mode_readonly_allowed_mutating_asks() {
@@ -1185,8 +1112,6 @@ mod permission_tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-
-
     #[test]
     fn add_allow_rule_updates_state_and_file() {
         let dir = tmpdir("always");
@@ -1216,7 +1141,6 @@ mod permission_tests {
         let allow = saved["permissions"]["allow"].as_array().unwrap();
         assert!(allow.contains(&json!("Read")));
         assert!(allow.contains(&json!("Write")));
-
 
         p.add_allow_rule("Write");
         let saved2: Value = serde_json::from_str(&std::fs::read_to_string(&settings_path).unwrap()).unwrap();
@@ -1262,8 +1186,6 @@ mod permission_tests {
         );
         assert_eq!(suggested_rule("TodoWrite", &json!({})).unwrap(), "TodoWrite");
     }
-
-
 
     fn bash(c: &str) -> Value {
         json!({ "command": c })

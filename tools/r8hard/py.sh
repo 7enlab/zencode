@@ -1,8 +1,3 @@
-
-
-
-
-
 setup_py_kwarg_rename() {
   mkdir -p netlib
   touch netlib/__init__.py
@@ -18,7 +13,6 @@ EOF
   cat > netlib/client.py <<'EOF'
 from netlib.transport import send
 
-
 def fetch(url, tmo=5, retries=0):
     """Fetch url, retrying on timeout. tmo is the timeout in seconds."""
     last = None
@@ -31,7 +25,6 @@ def fetch(url, tmo=5, retries=0):
 EOF
   cat > netlib/batch.py <<'EOF'
 from netlib.client import fetch
-
 
 def fetch_all(urls, tmo=5, retries=0):
     """Fetch every url in order."""
@@ -85,7 +78,6 @@ import warnings
 
 from netlib.transport import send
 
-
 def _resolve(timeout, tmo, default=5):
     if tmo is not None:
         if timeout is not None:
@@ -93,7 +85,6 @@ def _resolve(timeout, tmo, default=5):
         warnings.warn("tmo is deprecated; use timeout", DeprecationWarning, stacklevel=3)
         return tmo
     return default if timeout is None else timeout
-
 
 def fetch(url, timeout=None, retries=0, tmo=None):
     """Fetch url, retrying on timeout. timeout is in seconds (default 5)."""
@@ -109,7 +100,6 @@ EOF
   cat > netlib/batch.py <<'EOF'
 from netlib.client import _resolve, fetch
 
-
 def fetch_all(urls, timeout=None, retries=0, tmo=None):
     """Fetch every url in order."""
     timeout = _resolve(timeout, tmo)
@@ -118,11 +108,9 @@ EOF
   sed -i 's/tmo=/timeout=/g' app.py
 }
 
-
 setup_py_lru_bug() {
   cat > lru.py <<'EOF'
 from collections import OrderedDict
-
 
 class LRUCache:
     """Fixed-size cache that evicts the least recently used key.
@@ -157,7 +145,6 @@ EOF
 import unittest
 from lru import LRUCache
 
-
 class LRUTest(unittest.TestCase):
     def test_evicts_least_recently_used(self):
         c = LRUCache(2)
@@ -167,7 +154,6 @@ class LRUTest(unittest.TestCase):
         c.put("c", 3)
         self.assertIsNone(c.get("b"))
         self.assertEqual(c.get("a"), 1)
-
 
 if __name__ == "__main__":
     unittest.main()
@@ -208,7 +194,6 @@ open("lru.py", "w").write(s)
 EOF
 }
 
-
 setup_py_long_file() {
   python3 - <<'EOF'
 out = ['"""Frame codecs for device protocol versions 1-40: one decoder/encoder pair per version."""']
@@ -227,7 +212,6 @@ def decode_frame_v{v}(buf):
         raise ValueError("short frame")
     return bytes(buf[3:3 + length])
 
-
 def encode_frame_v{v}(payload):
     """Build a v{v} frame around payload."""
     if len(payload) > 0xFFFF:
@@ -239,14 +223,12 @@ EOF
 import unittest
 import protocol as p
 
-
 class RoundTrip(unittest.TestCase):
     def test_roundtrip(self):
         for v in (1, 3, 7, 13, 30, 33):
             enc = getattr(p, "encode_frame_v%d" % v)
             dec = getattr(p, "decode_frame_v%d" % v)
             self.assertEqual(dec(enc(b"hello")), b"hello", "v%d" % v)
-
 
 if __name__ == "__main__":
     unittest.main()
@@ -288,7 +270,6 @@ open("protocol.py", "w").write(s)
 EOF
 }
 
-
 setup_py_distractor() {
   mkdir -p src/billing legacy/billing_old tests docs
   touch src/billing/__init__.py legacy/billing_old/__init__.py
@@ -299,7 +280,6 @@ def tax_for(amount, rate):
 EOF
   cat > src/billing/invoice.py <<'EOF'
 from billing.tax import tax_for
-
 
 def invoice_total(lines, rate):
     """lines: list of (unit_price, qty). Tax is computed and rounded per line.
@@ -328,14 +308,12 @@ sys.path.insert(0, "src")
 from billing.invoice import invoice_total  # noqa: E402
 from billing.tax import tax_for  # noqa: E402
 
-
 class BillingTest(unittest.TestCase):
     def test_half_cent_rounds_up(self):
         self.assertEqual(tax_for(0.125, 1.0), 0.13)
 
     def test_invoice(self):
         self.assertEqual(invoice_total([(10.0, 2)], 0.1), 22.0)
-
 
 if __name__ == "__main__":
     unittest.main()
@@ -363,7 +341,6 @@ solve_py_distractor() {
   cat > src/billing/tax.py <<'EOF'
 from decimal import ROUND_HALF_UP, Decimal
 
-
 def tax_for(amount, rate):
     """Tax on amount (currency units) at rate (0.1 = 10%), rounded half up to the cent."""
     d = Decimal(repr(amount)) * Decimal(repr(rate))
@@ -373,7 +350,6 @@ EOF
 from decimal import Decimal
 
 from billing.tax import tax_for
-
 
 def invoice_total(lines, rate):
     """lines: list of (unit_price, qty). Tax is computed and rounded per line.
@@ -388,7 +364,6 @@ def invoice_total(lines, rate):
 EOF
 }
 
-
 setup_py_cli_feature() {
   mkdir -p inventory
   touch inventory/__init__.py
@@ -396,10 +371,8 @@ setup_py_cli_feature() {
 import json
 import os
 
-
 def path():
     return os.environ.get("INVENTORY_FILE", "inventory.json")
-
 
 def load():
     try:
@@ -407,7 +380,6 @@ def load():
             return json.load(f)
     except FileNotFoundError:
         return {}
-
 
 def save(items):
     with open(path(), "w") as f:
@@ -419,7 +391,6 @@ import sys
 
 from inventory import store
 
-
 def positive_int(text):
     try:
         n = int(text)
@@ -429,7 +400,6 @@ def positive_int(text):
         raise argparse.ArgumentTypeError("must be positive: %r" % text)
     return n
 
-
 def cmd_add(args):
     items = store.load()
     items[args.name] = items.get(args.name, 0) + args.qty
@@ -437,12 +407,10 @@ def cmd_add(args):
     print("%s: %d" % (args.name, items[args.name]))
     return 0
 
-
 def cmd_list(args):
     for name, qty in sorted(store.load().items()):
         print("%s: %d" % (name, qty))
     return 0
-
 
 def main(argv=None):
     p = argparse.ArgumentParser(prog="inventory")
@@ -455,7 +423,6 @@ def main(argv=None):
     ls.set_defaults(func=cmd_list)
     args = p.parse_args(argv)
     return args.func(args)
-
 
 if __name__ == "__main__":
     sys.exit(main())
@@ -513,7 +480,6 @@ s = s.replace("def main(argv=None):", '''def cmd_remove(args):
     print(msg)
     return 0
 
-
 def main(argv=None):''')
 s = s.replace("    ls = sub.add_parser(", '''    r = sub.add_parser("remove", help="remove stock")
     r.add_argument("name")
@@ -524,11 +490,9 @@ open("inventory/cli.py", "w").write(s)
 EOF
 }
 
-
 setup_py_intervals() {
   cat > intervals.py <<'EOF'
 """Helpers for half-open integer intervals [start, end)."""
-
 
 def merge(intervals):
     """Merge half-open intervals.
@@ -541,11 +505,9 @@ def merge(intervals):
     """
     raise NotImplementedError
 
-
 def covered(intervals):
     """Total length covered by the intervals; overlapping parts count once."""
     raise NotImplementedError
-
 
 def gaps(intervals, lo, hi):
     """The parts of [lo, hi) not covered by any interval, as a sorted list of (start, end) tuples.
@@ -558,11 +520,9 @@ EOF
 import unittest
 from intervals import merge
 
-
 class IntervalsTest(unittest.TestCase):
     def test_overlap(self):
         self.assertEqual(merge([(1, 3), (2, 4)]), [(1, 4)])
-
 
 if __name__ == "__main__":
     unittest.main()
@@ -639,7 +599,6 @@ open("intervals.py", "w").write(parts[0] + impl[0] + parts[1] + impl[1] + parts[
 EOF
 }
 
-
 setup_py_csv_escape() {
   mkdir -p exporter
   touch exporter/__init__.py
@@ -656,7 +615,6 @@ def format_row(fields):
 EOF
   cat > exporter/users.py <<'EOF'
 from exporter.csvout import format_row
-
 
 def export_users(users):
     lines = [format_row(["id", "name", "email"])]
@@ -709,7 +667,6 @@ EOF
   cat > exporter/orders.py <<'EOF'
 from exporter.csvout import format_row
 
-
 def export_orders(orders):
     lines = [format_row(["order_id", "customer", "note", "total"])]
     for o in orders:
@@ -718,11 +675,9 @@ def export_orders(orders):
 EOF
 }
 
-
 setup_py_retry_feature() {
   cat > retry.py <<'EOF'
 import time
-
 
 def retry(times=3, delay=0.0, sleep=time.sleep):
     """Call the function up to `times` times, sleeping `delay` seconds between failed attempts."""
@@ -743,7 +698,6 @@ from retry import retry
 
 calls = []
 
-
 @retry(times=2, delay=0.0)
 def flaky_job():
     """Fails once, then works."""
@@ -751,7 +705,6 @@ def flaky_job():
     if len(calls) < 2:
         raise RuntimeError("first call fails")
     return "done"
-
 
 if __name__ == "__main__":
     print(flaky_job())
@@ -816,7 +769,6 @@ solve_py_retry_feature() {
   cat > retry.py <<'EOF'
 import functools
 import time
-
 
 def retry(times=3, delay=0.0, sleep=time.sleep, on=Exception, backoff=1.0):
     """Call the function up to `times` times, sleeping between failed attempts.

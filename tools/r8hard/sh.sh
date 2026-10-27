@@ -1,6 +1,3 @@
-
-
-
 setup_sh_backup_spaces() {
   cat > backup.sh <<'EOF'
 #!/usr/bin/env bash
@@ -85,7 +82,6 @@ done
 echo "backed up $n files"
 EOF
 }
-
 
 setup_sh_rotate_flags() {
   cat > rotate.sh <<'EOF'
@@ -177,7 +173,6 @@ done
 run mv "$f" "$f.1"
 EOF
 }
-
 
 setup_sh_csv_sum() {
   cat > sum.sh <<'EOF'

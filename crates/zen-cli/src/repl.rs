@@ -1,6 +1,3 @@
-
-
-
 use crate::cli::Cli;
 use crate::commands;
 use crate::repl_polish;
@@ -11,13 +8,10 @@ use std::path::Path;
 use std::sync::Arc;
 use zen_core::{EventSink, RunResult};
 
-
 enum LineAction {
     Continue,
     Exit,
 }
-
-
 
 fn status_line(cfg_model: &str, cwd: &Path) -> String {
     let (branch, _) = crate::git::git_info(cwd);
@@ -39,7 +33,6 @@ fn status_line(cfg_model: &str, cwd: &Path) -> String {
     }
 }
 
-
 pub async fn run_repl(cli: &Cli, cwd: &Path, home: Option<&Path>) -> Result<()> {
     let cfg = crate::settings::resolve_config_with_home(cli, cwd, home)?;
     if cfg.ollama {
@@ -60,7 +53,6 @@ pub async fn run_repl(cli: &Cli, cwd: &Path, home: Option<&Path>) -> Result<()> 
         )?;
         Some(crate::session::session_path(&proj_dir, &session_id))
     };
-
 
     let mut writer = match &transcript_path {
         Some(p) => crate::session::TranscriptWriter::new(p.clone(), &session_id, cwd),
@@ -93,10 +85,8 @@ pub async fn run_repl(cli: &Cli, cwd: &Path, home: Option<&Path>) -> Result<()> 
     let mut config = build_repl_config(cli, &cfg, cwd);
     let _ = &mut config;
 
-
     let base_system_prompt = config.system_prompt.clone();
     if config.permission_mode == zen_core::PermissionMode::Plan {
-
 
         config.system_prompt = zen_agent::plan::system_prompt_for_mode(
             &base_system_prompt,
@@ -136,9 +126,7 @@ pub async fn run_repl(cli: &Cli, cwd: &Path, home: Option<&Path>) -> Result<()> 
         println!("Plan mode is ON (read-only). Research, then present a plan. /plan toggles it.");
     }
 
-
     repl_session_start(&mut agent, &session_id, cwd, &cfg, "startup").await;
-
 
     let mut interrupts = ReplInterrupts::install();
     let mut repl = ReplState {
@@ -172,7 +160,6 @@ pub async fn run_repl(cli: &Cli, cwd: &Path, home: Option<&Path>) -> Result<()> 
         }
         std::io::stdout().flush().ok();
 
-
         let mut line = String::new();
         match std::io::stdin().read_line(&mut line) {
             Ok(0) | Err(_) => break,
@@ -196,8 +183,6 @@ pub async fn run_repl(cli: &Cli, cwd: &Path, home: Option<&Path>) -> Result<()> 
     Ok(())
 }
 
-
-
 async fn repl_session_start(
     agent: &mut zen_agent::Agent,
     session_id: &str,
@@ -214,7 +199,6 @@ async fn repl_session_start(
             .push(zen_core::ChatMessage::user(format!("[SessionStart hook context]\n{}", ctx)));
     }
 }
-
 
 struct ReplState<'a> {
     session_id: &'a mut String,
@@ -244,9 +228,6 @@ struct ReplState<'a> {
 
     checkpoints: Arc<zen_tools::checkpoint::Checkpoints>,
 }
-
-
-
 
 struct ReplInterrupts {
     rx: tokio::sync::mpsc::UnboundedReceiver<()>,
@@ -287,9 +268,6 @@ impl ReplInterrupts {
     }
 }
 
-
-
-
 async fn run_turn_interruptible(
     agent: &mut zen_agent::Agent,
     prompt: &str,
@@ -326,7 +304,6 @@ async fn run_turn_interruptible(
     out
 }
 
-
 fn print_turn(result: Option<RunResult>) {
     match result {
         Some(r) if r.is_error => eprintln!("error: {}", r.result),
@@ -334,8 +311,6 @@ fn print_turn(result: Option<RunResult>) {
         _ => {}
     }
 }
-
-
 
 fn init_prompt_with_import_offer(cwd: &std::path::Path) -> String {
     let candidates = zen_ext::detect_import_candidates(cwd);
@@ -358,7 +333,6 @@ fn init_prompt_with_import_offer(cwd: &std::path::Path) -> String {
     }
 }
 
-
 fn prompt_yes_no(question: &str) -> bool {
     use std::io::Write;
     print!("{} [y/N] ", question);
@@ -370,8 +344,6 @@ fn prompt_yes_no(question: &str) -> bool {
         Err(_) => false,
     }
 }
-
-
 
 fn maybe_auto_commit(cwd: &Path, cfg: &crate::settings::ResolvedConfig) {
     if !cfg.auto_commit {
@@ -407,7 +379,6 @@ async fn handle_line(
     agent: &mut zen_agent::Agent,
 ) -> Result<LineAction> {
 
-
     let clearing = line == "/clear" || line.starts_with("/clear ");
     let before = if clearing { vec![] } else { agent.messages().to_vec() };
     if let Some(rest) = line.strip_prefix('!') {
@@ -428,9 +399,6 @@ async fn handle_line(
         return action;
     }
 
-
-
-
     if repl.pending_plan.is_some() && crate::planmode::is_approve_word(line) {
         let plan = repl.pending_plan.take().unwrap_or_default();
         if let Err(e) = repl.writer.record_plan_approved(&plan) {
@@ -445,13 +413,9 @@ async fn handle_line(
         return Ok(LineAction::Continue);
     }
 
-
     if repl.pending_plan.is_some() {
         repl.pending_plan = None;
     }
-
-
-
 
     if !repl.scope_seeded {
         repl.scope.seed_from_prompt(line, cwd);
@@ -519,9 +483,6 @@ async fn handle_line(
     }
     Ok(LineAction::Continue)
 }
-
-
-
 
 async fn offer_fix_turn(
     prompt: &str,
@@ -635,9 +596,6 @@ async fn handle_slash(
                 println!("usage: /btw <question> \u{2014} ask a quick side question; the main conversation is untouched");
             } else {
 
-
-
-
                 let model = cfg
                     .btw_model
                     .clone()
@@ -666,8 +624,6 @@ async fn handle_slash(
             );
         }
         "/commit" => {
-
-
 
             let files = crate::git::changed_files(cwd);
             if files.is_empty() {
@@ -701,8 +657,6 @@ async fn handle_slash(
             }
         }
         "/worktree" => {
-
-
 
             let parts: Vec<&str> = arg.split_whitespace().collect();
             match parts.as_slice() {
@@ -1340,8 +1294,6 @@ async fn handle_slash(
     Ok(LineAction::Continue)
 }
 
-
-
 fn save_local_setting(cwd: &Path, key: &str, value: &str) -> Result<std::path::PathBuf> {
     if key.is_empty() {
         anyhow::bail!("empty key");
@@ -1392,10 +1344,6 @@ fn build_repl_config(
     config
 }
 
-
-
-
-
 fn run_shell_passthrough(
     cmd: &str,
     cwd: &Path,
@@ -1428,7 +1376,6 @@ fn run_shell_passthrough(
         }
     }
 }
-
 
 fn undo_last_turn(repl: &mut ReplState<'_>, agent: &mut zen_agent::Agent, force: bool) {
     use zen_tools::checkpoint::UndoError;
@@ -1466,7 +1413,6 @@ fn undo_last_turn(repl: &mut ReplState<'_>, agent: &mut zen_agent::Agent, force:
     }
 }
 
-
 fn persist(
     writer: &mut crate::session::TranscriptWriter,
     before: &[zen_core::ChatMessage],
@@ -1477,9 +1423,7 @@ fn persist(
     }
 }
 
-
 pub type ReplSink = Arc<dyn EventSink>;
-
 
 fn record_turn_cost(
     home: Option<&Path>,

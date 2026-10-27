@@ -1,5 +1,3 @@
-
-
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -11,7 +9,6 @@ use crate::config::McpServerConfig;
 
 const PROTOCOL_VERSION: &str = "2025-06-18";
 
-
 type Pending = Arc<Mutex<HashMap<u64, tokio::sync::oneshot::Sender<Value>>>>;
 
 pub(crate) struct StdioTransport {
@@ -19,7 +16,6 @@ pub(crate) struct StdioTransport {
     pending: Pending,
     next_id: AtomicU64,
     child: Mutex<Option<tokio::process::Child>>,
-
 
     child_pid: Mutex<Option<u32>>,
     configured_timeout_ms: AtomicU64,
@@ -36,9 +32,6 @@ impl StdioTransport {
         if !cfg.env.is_empty() {
             cmd.envs(&cfg.env);
         }
-
-
-
 
         for name in zen_core::api_key_env_names(None) {
             cmd.env_remove(name);
@@ -142,8 +135,6 @@ impl StdioTransport {
 
     pub(crate) fn kill(&self) {
 
-
-
         let pid = self.child_pid.lock().ok().and_then(|mut g| g.take());
         if let Ok(mut guard) = self.child.lock() {
             if let Some(mut child) = guard.take() {
@@ -153,7 +144,6 @@ impl StdioTransport {
         kill_process_group(pid);
     }
 }
-
 
 fn kill_process_group(pid: Option<u32>) {
     let Some(pid) = pid else { return };
@@ -186,7 +176,6 @@ pub(crate) struct HttpTransport {
     next_id: AtomicU64,
     timeout_ms: u64,
 }
-
 
 fn with_extra_roots(mut b: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
     if let Some(pem) = zen_core::extra_root_pem() {
@@ -285,7 +274,6 @@ impl HttpTransport {
     }
 }
 
-
 fn parse_sse_for_id(body: &str, id: u64) -> Option<Value> {
     let mut last: Option<Value> = None;
     for line in body.lines() {
@@ -315,7 +303,6 @@ fn id_to_u64(v: &Value) -> Option<u64> {
     }
 }
 
-
 fn url_is_loopback(url: &str) -> bool {
     let rest = match url.split_once("://") {
         Some((_, r)) => r,
@@ -336,7 +323,6 @@ fn url_is_loopback(url: &str) -> bool {
         || host.starts_with("127.")
         || host == "0.0.0.0"
 }
-
 
 pub(crate) enum Transport {
     Stdio(Arc<StdioTransport>),
@@ -372,7 +358,6 @@ impl Transport {
         }
     }
 }
-
 
 pub(crate) async fn handshake(transport: &Transport) -> anyhow::Result<Vec<RemoteTool>> {
     let init_params = json!({

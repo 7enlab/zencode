@@ -1,15 +1,7 @@
-
-
-
-
-
-
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
-
 pub const TRUST_ENV: &str = "ZEN_TRUST_FOLDER";
-
 
 pub fn trust_env_set() -> bool {
     std::env::var(TRUST_ENV)
@@ -21,21 +13,14 @@ fn home_dir(home: Option<&Path>) -> Option<PathBuf> {
     home.map(Path::to_path_buf).or_else(dirs::home_dir)
 }
 
-
 pub fn trust_store_path(home: Option<&Path>) -> Option<PathBuf> {
     home_dir(home).map(|h| h.join(".zen").join("trusted-folders.json"))
 }
 
 fn canon(p: &Path) -> PathBuf {
 
-
-
-
-
     std::fs::canonicalize(p).unwrap_or_else(|_| normalize_lexical(p))
 }
-
-
 
 fn normalize_lexical(p: &Path) -> PathBuf {
     use std::path::Component;
@@ -68,8 +53,6 @@ fn read_store(path: &Path) -> Vec<String> {
         .unwrap_or_default()
 }
 
-
-
 pub fn is_folder_trusted(cwd: &Path, home: Option<&Path>) -> bool {
     let cwd = canon(cwd);
     if let Some(h) = home_dir(home) {
@@ -84,7 +67,6 @@ pub fn is_folder_trusted(cwd: &Path, home: Option<&Path>) -> bool {
         .iter()
         .any(|t| cwd.starts_with(canon(Path::new(t))))
 }
-
 
 pub fn trust_folder(cwd: &Path, home: Option<&Path>) -> std::io::Result<()> {
     let store = trust_store_path(home)
@@ -104,7 +86,6 @@ pub fn trust_folder(cwd: &Path, home: Option<&Path>) -> std::io::Result<()> {
     )?;
     std::fs::rename(&tmp, &store)
 }
-
 
 pub(crate) fn gated_keys(layer: &Value) -> Vec<&'static str> {
     let mut out = Vec::new();
@@ -143,7 +124,6 @@ pub(crate) fn gated_keys(layer: &Value) -> Vec<&'static str> {
     out
 }
 
-
 pub(crate) fn strip_gated(layer: &mut Value) -> Vec<&'static str> {
     let found = gated_keys(layer);
     if let Value::Object(m) = layer {
@@ -161,12 +141,9 @@ pub(crate) fn strip_gated(layer: &mut Value) -> Vec<&'static str> {
     found
 }
 
-
 pub fn project_mcp_files(cwd: &Path) -> [PathBuf; 2] {
     [cwd.join(".mcp.json"), cwd.join(".zen").join("mcp.json")]
 }
-
-
 
 pub fn gated_project_config(cwd: &Path) -> Vec<String> {
     let mut out = Vec::new();
@@ -239,7 +216,6 @@ mod tests {
 
     #[test]
     fn canon_is_symmetric_for_missing_paths() {
-
 
         use std::path::Path;
         assert_eq!(canon(Path::new("/nope/a/./b")), canon(Path::new("/nope/a/b")));

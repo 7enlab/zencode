@@ -1,13 +1,7 @@
-
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use zen_core::{AgentEvent, RunResult};
-
-
-
-
-
 
 pub struct Buffered {
     pub out: Arc<Mutex<Vec<u8>>>,
@@ -35,7 +29,6 @@ impl Buffered {
     }
     fn write_bytes(&self, bytes: &[u8]) {
 
-
         let mut g = self.out.lock().unwrap();
         if self.passthrough {
             let mut so = std::io::stdout().lock();
@@ -51,8 +44,6 @@ impl Default for Buffered {
         Self::new()
     }
 }
-
-
 
 pub struct TextSink {
     pub buf: Arc<Buffered>,
@@ -97,8 +88,6 @@ impl zen_core::EventSink for TextSink {
                     }
                 }
 
-
-
                 if self.is_repl {
                     if let Some(calls) = &message.tool_calls {
                         for tc in calls {
@@ -134,8 +123,6 @@ impl zen_core::EventSink for TextSink {
     }
 }
 
-
-
 pub struct CapturingSink {
     pub buf: Arc<Buffered>,
 }
@@ -168,12 +155,7 @@ impl zen_core::EventSink for CapturingSink {
     }
 }
 
-
-
-
 pub const STREAM_JSON_VERSION: u32 = 1;
-
-
 
 pub struct StreamJsonSink {
     pub buf: Arc<Buffered>,
@@ -186,7 +168,6 @@ pub struct StreamJsonSink {
     pub slash_commands: Vec<String>,
     initialized: AtomicBool,
     include_partial: bool,
-
 
     prompt_input: Mutex<Option<String>>,
 
@@ -209,8 +190,6 @@ impl StreamJsonSink {
     ) -> Self {
         Self::with_partial(buf, session_id, cwd, model, tools, mcp_servers, permission_mode, slash_commands, false)
     }
-
-
 
     #[allow(clippy::too_many_arguments)]
     pub fn with_partial(
@@ -241,23 +220,17 @@ impl StreamJsonSink {
         }
     }
 
-
-
     pub fn set_prompt_input(&self, prompt: String) {
         *self.prompt_input.lock().unwrap() = Some(prompt);
     }
-
-
 
     pub fn set_mcp_errors(&self, errors: Vec<(String, String)>) {
         *self.mcp_errors.lock().unwrap() = errors;
     }
 
-
     pub fn set_folder_trusted(&self, trusted: bool) {
         *self.folder_trusted.lock().unwrap() = Some(trusted);
     }
-
 
     pub fn init_now(&self) {
         if !self.initialized.swap(true, Ordering::SeqCst) {
@@ -290,7 +263,6 @@ impl StreamJsonSink {
         }
         self.emit_line(line);
     }
-
 
     fn emit_line(&self, mut line: serde_json::Value) {
         if let Some(obj) = line.as_object_mut() {
@@ -421,12 +393,10 @@ impl zen_core::EventSink for StreamJsonSink {
                 }));
             }
 
-
             _ => {}
         }
     }
 }
-
 
 pub fn print_result(result: &RunResult, fmt: &crate::cli::OutputFormat, buf: &Buffered, is_repl: bool) {
     match fmt {
@@ -443,10 +413,6 @@ pub fn print_result(result: &RunResult, fmt: &crate::cli::OutputFormat, buf: &Bu
     }
 }
 
-
-
-
-
 pub fn validate_json_schema(text: &str, schema_path: &std::path::Path) -> Result<(), String> {
     let schema_text =
         std::fs::read_to_string(schema_path).map_err(|e| format!("cannot read schema: {}", e))?;
@@ -454,7 +420,6 @@ pub fn validate_json_schema(text: &str, schema_path: &std::path::Path) -> Result
         serde_json::from_str(&schema_text).map_err(|e| format!("invalid schema JSON: {}", e))?;
     let value: serde_json::Value =
         serde_json::from_str(text.trim()).map_err(|e| format!("output is not valid JSON: {}", e))?;
-
 
     if let Some(t) = schema.get("type").and_then(|v| v.as_str()) {
         let ok = match t {
@@ -491,10 +456,6 @@ fn json_type(v: &serde_json::Value) -> &'static str {
     else { "null" }
 }
 
-
-
-
-
 pub fn result_json(result: &RunResult) -> serde_json::Value {
     let mut v = serde_json::to_value(result).unwrap_or_else(|_| json!({}));
     let stop_reason = match result.subtype.as_str() {
@@ -510,10 +471,7 @@ pub fn result_json(result: &RunResult) -> serde_json::Value {
     v
 }
 
-
 pub use serde_json::json;
-
-
 
 #[cfg(test)]
 mod tests {
@@ -544,7 +502,6 @@ mod tests {
         let lines: Vec<&str> = out.lines().collect();
         assert!(lines.len() >= 2, "expected init + assistant lines, got: {}", out);
 
-
         let init: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
         assert_eq!(init["type"], "system");
         assert_eq!(init["subtype"], "init");
@@ -556,7 +513,6 @@ mod tests {
         assert_eq!(init["mcp_servers"][0]["name"], "srv1");
         assert_eq!(init["mcp_servers"][0]["status"], "connected");
         assert_eq!(init["slash_commands"], json!(["/help", "/compact"]));
-
 
         let asst: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
         assert_eq!(asst["type"], "assistant");
@@ -740,7 +696,6 @@ mod tests {
         assert_eq!(v["tool_use_id"], "call_x");
     }
 
-
     #[test]
     fn stream_json_every_line_has_version() {
         let buf = Arc::new(Buffered::new());
@@ -804,7 +759,6 @@ mod tests {
         let r = result_json(&result);
         assert_eq!(r["v"], json!(STREAM_JSON_VERSION));
     }
-
 
     #[test]
     fn stream_json_tool_progress_shape() {

@@ -1,23 +1,6 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
-
 
 pub const DEFAULT_MAP_TOKENS: usize = 1000;
 
@@ -32,7 +15,6 @@ const RECENCY_BONUS_STEP: u64 = 10;
 pub const MAX_FILES: usize = 500;
 
 const MAX_LINES_PER_FILE: usize = 4000;
-
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SymbolKind {
@@ -63,7 +45,6 @@ impl SymbolKind {
     }
 }
 
-
 #[derive(Debug, Clone)]
 pub struct Symbol {
     pub kind: SymbolKind,
@@ -77,13 +58,11 @@ pub struct Symbol {
     pub ref_files: usize,
 }
 
-
 #[derive(Debug, Clone)]
 pub struct FileEntry {
     pub rel_path: String,
     pub symbols: Vec<Symbol>,
 }
-
 
 #[derive(Debug, Clone, Default)]
 pub struct RepoMap {
@@ -100,13 +79,9 @@ impl RepoMap {
     }
 }
 
-
 const SKIP_DIRS: &[&str] = &[
     "node_modules", "target", "dist", "build", "out", "__pycache__", "venv", "vendor", "coverage",
 ];
-
-
-
 
 fn collect_rust_files(cwd: &Path) -> Vec<PathBuf> {
     let mut files = Vec::new();
@@ -135,9 +110,6 @@ fn collect_rust_files(cwd: &Path) -> Vec<PathBuf> {
     files.sort();
     files
 }
-
-
-
 
 fn strip_noise(line: &str) -> String {
     let chars: Vec<char> = line.chars().collect();
@@ -236,7 +208,6 @@ fn strip_noise(line: &str) -> String {
     out
 }
 
-
 fn vis_re() -> &'static str {
     r"(?:pub(?:\((?:crate|super|self)\))?\s+)?"
 }
@@ -285,8 +256,6 @@ fn mod_re() -> &'static regex::Regex {
     })
 }
 
-
-
 fn is_mod_tests_decl(clean: &str) -> bool {
     let t = clean.trim_start();
 
@@ -307,7 +276,6 @@ fn is_mod_tests_decl(clean: &str) -> bool {
         .unwrap_or(false)
 }
 
-
 fn extract_symbols(path: &Path) -> Vec<Symbol> {
     let Ok(text) = std::fs::read_to_string(path) else {
         return Vec::new();
@@ -315,7 +283,6 @@ fn extract_symbols(path: &Path) -> Vec<Symbol> {
 
     let mut symbols = Vec::new();
     let mut in_test_mod = false;
-
 
     let mut test_mod_depth = 0i32;
     let mut brace_depth = 0i32;
@@ -328,7 +295,6 @@ fn extract_symbols(path: &Path) -> Vec<Symbol> {
         }
 
         let clean = strip_noise(trimmed);
-
 
         if !in_test_mod && is_mod_tests_decl(&clean) {
             if clean.contains('{') {
@@ -346,7 +312,6 @@ fn extract_symbols(path: &Path) -> Vec<Symbol> {
             if brace_depth > test_mod_depth {
                 continue;
             }
-
 
             in_test_mod = false;
         }
@@ -400,7 +365,6 @@ fn extract_symbols(path: &Path) -> Vec<Symbol> {
             });
         } else if let Some(caps) = mod_re().captures(&clean) {
 
-
             if &caps[1] == "tests" {
                 continue;
             }
@@ -417,7 +381,6 @@ fn extract_symbols(path: &Path) -> Vec<Symbol> {
     }
     symbols
 }
-
 
 fn rank_symbols(entries: &mut [(PathBuf, Vec<Symbol>)]) {
 
@@ -440,18 +403,12 @@ fn rank_symbols(entries: &mut [(PathBuf, Vec<Symbol>)]) {
         return;
     };
 
-
-
-
     let mut def_sites: HashSet<(String, usize, usize)> = HashSet::new();
     for (fi, (_, syms)) in entries.iter().enumerate() {
         for sym in syms {
             def_sites.insert((sym.name.clone(), fi, sym.line));
         }
     }
-
-
-
 
     let mut counts: HashMap<(String, usize), u64> = HashMap::new();
     for (fi, (path, _)) in entries.iter().enumerate() {
@@ -469,8 +426,6 @@ fn rank_symbols(entries: &mut [(PathBuf, Vec<Symbol>)]) {
             }
         }
     }
-
-
 
     let per_sym: Vec<Vec<(usize, u64)>> = {
         let ordered: Vec<String> = entries
@@ -517,9 +472,6 @@ fn rank_symbols(entries: &mut [(PathBuf, Vec<Symbol>)]) {
     }
 }
 
-
-
-
 fn apply_priority_boosts(entries: &mut [(PathBuf, Vec<Symbol>)]) {
 
     let mut order: Vec<usize> = (0..entries.len()).collect();
@@ -556,7 +508,6 @@ fn apply_priority_boosts(entries: &mut [(PathBuf, Vec<Symbol>)]) {
     }
 }
 
-
 pub fn repo_map(cwd: &Path, map_tokens: usize) -> Option<RepoMap> {
     if map_tokens == 0 {
         return None;
@@ -578,15 +529,11 @@ pub fn repo_map(cwd: &Path, map_tokens: usize) -> Option<RepoMap> {
     }
     rank_symbols(&mut entries);
 
-
     entries.sort_by(|a, b| {
         let sa = a.1.first().map(|s| s.score).unwrap_or(0);
         let sb = b.1.first().map(|s| s.score).unwrap_or(0);
         sb.cmp(&sa)
     });
-
-
-
 
     let mut map = RepoMap::default();
     let trunc_marker = "[map truncated: token budget exhausted]\n";
@@ -789,7 +736,6 @@ mod tests {
     #[test]
     fn cfg_test_attr_does_not_swallow_following_code() {
 
-
         let dir = unique_dir("cfgtest");
         let _ = std::fs::remove_dir_all(&dir);
         let p = write_file(
@@ -842,7 +788,6 @@ mod tests {
 
     #[test]
     fn regexes_do_not_shadow_each_other() {
-
 
         let cases: &[(&str, SymbolKind, &str)] = &[
             ("fn plain() {", SymbolKind::Fn, "plain"),
@@ -917,7 +862,6 @@ mod tests {
         let dir = unique_dir("entrypoint");
         let _ = std::fs::remove_dir_all(&dir);
 
-
         write_file(&dir, "zzz.rs", "pub fn popular() {}\n");
         write_file(&dir, "user.rs", "fn u() { popular(); popular(); }\n");
         write_file(&dir, "main.rs", "fn main() {}\n");
@@ -964,7 +908,6 @@ mod tests {
 
     #[test]
     fn self_repo_map_stays_within_1k_budget() {
-
 
         let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let map = repo_map(&workspace_root, DEFAULT_MAP_TOKENS).expect("map");

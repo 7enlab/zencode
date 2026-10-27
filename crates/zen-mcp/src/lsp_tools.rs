@@ -1,8 +1,3 @@
-
-
-
-
-
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
@@ -10,7 +5,6 @@ use std::sync::Arc;
 use zen_core::{Tool, ToolContext, ToolOutput};
 
 use crate::lsp::{LspLocation, LspManager};
-
 
 fn resolve_file(ctx: &ToolContext, file: &str) -> PathBuf {
     let p = PathBuf::from(file);
@@ -40,7 +34,6 @@ fn arg_usize(args: &Value, key: &str) -> anyhow::Result<usize> {
     Ok(n)
 }
 
-
 fn format_locations(
     tool: &str,
     query_path: &Path,
@@ -66,9 +59,6 @@ fn format_locations(
     out.push_str("\n```\n");
     out
 }
-
-
-
 
 pub struct GotoDefinitionTool {
     manager: Arc<LspManager>,
@@ -132,9 +122,6 @@ impl Tool for GotoDefinitionTool {
         }
     }
 }
-
-
-
 
 pub struct HoverTool {
     manager: Arc<LspManager>,
@@ -209,9 +196,6 @@ impl Tool for HoverTool {
         }
     }
 }
-
-
-
 
 pub struct FindReferencesTool {
     manager: Arc<LspManager>,

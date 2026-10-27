@@ -1,34 +1,9 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::skills::{SkillPermissions, TrustTier};
 
-
 pub const REGISTRY_FORMAT_VERSION: u32 = 1;
-
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
@@ -47,7 +22,6 @@ impl RegistrySource {
         }
     }
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RegistrySkill {
@@ -112,7 +86,6 @@ impl RegistrySkill {
     }
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CommunityRegistry {
     pub format_version: u32,
@@ -122,14 +95,7 @@ pub struct CommunityRegistry {
     pub skills: Vec<RegistrySkill>,
 }
 
-
 const BUNDLED_REGISTRY_JSON: &str = include_str!("../../../skills/community-registry.json");
-
-
-
-
-
-
 
 pub fn load_community_registry(override_path: Option<&str>) -> Result<CommunityRegistry> {
     match override_path {
@@ -173,15 +139,11 @@ fn parse_community_registry(text: &str) -> Result<CommunityRegistry> {
     Ok(reg)
 }
 
-
 pub fn find_in_registry<'a>(reg: &'a CommunityRegistry, name: &str) -> Option<&'a RegistrySkill> {
     reg.skills
         .iter()
         .find(|s| s.name.eq_ignore_ascii_case(name))
 }
-
-
-
 
 pub fn search_registry<'a>(
     reg: &'a CommunityRegistry,
@@ -217,7 +179,6 @@ pub fn search_registry<'a>(
     hits
 }
 
-
 pub fn format_skill_info(s: &RegistrySkill) -> String {
     let tier = s.tier_enum();
     let mut out = String::new();
@@ -251,7 +212,6 @@ pub fn format_skill_info(s: &RegistrySkill) -> String {
     out
 }
 
-
 pub fn cmd_search(query: &str, registry_override: Option<&str>) -> Result<()> {
     let reg = load_community_registry(registry_override)?;
     let hits = search_registry(&reg, query);
@@ -272,7 +232,6 @@ pub fn cmd_search(query: &str, registry_override: Option<&str>) -> Result<()> {
     println!("\ndetails: zen skill info <name>   |   install: zen skill install registry:<name> --yes");
     Ok(())
 }
-
 
 pub fn cmd_info(name: &str, registry_override: Option<&str>) -> Result<()> {
     let reg = load_community_registry(registry_override)?;
@@ -311,7 +270,6 @@ mod tests {
     #[test]
     fn bundled_registry_matches_builtin_manifests() {
 
-
         let reg = seed();
         let tdd = find_in_registry(&reg, "tdd").unwrap();
         assert!(tdd.permissions.exec);
@@ -335,7 +293,6 @@ mod tests {
     #[test]
     fn search_prefix_beats_description() {
         let reg = seed();
-
 
         let hits = search_registry(&reg, "sec");
         assert_eq!(hits[0].1.name, "security-review");

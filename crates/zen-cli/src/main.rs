@@ -1,5 +1,3 @@
-
-
 use clap::Parser;
 use zen_cli::Cli;
 

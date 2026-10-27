@@ -1,14 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -18,7 +7,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 use zen_core::{Tool, ToolContext, ToolOutput};
-
 
 pub const JOB_OUTPUT_MAX_CHARS: usize = 30_000;
 
@@ -62,14 +50,11 @@ fn next_id() -> String {
     format!("job-{}", N.fetch_add(1, Ordering::Relaxed))
 }
 
-
 pub struct Started {
     pub id: String,
     pub pid: Option<u32>,
     pub log: PathBuf,
 }
-
-
 
 pub fn start_job(
     command: &str,
@@ -128,7 +113,6 @@ pub fn start_job(
     Ok(Started { id, pid, log })
 }
 
-
 fn kill_tree(pid: Option<u32>) {
     let Some(pid) = pid else { return };
     #[cfg(unix)]
@@ -153,8 +137,6 @@ fn kill_tree(pid: Option<u32>) {
 fn status_of(id: &str) -> Option<JobStatus> {
     jobs().lock().unwrap().get(id).map(|j| j.status.lock().unwrap().clone())
 }
-
-
 
 pub async fn read_new(id: &str, wait_ms: u64) -> Result<(String, u64, u64, JobStatus, String), String> {
     if status_of(id).is_none() {
@@ -194,7 +176,6 @@ fn read_from(path: &Path, from: u64) -> std::io::Result<Vec<u8>> {
     Ok(buf)
 }
 
-
 pub async fn kill_job(id: &str) -> Result<JobStatus, String> {
     let tx = {
         let mut map = jobs().lock().unwrap();
@@ -227,9 +208,6 @@ fn unknown(id: &str) -> String {
 fn job_id_arg(args: &Value) -> Option<String> {
     args.get("job_id").and_then(|v| v.as_str()).map(str::trim).filter(|s| !s.is_empty()).map(String::from)
 }
-
-
-
 
 pub struct JobOutputTool;
 
@@ -274,7 +252,6 @@ impl Tool for JobOutputTool {
         }
     }
 }
-
 
 pub struct JobKillTool;
 

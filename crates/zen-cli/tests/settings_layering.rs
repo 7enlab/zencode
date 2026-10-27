@@ -1,18 +1,11 @@
-
-
-
-
-
 mod common;
 
 use common::*;
-
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn cli_model_flag_overrides_settings() {
     let home = TempDir::new("cli_model_home");
     let cwd = TempDir::new("cli_model_cwd");
-
 
     home.write(".zen/settings.json", r#"{"model": "user-model"}"#);
 
@@ -40,7 +33,6 @@ async fn cli_model_flag_overrides_settings() {
     let req_model = req_json_0["model"].as_str().unwrap();
     assert_eq!(req_model, "cli-model", "CLI --model should win");
 }
-
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn inline_settings_overrides_file_settings() {
@@ -73,7 +65,6 @@ async fn inline_settings_overrides_file_settings() {
     assert_eq!(req_model, "inline-model", "--settings JSON should win over project file");
 }
 
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn project_overrides_user() {
     let home = TempDir::new("project_user_home");
@@ -105,7 +96,6 @@ async fn project_overrides_user() {
     assert_eq!(req_model, "project-model", "project should override user");
 }
 
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn local_overrides_project() {
     let home = TempDir::new("local_home");
@@ -136,7 +126,6 @@ async fn local_overrides_project() {
     let req_model = req_json_0["model"].as_str().unwrap();
     assert_eq!(req_model, "local-model", "local should override project");
 }
-
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn empty_setting_sources_loads_no_files() {
@@ -171,7 +160,6 @@ async fn empty_setting_sources_loads_no_files() {
         "empty setting-sources should use default model, got: {}", req_model);
 }
 
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn base_url_from_settings() {
     let home = TempDir::new("baseurl_home");
@@ -204,13 +192,11 @@ async fn base_url_from_settings() {
     assert_eq!(last_result(&stdout)["result"], "ok");
 }
 
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn permissions_allow_merge_across_layers() {
     let home = TempDir::new("perm_merge_home");
     let cwd = TempDir::new("perm_merge_cwd");
     cwd.write("test.txt", "existing");
-
 
     cwd.write(".zen/settings.json", r#"{"permissions":{"allow":["Read"]}}"#);
 

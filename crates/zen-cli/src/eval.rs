@@ -1,13 +1,3 @@
-
-
-
-
-
-
-
-
-
-
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -24,9 +14,6 @@ use zen_core::{
     PermissionMode, RunResult, ToolContext, ToolRegistry,
 };
 use zen_tools::{BashTool, EditTool, MultiEditTool, ReadTool, WriteTool};
-
-
-
 
 #[derive(Debug, Clone)]
 pub enum Check {
@@ -75,7 +62,6 @@ impl Check {
         }
     }
 
-
     pub fn describe(&self) -> String {
         match self {
             Check::FileContains { path, needle } => format!("{path} contains {needle:?}"),
@@ -90,7 +76,6 @@ impl Check {
     }
 }
 
-
 #[derive(Debug, Clone)]
 pub struct EvalTask {
 
@@ -104,7 +89,6 @@ pub struct EvalTask {
 
     pub check: Check,
 }
-
 
 pub static EVAL_TASKS: std::sync::LazyLock<Vec<EvalTask>> =
     std::sync::LazyLock::new(|| {
@@ -215,11 +199,7 @@ pub static EVAL_TASKS: std::sync::LazyLock<Vec<EvalTask>> =
 ]
     });
 
-
-
-
 const EDIT_TOOLS: &[&str] = &["Edit", "Write", "MultiEdit"];
-
 
 #[derive(Debug, Default)]
 pub struct MetricSink {
@@ -278,7 +258,6 @@ impl EventSink for MetricSink {
     }
 }
 
-
 #[derive(Debug, Clone, Copy, Default)]
 struct AllowAll;
 
@@ -294,9 +273,6 @@ impl PermissionChecker for AllowAll {
     }
 }
 
-
-
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TaskMetrics {
     pub task_id: String,
@@ -309,7 +285,6 @@ pub struct TaskMetrics {
     pub duration_ms: u64,
     pub error: Option<String>,
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EvalReport {
@@ -352,14 +327,10 @@ impl EvalReport {
         out
     }
 
-
     pub fn to_json(&self) -> Result<String> {
         serde_json::to_string_pretty(self).context("serialize eval report")
     }
 }
-
-
-
 
 #[derive(Debug, Clone)]
 pub struct EvalOptions {
@@ -378,9 +349,6 @@ const EVAL_SYSTEM_PROMPT: &str = "You are a coding agent running inside an eval 
 Complete the user's task using the available tools (Read, Write, Edit, MultiEdit, Bash). \
 Work only inside the current directory. When the task is done, reply with a brief summary. \
 Be concise; do not ask questions.";
-
-
-
 
 async fn run_one_task(
     task: &EvalTask,
@@ -470,7 +438,6 @@ async fn run_one_task(
         ),
     };
 
-
     let _ = std::fs::remove_dir_all(&workdir);
 
     TaskMetrics {
@@ -485,7 +452,6 @@ async fn run_one_task(
         error,
     }
 }
-
 
 pub async fn run_eval(opts: &EvalOptions) -> Result<EvalReport> {
     if !opts.model.contains(":free") {
@@ -510,7 +476,6 @@ pub async fn run_eval(opts: &EvalOptions) -> Result<EvalReport> {
     let mut results = Vec::with_capacity(tasks.len());
     for task in tasks {
 
-
         let sink = Arc::new(MetricSink::default());
         let client_sink: Arc<dyn EventSink> = sink.clone();
         let backend: Arc<dyn LlmBackend> = Arc::new(OpenAiClient::new(
@@ -530,8 +495,6 @@ pub async fn run_eval(opts: &EvalOptions) -> Result<EvalReport> {
     })
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -539,7 +502,6 @@ mod tests {
     use zen_core::{
         ChatMessage, ChatRequest, ChatResponse, FunctionCall, ToolCall, Usage,
     };
-
 
     struct ScriptedBackend {
         queue: StdMutex<std::collections::VecDeque<ChatResponse>>,
@@ -787,7 +749,6 @@ mod tests {
     #[tokio::test]
     async fn run_one_task_records_edit_failure() {
 
-
         let backend = ScriptedBackend::new(vec![
             tool_resp(
                 "Edit",
@@ -804,8 +765,6 @@ mod tests {
             check: Check::FileNotExists { path: "never-created.txt" },
         };
         let m = run_one_task(task, backend, Arc::new(MetricSink::default()), 10).await;
-
-
 
         assert_eq!(m.edit_failures, 1);
         assert!(m.passed, "check FileNotExists should hold");

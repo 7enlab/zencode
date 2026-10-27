@@ -1,18 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 fn price_table(model: &str) -> Option<(f64, f64)> {
     Some(match model {
 
@@ -39,9 +24,6 @@ fn price_table(model: &str) -> Option<(f64, f64)> {
     })
 }
 
-
-
-
 pub fn price_per_1m(model: &str) -> Option<(f64, f64)> {
     let m = model.trim().to_lowercase();
     if m.ends_with(":free") || m.starts_with("ollama/") || m == "ollama" {
@@ -59,13 +41,9 @@ pub fn price_per_1m(model: &str) -> Option<(f64, f64)> {
     None
 }
 
-
-
 pub fn is_free_model(model: &str) -> bool {
     matches!(price_per_1m(model), Some((0.0, 0.0)))
 }
-
-
 
 pub fn estimate_cost_usd(model: &str, input_tokens: u64, output_tokens: u64) -> Option<f64> {
     price_per_1m(model).map(|(pi, po)| {
@@ -73,12 +51,10 @@ pub fn estimate_cost_usd(model: &str, input_tokens: u64, output_tokens: u64) -> 
     })
 }
 
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct BudgetPolicy {
 
     pub max_budget_usd: f64,
-
 
     pub warn_at: f64,
 }
@@ -94,7 +70,6 @@ impl Default for BudgetPolicy {
 
 impl BudgetPolicy {
 
-
     pub fn normalized(mut self) -> Self {
         if self.warn_at <= 0.0 || self.warn_at > 1.0 || !self.warn_at.is_finite() {
             self.warn_at = 0.8;
@@ -103,11 +78,7 @@ impl BudgetPolicy {
     }
 }
 
-
-
-
 pub const DEFAULT_OUTPUT_ESTIMATE_TOKENS: u64 = 4096;
-
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum BudgetVerdict {
@@ -122,13 +93,6 @@ pub enum BudgetVerdict {
         est_cost_usd: f64,
     },
 }
-
-
-
-
-
-
-
 
 pub fn check_budget(
     policy: &BudgetPolicy,
@@ -153,7 +117,6 @@ pub fn check_budget(
     BudgetVerdict::Allow
 }
 
-
 pub fn block_message(spent_usd: f64, cap_usd: f64, est_cost_usd: f64) -> String {
     format!(
         "Budget exceeded: spent ${:.2} of ${:.2} cap; blocked a model call estimated at ${:.2}. \
@@ -161,7 +124,6 @@ pub fn block_message(spent_usd: f64, cap_usd: f64, est_cost_usd: f64) -> String 
         spent_usd, cap_usd, est_cost_usd
     )
 }
-
 
 pub fn warn_message(spent_usd: f64, cap_usd: f64) -> String {
     format!(
@@ -238,7 +200,6 @@ mod tests {
 
     #[test]
     fn exact_boundary_is_allowed() {
-
 
         assert_eq!(
             check_budget(&policy(1.0), 0.70, 0.30, false),

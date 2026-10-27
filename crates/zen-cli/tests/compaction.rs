@@ -1,14 +1,6 @@
-
-
-
-
-
-
-
 mod common;
 
 use common::*;
-
 
 async fn turn(tag: &str, home: &TempDir, cwd: &TempDir, server: &MockServer, cont: bool, prompt: &str) -> serde_json::Value {
     let mut run = ZenRun::new(tag, home, cwd).args([
@@ -25,7 +17,6 @@ async fn turn(tag: &str, home: &TempDir, cwd: &TempDir, server: &MockServer, con
     assert_eq!(code, 0, "stderr: {}\nstdout: {}", stderr, stdout);
     last_result(&stdout)
 }
-
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn auto_compact_triggers_summary() {
@@ -46,10 +37,8 @@ async fn auto_compact_triggers_summary() {
     let v = turn("compact_auto", &home, &cwd, &server, true, &long).await;
     assert_eq!(v["result"], "second reply after compaction");
 
-
     let requests = server.requests().await;
     assert_eq!(requests.len(), 3, "expected 3 requests with compaction, got {}", requests.len());
-
 
     let second_req = request_json(&requests[1]);
     let no_tools = second_req.get("tools").map(|t| t.is_null() || t == &serde_json::json!([])).unwrap_or(true);
@@ -57,12 +46,10 @@ async fn auto_compact_triggers_summary() {
     let second_msgs = request_messages_text(&requests[1]);
     assert!(second_msgs.contains("Summarize this coding session"), "compaction prompt missing: {}", second_msgs);
 
-
     let third_msgs = request_messages_text(&requests[2]);
     assert!(third_msgs.contains("[Compaction summary"), "compacted history missing: {}", third_msgs);
     assert!(third_msgs.contains("summary of conversation so far"));
 }
-
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn manual_compact_slash_command() {
@@ -96,7 +83,6 @@ async fn manual_compact_slash_command() {
     assert!(third_msgs.contains("manual summary"));
 }
 
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn compaction_keeps_last_n_messages() {
     let home = TempDir::new("compact_keep_home");
@@ -121,7 +107,6 @@ async fn compaction_keeps_last_n_messages() {
 
     assert_eq!(requests.len(), 4);
 
-
     let msgs = request_messages(&requests[3]);
     let non_system: Vec<_> = msgs.iter().filter(|m| m["role"] != "system").collect();
     assert_eq!(non_system.len(), 5, "summary + 4 kept messages: {:?}", non_system);
@@ -130,7 +115,6 @@ async fn compaction_keeps_last_n_messages() {
     assert!(text.contains("beta question") && text.contains("gamma question"));
     assert!(!text.contains("alpha question"), "oldest turn must be dropped: {}", text);
 }
-
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn pre_compact_hook_can_block() {
@@ -157,7 +141,6 @@ async fn pre_compact_hook_can_block() {
     let long = format!("turn 2 {}", "z".repeat(80));
     let v = turn("compact_hook", &home, &cwd, &server, true, &long).await;
     assert_eq!(v["result"], "reply 2 no compaction");
-
 
     let requests = server.requests().await;
     assert_eq!(requests.len(), 2, "compaction should be blocked, only 2 requests");

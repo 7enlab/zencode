@@ -1,37 +1,9 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-
 
 pub const MANAGED_MEMORY_PATH: &str = "/etc/zen/ZEN.md";
 
 pub const MAX_IMPORT_DEPTH: usize = 4;
-
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct MemoryFile {
@@ -39,11 +11,9 @@ pub struct MemoryFile {
     pub content: String,
 }
 
-
 pub fn memory_files(cwd: &Path, home: Option<&Path>) -> Vec<(PathBuf, String)> {
     memory_files_with_managed(cwd, home, Some(Path::new(MANAGED_MEMORY_PATH)))
 }
-
 
 pub fn memory_files_with_managed(
     cwd: &Path,
@@ -120,7 +90,6 @@ impl Loader {
         let expanded = self.expand(&body, &path, 0);
         self.out.push((path, expanded));
     }
-
 
     fn expand(&mut self, content: &str, file: &Path, depth: usize) -> String {
         let base_dir = file.parent().unwrap_or_else(|| Path::new(".")).to_path_buf();
@@ -203,7 +172,6 @@ impl Loader {
         out
     }
 
-
     fn import(&mut self, base_dir: &Path, token: &str, depth: usize) -> Option<String> {
         if depth >= MAX_IMPORT_DEPTH {
             return None;
@@ -225,7 +193,6 @@ impl Loader {
     }
 }
 
-
 fn token_span_len(s: &str) -> usize {
     let bytes: Vec<char> = s.chars().collect();
     let mut i = 1;
@@ -245,8 +212,6 @@ fn token_span_len(s: &str) -> usize {
     }
     len
 }
-
-
 
 fn import_tokens(line: &str) -> Vec<String> {
     let chars: Vec<char> = line.chars().collect();
@@ -308,7 +273,6 @@ fn import_tokens(line: &str) -> Vec<String> {
     tokens
 }
 
-
 fn opens_fence(line: &str) -> Option<(char, usize)> {
     let t = line.trim_start();
     let ch = t.chars().next()?;
@@ -324,7 +288,6 @@ fn closes_fence(line: &str, ch: char, len: usize) -> bool {
     let run = t.chars().take_while(|c| *c == ch).count();
     run >= len && run == t.chars().count()
 }
-
 
 fn split_rule_frontmatter(raw: &str) -> (bool, &str) {
     let Some(rest) = raw.strip_prefix("---\n").or_else(|| raw.strip_prefix("---\r\n")) else {
@@ -344,7 +307,6 @@ fn split_rule_frontmatter(raw: &str) -> (bool, &str) {
     }
     (false, raw)
 }
-
 
 fn rule_files(dir: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
@@ -373,7 +335,6 @@ fn abs_path(p: &Path) -> PathBuf {
     }
 }
 
-
 fn normalize(p: &Path) -> PathBuf {
     let mut out = PathBuf::new();
     for comp in p.components() {
@@ -390,13 +351,11 @@ fn normalize(p: &Path) -> PathBuf {
     out
 }
 
-
 fn ancestors_root_first(dir: &Path) -> Vec<PathBuf> {
     let mut chain: Vec<PathBuf> = dir.ancestors().map(|p| p.to_path_buf()).collect();
     chain.reverse();
     chain
 }
-
 
 pub fn append_memory_note(cwd: &Path, note: &str) -> anyhow::Result<PathBuf> {
     let path = cwd.join("ZEN.md");
@@ -416,11 +375,9 @@ pub fn append_memory_note(cwd: &Path, note: &str) -> anyhow::Result<PathBuf> {
     Ok(path)
 }
 
-
 fn render_memory_section(path: &Path, content: &str) -> String {
     format!("# Memory: {}\n\n{}\n\n", path.display(), content.trim_end())
 }
-
 
 pub fn memory_prompt(cwd: &Path, home: Option<&Path>) -> String {
     let files = memory_files(cwd, home);
@@ -437,11 +394,9 @@ pub fn memory_prompt(cwd: &Path, home: Option<&Path>) -> String {
     out.trim_end().to_string()
 }
 
-
 fn section_tokens(section: &str) -> u64 {
     section.len() as u64 / 4
 }
-
 
 fn display_path(path: &Path, home: Option<&Path>) -> String {
     let home_dir = home.map(Path::to_path_buf).or_else(dirs::home_dir);
@@ -452,8 +407,6 @@ fn display_path(path: &Path, home: Option<&Path>) -> String {
     }
     path.display().to_string()
 }
-
-
 
 pub fn memories_report(cwd: &Path, home: Option<&Path>) -> String {
     let files = memory_files(cwd, home);
@@ -481,11 +434,6 @@ pub fn memories_report(cwd: &Path, home: Option<&Path>) -> String {
     ));
     out
 }
-
-
-
-
-
 
 pub fn detect_import_candidates(cwd: &Path) -> Vec<PathBuf> {
     let cwd_abs = abs_path(cwd);
@@ -638,7 +586,6 @@ mod tests {
         let tmp = TempDir::new();
         let proj = tmp.path().join("proj");
         fs::create_dir_all(&proj).unwrap();
-
 
         let prompt = memory_prompt(&proj, Some(&tmp.path().join("nohome")));
         assert_eq!(prompt, "");

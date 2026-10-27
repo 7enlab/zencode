@@ -1,11 +1,3 @@
-
-
-
-
-
-
-
-
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -15,16 +7,11 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 
-
 const INITIALIZE_TIMEOUT: Duration = Duration::from_secs(30);
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
 
-
 type Pending = Arc<Mutex<HashMap<u64, tokio::sync::oneshot::Sender<Value>>>>;
-
-
-
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum LspLanguage {
@@ -33,7 +20,6 @@ pub enum LspLanguage {
     TypeScript,
 }
 
-
 pub struct LspServerSpec {
     pub command: String,
     pub args: Vec<String>,
@@ -41,7 +27,6 @@ pub struct LspServerSpec {
 
     pub markers: &'static [&'static str],
 }
-
 
 pub fn detect_language(path: &Path) -> Option<LspLanguage> {
     let ext = path
@@ -55,7 +40,6 @@ pub fn detect_language(path: &Path) -> Option<LspLanguage> {
         _ => None,
     }
 }
-
 
 pub fn server_spec(lang: LspLanguage) -> LspServerSpec {
     match lang {
@@ -80,7 +64,6 @@ pub fn server_spec(lang: LspLanguage) -> LspServerSpec {
     }
 }
 
-
 fn language_id_for(path: &Path, lang: LspLanguage) -> &'static str {
     match lang {
         LspLanguage::Rust => "rust",
@@ -99,8 +82,6 @@ fn language_id_for(path: &Path, lang: LspLanguage) -> &'static str {
     }
 }
 
-
-
 pub fn find_project_root(file: &Path, lang: LspLanguage) -> PathBuf {
     let spec = server_spec(lang);
     let start = file.parent().map(Path::to_path_buf);
@@ -113,9 +94,6 @@ pub fn find_project_root(file: &Path, lang: LspLanguage) -> PathBuf {
     }
     start.unwrap_or_else(|| PathBuf::from("."))
 }
-
-
-
 
 pub fn find_binary(name: &str) -> Option<PathBuf> {
     let direct = PathBuf::from(name);
@@ -153,9 +131,6 @@ pub fn find_binary(name: &str) -> Option<PathBuf> {
     None
 }
 
-
-
-
 fn encode_uri_path(s: &str, out: &mut String) {
     for &b in s.as_bytes() {
         let c = b as char;
@@ -166,7 +141,6 @@ fn encode_uri_path(s: &str, out: &mut String) {
         }
     }
 }
-
 
 pub fn path_to_uri(path: &Path) -> String {
     #[cfg(windows)]
@@ -196,7 +170,6 @@ fn hex_val(b: u8) -> Option<u8> {
     }
 }
 
-
 pub fn uri_to_path(uri: &str) -> Option<PathBuf> {
     let rest = uri.strip_prefix("file://")?;
     let mut bytes = Vec::with_capacity(rest.len());
@@ -223,12 +196,6 @@ pub fn uri_to_path(uri: &str) -> Option<PathBuf> {
     }
 }
 
-
-
-
-
-
-
 pub(crate) fn col_to_utf16(line: &str, col1: usize) -> u32 {
     let mut units: u32 = 0;
     for (i, c) in line.chars().enumerate() {
@@ -239,7 +206,6 @@ pub(crate) fn col_to_utf16(line: &str, col1: usize) -> u32 {
     }
     units
 }
-
 
 pub(crate) fn utf16_to_col(line: &str, utf16: u32) -> usize {
     let mut units: u32 = 0;
@@ -254,9 +220,6 @@ pub(crate) fn utf16_to_col(line: &str, utf16: u32) -> usize {
     col
 }
 
-
-
-
 pub(crate) async fn write_frame<W>(w: &mut W, msg: &Value) -> anyhow::Result<()>
 where
     W: AsyncWriteExt + Unpin,
@@ -268,7 +231,6 @@ where
     w.flush().await?;
     Ok(())
 }
-
 
 pub(crate) async fn read_frame<R>(r: &mut R) -> anyhow::Result<Value>
 where
@@ -306,15 +268,11 @@ fn id_to_u64(v: &Value) -> Option<u64> {
     }
 }
 
-
-
-
 pub(crate) struct LspClient {
     writer: tokio::sync::Mutex<tokio::process::ChildStdin>,
     pending: Pending,
     next_id: AtomicU64,
     child: Mutex<Option<tokio::process::Child>>,
-
 
     child_pid: Mutex<Option<u32>>,
 }
@@ -323,8 +281,6 @@ impl LspClient {
     pub(crate) fn spawn(command: &str, args: &[String]) -> anyhow::Result<Arc<Self>> {
         let mut cmd = tokio::process::Command::new(command);
         cmd.args(args);
-
-
 
         for name in ["ZEN_API_KEY", "OPENAI_API_KEY"] {
             cmd.env_remove(name);
@@ -384,8 +340,6 @@ impl LspClient {
         }))
     }
 
-
-
     pub(crate) async fn request(
         &self,
         method: &str,
@@ -428,7 +382,6 @@ impl LspClient {
             .map_err(|e| anyhow::anyhow!("LSP notify '{method}' failed: {e}"))
     }
 
-
     pub(crate) async fn initialize(&self, root: &Path) -> anyhow::Result<()> {
         let params = json!({
             "processId": std::process::id(),
@@ -463,7 +416,6 @@ impl LspClient {
     }
 }
 
-
 fn kill_process_group(pid: Option<u32>) {
     let Some(pid) = pid else { return };
     #[cfg(unix)]
@@ -486,16 +438,11 @@ fn kill_process_group(pid: Option<u32>) {
     }
 }
 
-
-
-
 struct OpenDoc {
     version: i32,
     mtime: SystemTime,
     text: String,
 }
-
-
 
 pub(crate) struct LspConnection {
     client: Arc<LspClient>,
@@ -518,9 +465,6 @@ impl LspConnection {
             docs: Mutex::new(HashMap::new()),
         }))
     }
-
-
-
 
     async fn ensure_open(&self, path: &Path) -> anyhow::Result<String> {
         let mtime = std::fs::metadata(path)
@@ -579,7 +523,6 @@ impl LspConnection {
         }
         Ok(current)
     }
-
 
     fn position(&self, text: &str, line1: usize, col1: usize) -> anyhow::Result<Value> {
         let line0 = line1
@@ -654,10 +597,6 @@ impl LspConnection {
     }
 }
 
-
-
-
-
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct LspLocation {
     pub uri: String,
@@ -667,9 +606,6 @@ pub struct LspLocation {
     pub end_line: usize,
     pub end_col: usize,
 }
-
-
-
 
 pub fn parse_locations(result: &Value) -> Vec<LspLocation> {
     let mut out = Vec::new();
@@ -718,9 +654,6 @@ fn range_pos(range: &Value, key: &str) -> Option<(usize, u32)> {
     Some((p.get("line")?.as_u64()? as usize, p.get("character")?.as_u64()? as u32))
 }
 
-
-
-
 fn display_col(path: &str, line0: usize, utf16: u32) -> usize {
     if let Ok(text) = std::fs::read_to_string(path) {
         if let Some(line) = text.lines().nth(line0) {
@@ -729,9 +662,6 @@ fn display_col(path: &str, line0: usize, utf16: u32) -> usize {
     }
     (utf16 + 1) as usize
 }
-
-
-
 
 pub fn render_hover(result: &Value) -> String {
     match result.get("contents").unwrap_or(&Value::Null) {
@@ -762,20 +692,14 @@ fn render_hover_part(v: &Value) -> Option<String> {
     }
 }
 
-
-
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct ServerKey {
     language: LspLanguage,
     root: PathBuf,
 }
 
-
-
-
 pub struct LspManager {
     servers: Mutex<HashMap<ServerKey, Arc<LspConnection>>>,
-
 
     overrides: Mutex<HashMap<LspLanguage, (String, Vec<String>)>>,
 }
@@ -791,7 +715,6 @@ impl LspManager {
     pub fn set_server_command(&self, lang: LspLanguage, command: String, args: Vec<String>) {
         self.overrides.lock().unwrap().insert(lang, (command, args));
     }
-
 
     async fn connection_for(&self, path: &Path) -> anyhow::Result<Arc<LspConnection>> {
         let lang = detect_language(path).ok_or_else(|| {
@@ -831,8 +754,6 @@ impl LspManager {
         Ok(conn)
     }
 
-
-
     pub async fn goto_definition(
         &self,
         path: &Path,
@@ -843,7 +764,6 @@ impl LspManager {
         Ok(parse_locations(&conn.definition(path, line, col).await?))
     }
 
-
     pub async fn hover(
         &self,
         path: &Path,
@@ -853,7 +773,6 @@ impl LspManager {
         let conn = self.connection_for(path).await?;
         Ok(render_hover(&conn.hover(path, line, col).await?))
     }
-
 
     pub async fn find_references(
         &self,

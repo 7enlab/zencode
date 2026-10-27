@@ -1,7 +1,3 @@
-
-
-
-
 pub mod acp;
 pub mod agent_run;
 pub mod budget;
@@ -44,13 +40,11 @@ pub use system_prompt::build_system_prompt;
 use anyhow::Result;
 use std::path::Path;
 
-
 pub async fn run(cli: Cli) -> Result<i32> {
     let cwd = std::env::current_dir()?;
     let home = dirs::home_dir();
     run_with_home(cli, &cwd, home.as_deref()).await
 }
-
 
 pub async fn run_with_home(cli: Cli, cwd: &Path, home: Option<&Path>) -> Result<i32> {
 
@@ -58,16 +52,13 @@ pub async fn run_with_home(cli: Cli, cwd: &Path, home: Option<&Path>) -> Result<
         return acp::run_acp_server(&cli).await;
     }
 
-
     if let Some(sub) = cli.subcommand.clone() {
         return run_subcommand(&cli, cwd, home, &sub).await;
     }
 
-
     if cli.print {
         return run_headless(&cli, cwd, home).await;
     }
-
 
     ask_folder_trust(&cli, cwd, home);
     let cwd_buf = cwd.to_path_buf();
@@ -219,7 +210,6 @@ async fn run_subcommand(
     }
 }
 
-
 fn cost_subcommand(
     cli: &Cli,
     cwd: &Path,
@@ -250,7 +240,6 @@ fn cost_subcommand(
     };
     let summary = cost::summarize(&ledger.session_id, &ledger.entries);
 
-
     let cfg = settings::resolve_config_with_home(cli, cwd, Some(home)).ok();
     let budget = crate::budget::resolve_budget(
         cli.max_budget_usd,
@@ -279,8 +268,6 @@ fn cost_subcommand(
     }
     Ok(())
 }
-
-
 
 fn ask_folder_trust(cli: &Cli, cwd: &Path, home: Option<&Path>) {
     use std::io::{BufRead, IsTerminal, Write};
@@ -329,7 +316,6 @@ async fn run_headless(cli: &Cli, cwd: &Path, home: Option<&Path>) -> Result<i32>
     }
     let system_prompt = build_system_prompt(cli, cwd, home)?;
 
-
     let mut prompt_parts: Vec<String> = Vec::new();
     if cli.input_format == InputFormat::Text && !std::io::stdin().is_terminal() {
         let s = read_stdin()?;
@@ -346,9 +332,7 @@ async fn run_headless(cli: &Cli, cwd: &Path, home: Option<&Path>) -> Result<i32>
         anyhow::bail!("No prompt provided. Pass a prompt argument or pipe stdin with -p.");
     }
 
-
     let (session_id, transcript_path, history_from) = resolve_session(cli, cwd, home)?;
-
 
     if cli.plan {
         return agent_run::run_plan_flow(
@@ -380,9 +364,6 @@ async fn run_headless(cli: &Cli, cwd: &Path, home: Option<&Path>) -> Result<i32>
     Ok(code)
 }
 
-
-
-
 fn resolve_session(
     cli: &Cli,
     cwd: &Path,
@@ -391,7 +372,6 @@ fn resolve_session(
     let home_path = home.map(|p| p.to_path_buf());
 
     let persist = !cli.no_session_persistence && !cli.ephemeral;
-
 
     let resumed: Option<std::path::PathBuf> = if let Some(h) = &home_path {
         if let Some(r) = &cli.resume {
@@ -408,7 +388,6 @@ fn resolve_session(
             None
         }
     } else {
-
 
         if cli.resume.as_deref().is_some_and(|r| !r.is_empty()) {
             anyhow::bail!("--resume needs a home directory to locate the session");
@@ -457,8 +436,6 @@ fn read_stdin() -> Result<String> {
     }
     Ok(String::from_utf8_lossy(&buf).trim().to_string())
 }
-
-
 
 #[cfg(test)]
 mod tests {

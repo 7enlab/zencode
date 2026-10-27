@@ -1,24 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -27,11 +6,9 @@ use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use zen_core::{ChatRequest, ChatResponse, LlmBackend};
 
-
 pub const DEFAULT_DAILY_LIMIT: u64 = 50;
 
 pub const STORE_FILE_NAME: &str = "rategate.json";
-
 
 #[derive(Debug, Clone)]
 pub struct RateGateSettings {
@@ -53,7 +30,6 @@ impl Default for RateGateSettings {
     }
 }
 
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct QuotaStatus {
     pub provider: String,
@@ -71,7 +47,6 @@ impl QuotaStatus {
     }
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct GateStoreFile {
     #[serde(default)]
@@ -79,10 +54,6 @@ struct GateStoreFile {
     #[serde(default)]
     counts: HashMap<String, u64>,
 }
-
-
-
-
 
 pub struct RateGate {
     inner: Arc<dyn LlmBackend>,
@@ -95,8 +66,6 @@ pub struct RateGate {
 }
 
 impl RateGate {
-
-
 
     pub fn new(
         inner: Arc<dyn LlmBackend>,
@@ -113,11 +82,9 @@ impl RateGate {
         }
     }
 
-
     pub fn default_store_path(home: &Path) -> PathBuf {
         home.join(".zen").join(STORE_FILE_NAME)
     }
-
 
     pub fn provider_key(base_url: &str) -> Option<String> {
         let lower = base_url.to_ascii_lowercase();
@@ -139,7 +106,6 @@ impl RateGate {
             Some(host.to_ascii_lowercase())
         }
     }
-
 
     fn gated_limit(&self, provider: &str, model: &str) -> Option<u64> {
         if !model.ends_with(":free") {
@@ -189,7 +155,6 @@ impl RateGate {
         }
     }
 
-
     fn fresh_state(&self) -> GateStoreFile {
         let mut state = self.read_store();
         let today = today_utc();
@@ -211,8 +176,6 @@ impl RateGate {
         *state.counts.entry(provider.to_string()).or_insert(0) += 1;
         self.write_store(&state);
     }
-
-
 
     pub fn quota_status(&self) -> Vec<QuotaStatus> {
         let _guard = self.io.lock().unwrap_or_else(|e| e.into_inner());
@@ -244,13 +207,10 @@ impl RateGate {
         out
     }
 
-
     pub fn quota_report(&self) -> String {
         format_quota_report(&self.quota_status(), self.settings.enabled)
     }
 }
-
-
 
 pub fn quota_report_for(store_path: Option<&Path>) -> String {
     let Some(path) = store_path else {
@@ -306,22 +266,12 @@ fn format_quota_report(status: &[QuotaStatus], enabled: bool) -> String {
     lines.join("\n")
 }
 
-
-
-
-
-
-
-
-
-
 pub fn openrouter_key_url(base_url: &str) -> Option<String> {
     let lower = base_url.trim().to_ascii_lowercase();
     lower
         .contains("openrouter.ai")
         .then(|| format!("{}/key", base_url.trim().trim_end_matches('/')))
 }
-
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct KeyQuota {
@@ -360,7 +310,6 @@ impl KeyQuota {
         })
     }
 
-
     pub fn report(&self) -> String {
         let mut lines = vec![format!("OpenRouter quota ({} UTC, live from /api/v1/key):", today_utc())];
         match (self.free_used, self.free_limit, self.free_remaining) {
@@ -384,8 +333,6 @@ impl KeyQuota {
     }
 }
 
-
-
 pub async fn fetch_key_quota(key_url: &str, api_key: Option<&str>) -> anyhow::Result<KeyQuota> {
     let timeouts = crate::client::HttpTimeouts::from_secs(key_url, Some(15), None);
     let http = crate::client::build_http(key_url, &timeouts, true);
@@ -406,8 +353,6 @@ pub async fn fetch_key_quota(key_url: &str, api_key: Option<&str>) -> anyhow::Re
     KeyQuota::from_body(&body)
 }
 
-
-
 pub async fn quota_command_report(key_url: Option<&str>, api_key: Option<&str>, store_path: Option<&Path>) -> String {
     let local = quota_report_for(store_path);
     match key_url {
@@ -418,7 +363,6 @@ pub async fn quota_command_report(key_url: Option<&str>, api_key: Option<&str>, 
         },
     }
 }
-
 
 fn today_utc() -> String {
     let days = SystemTime::now()
@@ -453,8 +397,6 @@ impl LlmBackend for RateGate {
             return self.inner.chat(req).await;
         }
 
-
-
         let Some(limit) = self.gated_limit(&provider, &req.model) else {
             return self.inner.chat(req).await;
         };
@@ -467,8 +409,6 @@ impl LlmBackend for RateGate {
             ));
         }
 
-
-
         let res = self.inner.chat(req).await;
         self.record(&provider);
         res
@@ -480,7 +420,6 @@ mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use zen_core::ChatMessage;
-
 
     struct ScriptBackend {
         calls: AtomicUsize,

@@ -1,11 +1,3 @@
-
-
-
-
-
-
-
-
 use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::io::Read;
@@ -15,22 +7,15 @@ use std::time::{Duration, Instant};
 
 use crate::cli::PermissionMode;
 
-
 pub const GH_TIMEOUT: Duration = Duration::from_secs(30);
-
 
 pub const MAX_LOG_LINES: usize = 120;
 
-
 pub const MAX_ERROR_LINES: usize = 25;
-
-
-
 
 fn run_gh(cwd: &Path, args: &[&str]) -> Result<String> {
     run_gh_with("gh", cwd, args)
 }
-
 
 fn run_gh_with(bin: &str, cwd: &Path, args: &[&str]) -> Result<String> {
     let mut child = Command::new(bin)
@@ -81,20 +66,15 @@ fn run_gh_with(bin: &str, cwd: &Path, args: &[&str]) -> Result<String> {
     }
 }
 
-
 fn gh_json(cwd: &Path, args: &[&str]) -> Result<serde_json::Value> {
     let out = run_gh(cwd, args)?;
     serde_json::from_str(&out)
         .with_context(|| format!("gh {} returned non-JSON output", args.join(" ")))
 }
 
-
 pub fn gh_available(cwd: &Path) -> bool {
     run_gh(cwd, &["auth", "status"]).is_ok()
 }
-
-
-
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -102,7 +82,6 @@ pub enum CommentKind {
     Review,
     Issue,
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PrComment {
@@ -117,7 +96,6 @@ pub struct PrComment {
     pub created_at: String,
     pub url: String,
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FetchedComments {
@@ -167,7 +145,6 @@ fn author_of(user: &Option<RawUser>) -> String {
         .unwrap_or_else(|| "(unknown)".to_string())
 }
 
-
 pub fn parse_review_comments(json: &str) -> Result<Vec<PrComment>> {
     let raw: Vec<RawReviewComment> =
         serde_json::from_str(json).context("review comments JSON did not parse")?;
@@ -186,7 +163,6 @@ pub fn parse_review_comments(json: &str) -> Result<Vec<PrComment>> {
         })
         .collect())
 }
-
 
 pub fn parse_issue_comments(json: &str) -> Result<Vec<PrComment>> {
     let raw: Vec<RawIssueComment> =
@@ -207,9 +183,7 @@ pub fn parse_issue_comments(json: &str) -> Result<Vec<PrComment>> {
         .collect())
 }
 
-
 fn resolve_pr(cwd: &Path, pr_arg: Option<&str>) -> Result<(String, u64)> {
-
 
     let nwo = gh_json(cwd, &["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"])
         .map_err(|e| {
@@ -239,7 +213,6 @@ fn resolve_pr(cwd: &Path, pr_arg: Option<&str>) -> Result<(String, u64)> {
     };
     Ok((nwo, number))
 }
-
 
 pub fn fetch_pr_comments(cwd: &Path, pr_arg: Option<&str>) -> Result<FetchedComments> {
     let (nwo, number) = resolve_pr(cwd, pr_arg)?;
@@ -272,9 +245,6 @@ pub fn fetch_pr_comments(cwd: &Path, pr_arg: Option<&str>) -> Result<FetchedComm
         issue_comments: parse_issue_comments(&issue_json)?,
     })
 }
-
-
-
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Severity {
@@ -311,7 +281,6 @@ fn contains_any(haystack: &str, needles: &[&str]) -> bool {
     needles.iter().any(|n| haystack.contains(n))
 }
 
-
 pub fn severity_of(body: &str) -> Severity {
     let b = body.to_lowercase();
     if contains_any(
@@ -343,10 +312,6 @@ pub fn severity_of(body: &str) -> Severity {
         Severity::Medium
     }
 }
-
-
-
-
 
 #[derive(Debug, Clone)]
 pub struct CommentGroup {
@@ -383,7 +348,6 @@ pub fn group_comments(fetched: &FetchedComments) -> Vec<CommentGroup> {
     }
     groups
 }
-
 
 pub fn format_comments_text(fetched: &FetchedComments) -> String {
     let mut s = String::new();
@@ -425,9 +389,6 @@ pub fn format_comments_text(fetched: &FetchedComments) -> String {
     s
 }
 
-
-
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FailingCheck {
     pub run_id: u64,
@@ -437,7 +398,6 @@ pub struct FailingCheck {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub log_excerpt: Option<String>,
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CiStatus {
@@ -455,8 +415,6 @@ struct RawWorkflowRun {
     url: Option<String>,
 }
 
-
-
 pub fn parse_workflow_runs(json: &str) -> Result<Vec<FailingCheck>> {
     let raw: Vec<RawWorkflowRun> =
         serde_json::from_str(json).context("workflow runs JSON did not parse")?;
@@ -473,7 +431,6 @@ pub fn parse_workflow_runs(json: &str) -> Result<Vec<FailingCheck>> {
         .collect())
 }
 
-
 pub fn truncate_log(log: &str, max_lines: usize) -> String {
     let lines: Vec<&str> = log.lines().collect();
     if lines.len() <= max_lines {
@@ -485,7 +442,6 @@ pub fn truncate_log(log: &str, max_lines: usize) -> String {
         lines[lines.len() - max_lines..].join("\n")
     )
 }
-
 
 pub fn extract_error_lines(log: &str, max: usize) -> Vec<String> {
     const KEYS: &[&str] = &[
@@ -513,8 +469,6 @@ pub fn extract_error_lines(log: &str, max: usize) -> Vec<String> {
     }
     out
 }
-
-
 
 pub fn fetch_ci_status(cwd: &Path) -> Result<CiStatus> {
     let branch =
@@ -549,7 +503,6 @@ pub fn fetch_ci_status(cwd: &Path) -> Result<CiStatus> {
     })
 }
 
-
 pub fn format_ci_text(status: &CiStatus) -> String {
     let mut s = String::new();
     s.push_str(&format!("branch: {}", status.branch));
@@ -582,9 +535,6 @@ pub fn format_ci_text(status: &CiStatus) -> String {
     s
 }
 
-
-
-
 pub fn pr_fix_prompt(fetched: &FetchedComments) -> String {
     let mut p = format!(
         "Address the following review comments on PR #{} \"{}\" ({}).\n\
@@ -606,7 +556,6 @@ pub fn pr_fix_prompt(fetched: &FetchedComments) -> String {
     }
     p
 }
-
 
 pub fn ci_fix_prompt(status: &CiStatus) -> String {
     let mut p = format!(
@@ -633,9 +582,6 @@ pub fn ci_fix_prompt(status: &CiStatus) -> String {
     p
 }
 
-
-
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FixOffer {
 
@@ -646,7 +592,6 @@ pub enum FixOffer {
     Auto,
 }
 
-
 pub fn fix_offer_for_mode(mode: PermissionMode) -> FixOffer {
     match mode {
         PermissionMode::Plan => FixOffer::Never,
@@ -656,8 +601,6 @@ pub fn fix_offer_for_mode(mode: PermissionMode) -> FixOffer {
         }
     }
 }
-
-
 
 #[cfg(test)]
 mod tests {

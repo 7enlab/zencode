@@ -1,9 +1,6 @@
-
-
 mod common;
 
 use common::*;
-
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn zen_md_project_memory_in_system_prompt() {
@@ -31,7 +28,6 @@ async fn zen_md_project_memory_in_system_prompt() {
     assert!(sys_msg.contains("PROJECT MEMORY"), "ZEN.md content missing from system prompt: {}", sys_msg);
     assert!(sys_msg.contains("Always use tabs"), "ZEN.md detail missing: {}", sys_msg);
 }
-
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn zen_md_user_and_project_both_loaded() {
@@ -62,7 +58,6 @@ async fn zen_md_user_and_project_both_loaded() {
     assert!(sys_msg.contains("PROJECT MEMORY"), "project ZEN.md missing: {}", sys_msg);
 }
 
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn bare_excludes_memory_and_skills() {
     let home = TempDir::new("bare_home");
@@ -92,12 +87,10 @@ async fn bare_excludes_memory_and_skills() {
     assert!(!sys_msg.contains("testskill"), "bare should exclude skills: {}", sys_msg);
 }
 
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn custom_slash_command_expands_arguments() {
     let home = TempDir::new("slash_home");
     let cwd = TempDir::new("slash_cwd");
-
 
     cwd.write(".zen/commands/hello.md", "You said: $ARGUMENTS");
 
@@ -120,12 +113,10 @@ async fn custom_slash_command_expands_arguments() {
     assert!(msgs_text.contains("You said: world from test"), "slash command not expanded: {}", msgs_text);
 }
 
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn custom_slash_command_positional_args() {
     let home = TempDir::new("slash_pos_home");
     let cwd = TempDir::new("slash_pos_cwd");
-
 
     cwd.write(".zen/commands/greet.md", "Hello $0 and $1!");
 
@@ -147,7 +138,6 @@ async fn custom_slash_command_positional_args() {
     let msgs_text = request_messages_text(&requests[0]);
     assert!(msgs_text.contains("Hello Alice and Bob!"), "positional args not expanded: {}", msgs_text);
 }
-
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn project_custom_command_overrides_user() {
@@ -177,12 +167,10 @@ async fn project_custom_command_overrides_user() {
     assert!(!msgs_text.contains("USER: test"), "user command should not appear: {}", msgs_text);
 }
 
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn skills_listed_and_tool_works() {
     let home = TempDir::new("skills_home");
     let cwd = TempDir::new("skills_cwd");
-
 
     cwd.write(".zen/skills/myskill/SKILL.md", "---\nname: myskill\ndescription: My custom skill\n---\n# Skill Instructions\nAlways say 'SKILL ACTIVE' when invoked.");
 
@@ -212,14 +200,12 @@ async fn skills_listed_and_tool_works() {
     let v = last_result(&stdout);
     assert_eq!(v["result"], "skill loaded");
 
-
     let requests = server.requests().await;
     assert_eq!(requests.len(), 2);
     let second_req = request_messages_text(&requests[1]);
     assert!(second_req.contains("SKILL ACTIVE"), "skill body not returned: {}", second_req);
     assert!(second_req.contains("Skill directory:"), "skill dir path missing: {}", second_req);
 }
-
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn skill_tool_unknown_returns_error() {
@@ -257,7 +243,6 @@ async fn skill_tool_unknown_returns_error() {
     assert!(second_req.contains("Unknown skill"), "should error for unknown skill: {}", second_req);
     assert!(second_req.contains("Available: known"), "should list available skills: {}", second_req);
 }
-
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn multiple_skills_user_and_project() {

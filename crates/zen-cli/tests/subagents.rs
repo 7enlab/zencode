@@ -1,21 +1,12 @@
-
-
-
-
-
-
 mod common;
 
 use common::*;
 use std::time::Duration;
 
-
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn sub_agent_task_tool_works() {
     let home = TempDir::new("subagent_home");
     let cwd = TempDir::new("subagent_cwd");
-
 
     let agents_json = r#"{
         "researcher": {
@@ -38,7 +29,6 @@ async fn sub_agent_task_tool_works() {
                 }
             }])),
         ),
-
 
         Reply::text("research result: X is a thing"),
 
@@ -63,24 +53,19 @@ async fn sub_agent_task_tool_works() {
     let v = last_result(&stdout);
     assert_eq!(v["result"], "parent got sub-agent result");
 
-
     let requests = server.requests().await;
     assert_eq!(requests.len(), 3, "expected 3 requests, got {}: {:?}", requests.len(), requests);
 
-
     let first_tools = request_tool_names(&requests[0]);
     assert!(first_tools.contains(&"Task".to_string()), "parent should have Task tool: {:?}", first_tools);
-
 
     let second_sys = system_message(&requests[1]);
     assert!(second_sys.contains("You are a researcher"), "sub-agent should have custom prompt: {}", second_sys);
     assert!(second_sys.contains("Answer concisely"), "sub-agent prompt detail missing: {}", second_sys);
 
-
     let third_msgs = request_messages_text(&requests[2]);
     assert!(third_msgs.contains("research result"), "parent should see sub-agent result: {}", third_msgs);
 }
-
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn sub_agent_inherits_tools_when_not_specified() {
@@ -140,17 +125,14 @@ async fn sub_agent_inherits_tools_when_not_specified() {
     let requests = server.requests().await;
     assert_eq!(requests.len(), 4);
 
-
     let second_tools = request_tool_names(&requests[1]);
     assert!(second_tools.contains(&"Read".to_string()), "sub-agent should inherit Read: {:?}", second_tools);
 }
-
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn builtin_general_purpose_agent_available() {
     let home = TempDir::new("subagent_builtin_home");
     let cwd = TempDir::new("subagent_builtin_cwd");
-
 
     let server = MockServer::start(vec![
         Reply::with_tool_calls(
@@ -172,7 +154,6 @@ async fn builtin_general_purpose_agent_available() {
         ZenRun::new("subagent_builtin", &home, &cwd)
             .args([
 
-
                 "-p", "--output-format", "json", "--setting-sources", "",
                 "--permission-mode", "bypassPermissions"
             ])
@@ -190,11 +171,9 @@ async fn builtin_general_purpose_agent_available() {
     let requests = server.requests().await;
     assert_eq!(requests.len(), 3);
 
-
     let second_sys = system_message(&requests[1]);
     assert!(second_sys.contains("sub-agent") || second_sys.contains("Sub-agent"), "built-in prompt: {}", second_sys);
 }
-
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn sub_agent_depth_limit() {
@@ -257,8 +236,6 @@ async fn sub_agent_depth_limit() {
     let v = last_result(&stdout);
     assert_eq!(v["result"], "parent handled error");
 
-
-
     let requests = server.requests().await;
     assert_eq!(requests.len(), 4);
     let sub_tools = request_tool_names(&requests[1]);
@@ -266,7 +243,6 @@ async fn sub_agent_depth_limit() {
     let third = request_messages_text(&requests[2]);
     assert!(third.contains("Unknown tool 'Task'"), "nested Task should be refused: {}", third);
 }
-
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn sub_agent_custom_model() {
@@ -315,7 +291,6 @@ async fn sub_agent_custom_model() {
     assert_eq!(code, 0, "stderr: {}", stderr);
     let requests = server.requests().await;
     assert_eq!(requests.len(), 3);
-
 
     let second_req = request_json(&requests[1]);
     let second_model = second_req["model"].as_str().unwrap();

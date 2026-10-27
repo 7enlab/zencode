@@ -1,31 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 #![allow(dead_code)]
 
 use std::net::SocketAddr;
@@ -38,14 +10,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
 
-
 pub const TEST_TIMEOUT: Duration = Duration::from_secs(60);
-
-
-
-
-
-
 
 pub struct TempDir {
     path: PathBuf,
@@ -71,13 +36,11 @@ impl TempDir {
         &self.path
     }
 
-
     pub fn subdir(&self, rel: &str) -> PathBuf {
         let p = self.path.join(rel);
         std::fs::create_dir_all(&p).expect("create subdir");
         p
     }
-
 
     pub fn write(&self, rel: &str, contents: &str) -> PathBuf {
         let p = self.path.join(rel);
@@ -95,12 +58,6 @@ impl Drop for TempDir {
     }
 }
 
-
-
-
-
-
-
 pub struct Reply {
     pub status: u16,
     pub body: String,
@@ -114,13 +71,11 @@ impl Reply {
         Self::with_tool_calls(content, None)
     }
 
-
     pub fn with_tool_calls(content: &str, tool_calls: Option<serde_json::Value>) -> Self {
         let mut message = serde_json::json!({"role": "assistant", "content": content});
         let finish_reason = if tool_calls.is_some() { "tool_calls" } else { "stop" };
         if let Some(tc) = tool_calls {
             message["tool_calls"] = tc;
-
 
             if content.is_empty() {
                 message["content"] = serde_json::Value::Null;
@@ -142,7 +97,6 @@ impl Reply {
         Self { status: 200, body, abrupt: false }
     }
 
-
     pub fn status(status: u16, message: &str) -> Self {
         Self {
             status,
@@ -151,17 +105,14 @@ impl Reply {
         }
     }
 
-
     pub fn malformed() -> Self {
         Self { status: 200, body: "<html>not json</html>".to_string(), abrupt: false }
     }
-
 
     pub fn abrupt() -> Self {
         Self { status: 200, body: String::new(), abrupt: true }
     }
 }
-
 
 struct MockState {
     replies: Vec<Reply>,
@@ -169,11 +120,6 @@ struct MockState {
 
     overflow: usize,
 }
-
-
-
-
-
 
 pub struct MockServer {
     addr: SocketAddr,
@@ -202,7 +148,6 @@ impl MockServer {
                     let idx = g.requests.len() - 1;
                     if idx >= g.replies.len() {
 
-
                         g.overflow += 1;
                     }
                     let i = idx.min(g.replies.len().saturating_sub(1));
@@ -226,11 +171,9 @@ impl MockServer {
         Self { addr, state, handle }
     }
 
-
     pub async fn single_text(text: &str) -> Self {
         Self::start(vec![Reply::text(text)]).await
     }
-
 
     pub fn base_url(&self) -> String {
         format!("http://{}/v1", self.addr)
@@ -240,16 +183,13 @@ impl MockServer {
         self.addr
     }
 
-
     pub async fn requests(&self) -> Vec<String> {
         self.state.lock().await.requests.clone()
     }
 
-
     pub async fn overflow(&self) -> usize {
         self.state.lock().await.overflow
     }
-
 
     pub async fn finish(self) -> Vec<String> {
         self.handle.abort();
@@ -257,7 +197,6 @@ impl MockServer {
         g.requests.clone()
     }
 }
-
 
 struct ReplySnapshot {
     status: u16,
@@ -284,10 +223,6 @@ fn status_text(code: u16) -> &'static str {
         _ => "Unknown",
     }
 }
-
-
-
-
 
 pub async fn read_request(sock: &mut tokio::net::TcpStream) -> String {
     let mut buf = Vec::new();
@@ -316,14 +251,12 @@ pub async fn read_request(sock: &mut tokio::net::TcpStream) -> String {
     String::from_utf8_lossy(&buf).to_string()
 }
 
-
 pub fn request_json(raw: &str) -> serde_json::Value {
     let body = raw.split("\r\n\r\n").nth(1).unwrap_or("");
     serde_json::from_str(body).unwrap_or_else(|e| {
         panic!("request body is not JSON ({}):\n{}", e, raw)
     })
 }
-
 
 pub fn request_messages(raw: &str) -> Vec<serde_json::Value> {
     request_json(raw)["messages"]
@@ -332,11 +265,9 @@ pub fn request_messages(raw: &str) -> Vec<serde_json::Value> {
         .unwrap_or_default()
 }
 
-
 pub fn request_messages_text(raw: &str) -> String {
     serde_json::to_string(&request_messages(raw)).unwrap_or_default()
 }
-
 
 pub fn system_message(raw: &str) -> String {
     request_messages(raw)
@@ -351,7 +282,6 @@ pub fn system_message(raw: &str) -> String {
         .collect::<Vec<_>>()
         .join("\n")
 }
-
 
 pub fn request_tool_names(raw: &str) -> Vec<String> {
     request_json(raw)["tools"]
@@ -368,12 +298,6 @@ pub fn request_tool_names(raw: &str) -> Vec<String> {
         })
         .unwrap_or_default()
 }
-
-
-
-
-
-
 
 pub struct ZenRun {
     args: Vec<String>,
@@ -412,12 +336,10 @@ impl ZenRun {
         self
     }
 
-
     pub fn stdin(mut self, text: impl Into<String>) -> Self {
         self.stdin = Some(text.into());
         self
     }
-
 
     pub fn env(mut self, key: &str, value: Option<&str>) -> Self {
         self.env_extra.push((key.to_string(), value.map(|v| v.to_string())));
@@ -428,7 +350,6 @@ impl ZenRun {
         self.timeout = d;
         self
     }
-
 
     pub fn mock(self, model: &str, server: &MockServer) -> Self {
         self.arg("--model").arg(model).arg("--base-url").arg(server.base_url())
@@ -446,7 +367,6 @@ impl ZenRun {
             .env_remove("OPENAI_API_KEY")
             .env_remove("ZEN_SETTINGS")
 
-
             .env("ZEN_TRUST_FOLDER", "1")
             .stdin(if self.stdin.is_some() { Stdio::piped() } else { Stdio::null() })
             .stdout(Stdio::piped())
@@ -461,20 +381,17 @@ impl ZenRun {
         cmd
     }
 
-
     pub fn spawn(self) -> std::process::Child {
         let mut cmd = self.command();
         cmd.stdin(Stdio::null());
         cmd.spawn().expect("failed to spawn zen binary")
     }
 
-
     pub fn spawn_piped(self) -> std::process::Child {
         let mut cmd = self.command();
         cmd.stdin(Stdio::piped());
         cmd.spawn().expect("failed to spawn zen binary")
     }
-
 
     pub fn run(self) -> Output {
         let mut cmd = self.command();
@@ -511,7 +428,6 @@ impl ZenRun {
         child.wait_with_output().expect("wait_with_output")
     }
 
-
     pub fn run_output(self) -> (String, String, i32) {
         let out = self.run();
         (
@@ -522,13 +438,9 @@ impl ZenRun {
     }
 }
 
-
 pub fn zen_bin() -> PathBuf {
     PathBuf::from(env!("CARGO_BIN_EXE_zen"))
 }
-
-
-
 
 pub fn ndjson(stdout: &str) -> Vec<serde_json::Value> {
     stdout
@@ -541,17 +453,12 @@ pub fn ndjson(stdout: &str) -> Vec<serde_json::Value> {
         .collect()
 }
 
-
 pub fn last_result(stdout: &str) -> serde_json::Value {
     let lines = ndjson(stdout);
     let last = lines.last().unwrap_or_else(|| panic!("no output lines:\n{}", stdout));
     assert_eq!(last["type"], "result", "last line is not a result:\n{}", stdout);
     last.clone()
 }
-
-
-
-
 
 pub fn assert_fields(v: &serde_json::Value, expected: &[&str], what: &str) {
     let obj = v.as_object().unwrap_or_else(|| panic!("{} is not an object: {}", what, v));
@@ -562,7 +469,6 @@ pub fn assert_fields(v: &serde_json::Value, expected: &[&str], what: &str) {
     assert_eq!(got, want, "{} has unexpected field set:\n{}", what, v);
 }
 
-
 pub fn find_line<'a>(
     lines: &'a [serde_json::Value],
     ty: &str,
@@ -572,7 +478,6 @@ pub fn find_line<'a>(
         l["type"] == ty && subtype.map(|s| l["subtype"] == s).unwrap_or(true)
     })
 }
-
 
 pub fn write_settings(root: &Path, name: &str, json: &str) -> PathBuf {
     let p = root.join(".zen").join(name);

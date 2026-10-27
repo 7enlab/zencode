@@ -1,5 +1,3 @@
-
-
 use serde_json::json;
 use std::path::PathBuf;
 use zen_core::{Tool, ToolContext};
@@ -20,7 +18,6 @@ fn ctx(tag: &str) -> ToolContext {
     c.session_dir = Some(d.join("session"));
     c
 }
-
 
 fn spill_path(reply: &str) -> PathBuf {
     let start = reply.find("Full output saved to ").expect(reply) + "Full output saved to ".len();
@@ -84,10 +81,7 @@ async fn p0b_1_bash_long_output_is_spilled_not_lost() {
     assert!(out.content.chars().count() < BASH_MAX_CHARS + 400);
 }
 
-
-
 use crate::jobs::{JobKillTool, JobOutputTool};
-
 
 fn job_id(reply: &str) -> String {
     let start = reply.find("background job ").expect(reply) + "background job ".len();

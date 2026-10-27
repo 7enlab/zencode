@@ -1,12 +1,3 @@
-
-
-
-
-
-
-
-
-
 use anyhow::Result;
 use chrono::Utc;
 use serde::Serialize;
@@ -15,31 +6,23 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 use uuid::Uuid;
 
-
-
-
 pub fn encode_cwd(path: &Path) -> String {
     let abs = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
     let s = abs.to_string_lossy();
     s.replace(['/', '\\', ':', '.'], "-")
 }
 
-
 pub fn project_dir(home: &Path, encoded: &str) -> PathBuf {
     home.join(".zen").join("projects").join(encoded)
 }
-
 
 pub fn session_path(proj_dir: &Path, session_id: &str) -> PathBuf {
     proj_dir.join(format!("{}.jsonl", session_id))
 }
 
-
-
 pub fn session_scratch_dir(transcript: &Path) -> PathBuf {
     transcript.with_extension("")
 }
-
 
 pub fn find_session_path(home: &Path, id_or_path: &str) -> Option<PathBuf> {
     let p = PathBuf::from(id_or_path);
@@ -66,7 +49,6 @@ pub fn find_session_path(home: &Path, id_or_path: &str) -> Option<PathBuf> {
     None
 }
 
-
 pub fn latest_session_for_cwd(home: &Path, encoded: &str) -> Option<PathBuf> {
     let dir = project_dir(home, encoded);
     if !dir.exists() {
@@ -88,8 +70,6 @@ pub fn latest_session_for_cwd(home: &Path, encoded: &str) -> Option<PathBuf> {
     latest.map(|(_, p)| p)
 }
 
-
-
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct TranscriptRecord<'a> {
@@ -109,7 +89,6 @@ fn now_iso() -> String {
     Utc::now().to_rfc3339()
 }
 
-
 pub fn append_record(path: &Path, record: &Value) -> Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -122,7 +101,6 @@ pub fn append_record(path: &Path, record: &Value) -> Result<()> {
     writeln!(file, "{}", serde_json::to_string(record)?)?;
     Ok(())
 }
-
 
 #[allow(clippy::too_many_arguments)]
 pub fn append_typed(
@@ -147,13 +125,6 @@ pub fn append_typed(
     };
     append_record(path, &serde_json::to_value(rec)?)
 }
-
-
-
-
-
-
-
 
 pub fn load_messages(path: &Path) -> Result<Vec<Value>> {
     if !path.exists() {
@@ -196,7 +167,6 @@ pub fn load_messages(path: &Path) -> Result<Vec<Value>> {
     Ok(out)
 }
 
-
 fn summary_text(rec: &Value) -> Option<String> {
     let s = rec.get("summary")?;
     match s {
@@ -206,7 +176,6 @@ fn summary_text(rec: &Value) -> Option<String> {
     }
 }
 
-
 pub fn load_history(path: &Path) -> Result<Vec<zen_core::ChatMessage>> {
     Ok(load_messages(path)?
         .into_iter()
@@ -214,22 +183,12 @@ pub fn load_history(path: &Path) -> Result<Vec<zen_core::ChatMessage>> {
         .collect())
 }
 
-
-
-
-
-
-
-
-
 pub struct TranscriptWriter {
 
     pub path: Option<PathBuf>,
     pub session_id: String,
     pub cwd: String,
     last_uuid: Option<String>,
-
-
 
     file: Option<std::io::BufWriter<std::fs::File>>,
 }
@@ -246,8 +205,6 @@ impl TranscriptWriter {
         }
     }
 
-
-
     pub fn ephemeral(session_id: &str, cwd: &Path) -> Self {
         Self {
             path: None,
@@ -257,8 +214,6 @@ impl TranscriptWriter {
             file: None,
         }
     }
-
-
 
     fn append_line(&mut self, record: &Value) -> Result<()> {
         use std::io::Write;
@@ -300,7 +255,6 @@ impl TranscriptWriter {
         Ok(())
     }
 
-
     pub fn persist_turn(
         &mut self,
         before: &[zen_core::ChatMessage],
@@ -329,13 +283,10 @@ impl TranscriptWriter {
         Ok(())
     }
 
-
-
     pub fn record_plan_approved(&mut self, plan: &str) -> Result<()> {
         self.write("plan_approved", Some(serde_json::json!({ "plan": plan })), None)
     }
 }
-
 
 pub fn ensure_session_path(home: &Path, cwd: &Path, session_id: &str) -> Result<PathBuf> {
     let encoded = encode_cwd(cwd);
@@ -343,7 +294,6 @@ pub fn ensure_session_path(home: &Path, cwd: &Path, session_id: &str) -> Result<
     std::fs::create_dir_all(&proj)?;
     Ok(session_path(&proj, session_id))
 }
-
 
 pub fn ensure_session_dir(home: &Path, cwd: &Path, session_id: &str) -> Result<PathBuf> {
     let encoded = encode_cwd(cwd);
@@ -353,11 +303,9 @@ pub fn ensure_session_dir(home: &Path, cwd: &Path, session_id: &str) -> Result<P
     Ok(proj)
 }
 
-
 pub fn new_session_id() -> String {
     Uuid::new_v4().to_string()
 }
-
 
 pub fn list_sessions_for_cwd(home: &Path, cwd: &Path) -> Vec<(String, PathBuf)> {
     let encoded = encode_cwd(cwd);
@@ -382,9 +330,6 @@ pub fn list_sessions_for_cwd(home: &Path, cwd: &Path) -> Vec<(String, PathBuf)> 
     sessions.into_iter().map(|(_, id, p)| (id, p)).collect()
 }
 
-
-
-
 pub fn append_usage(path: &Path, session_id: &str, usage: &zen_core::UsageStats) -> Result<()> {
     append_record(
         path,
@@ -397,7 +342,6 @@ pub fn append_usage(path: &Path, session_id: &str, usage: &zen_core::UsageStats)
         }),
     )
 }
-
 
 pub fn load_usage(path: &Path) -> zen_core::UsageStats {
     let mut total = zen_core::UsageStats::default();
@@ -413,7 +357,6 @@ pub fn load_usage(path: &Path) -> zen_core::UsageStats {
     total
 }
 
-
 pub fn append_title(path: &Path, session_id: &str, title: &str) -> Result<()> {
     append_record(
         path,
@@ -426,7 +369,6 @@ pub fn append_title(path: &Path, session_id: &str, title: &str) -> Result<()> {
     )
 }
 
-
 pub fn session_title(path: &Path) -> Option<String> {
     let content = std::fs::read_to_string(path).ok()?;
     content
@@ -437,13 +379,10 @@ pub fn session_title(path: &Path) -> Option<String> {
         .next_back()
 }
 
-
 pub fn append_summary(path: &Path, session_id: &str, cwd: &str, uuid_val: &str, parent_uuid: Option<&str>, summary_text: &str) -> Result<()> {
     let summary_val = serde_json::json!({"type":"summary","summary":summary_text});
     append_typed(path, "summary", session_id, cwd, uuid_val, parent_uuid, None, Some(summary_val))
 }
-
-
 
 #[cfg(test)]
 mod tests {
@@ -506,14 +445,12 @@ mod tests {
         append_typed(&path, "user", "sess-rt-1", cwd.to_str().unwrap(), "u1", None, Some(m1.clone()), None).unwrap();
         append_typed(&path, "assistant", "sess-rt-1", cwd.to_str().unwrap(), "a1", Some("u1"), Some(m2.clone()), None).unwrap();
 
-
         let pre = load_messages(&path).unwrap();
         assert_eq!(pre, vec![m1.clone(), m2.clone()]);
 
         append_typed(&path, "summary", "sess-rt-1", cwd.to_str().unwrap(), "sum1", Some("a1"), None, Some(serde_json::json!({"summary":"done"}))).unwrap();
         let m3 = serde_json::json!({"role":"user","content":"after"});
         append_typed(&path, "user", "sess-rt-1", cwd.to_str().unwrap(), "u2", Some("sum1"), Some(m3.clone()), None).unwrap();
-
 
         let msgs = load_messages(&path).unwrap();
         assert_eq!(msgs.len(), 2);

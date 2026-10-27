@@ -1,11 +1,3 @@
-
-
-
-
-
-
-
-
 pub fn tool_long_docs(name: &str) -> Option<&'static str> {
     Some(match name {
         "Read" => include_str!("../../../docs/tools/read.md"),

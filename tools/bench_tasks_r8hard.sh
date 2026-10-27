@@ -1,14 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
 R8HARD_TASKS=(
   py_kwarg_rename py_lru_bug py_long_file py_distractor py_cli_feature py_intervals
   py_csv_escape py_retry_feature
@@ -17,7 +6,6 @@ R8HARD_TASKS=(
   ts_emitter_bug ts_groupby_feature ts_money_cents js_routes_long
   sh_backup_spaces sh_rotate_flags sh_csv_sum
 )
-
 
 _r8_rs_hidden() {
   mkdir -p tests

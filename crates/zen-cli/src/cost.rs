@@ -1,15 +1,6 @@
-
-
-
-
-
-
-
-
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::Path;
-
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct CostEntry {
@@ -20,13 +11,11 @@ pub struct CostEntry {
     pub timestamp: String,
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct SessionCost {
     pub session_id: String,
     pub entries: Vec<CostEntry>,
 }
-
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ModelCost {
@@ -37,7 +26,6 @@ pub struct ModelCost {
 
     pub cost_usd: Option<f64>,
 }
-
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CostSummary {
@@ -52,9 +40,7 @@ pub struct CostSummary {
     pub unknown_pricing: Vec<String>,
 }
 
-
 pub use zen_agent::budget::price_per_1m;
-
 
 pub fn provider_from_base_url(base_url: &str) -> String {
     let u = base_url.trim().to_lowercase();
@@ -100,8 +86,6 @@ fn ledger_path(home: &Path, session_id: &str) -> std::path::PathBuf {
         .join(format!("{}.json", session_id))
 }
 
-
-
 pub fn record(
     home: Option<&Path>,
     session_id: &str,
@@ -136,13 +120,10 @@ pub fn record(
     }
 }
 
-
 pub fn load(home: &Path, session_id: &str) -> Option<SessionCost> {
     let data = std::fs::read_to_string(ledger_path(home, session_id)).ok()?;
     serde_json::from_str(&data).ok()
 }
-
-
 
 pub fn latest_session_id(home: &Path) -> Option<String> {
     let root = home.join(".zen").join("projects");
@@ -160,7 +141,6 @@ pub fn latest_session_id(home: &Path) -> Option<String> {
     }
     latest.map(|(_, id)| id)
 }
-
 
 pub fn summarize(session_id: &str, entries: &[CostEntry]) -> CostSummary {
 
@@ -216,7 +196,6 @@ pub fn summarize(session_id: &str, entries: &[CostEntry]) -> CostSummary {
     }
 }
 
-
 pub fn format_usd(v: f64) -> String {
     if v <= 0.0 {
         "$0.00".to_string()
@@ -226,7 +205,6 @@ pub fn format_usd(v: f64) -> String {
         format!("${:.2}", v)
     }
 }
-
 
 fn fmt_int(n: u64) -> String {
     let s = n.to_string();
@@ -239,7 +217,6 @@ fn fmt_int(n: u64) -> String {
     }
     out
 }
-
 
 pub fn render_text(summary: &CostSummary) -> String {
     let mut out = String::new();
@@ -283,7 +260,6 @@ pub fn render_text(summary: &CostSummary) -> String {
     }
     out
 }
-
 
 pub fn to_json(summary: &CostSummary) -> serde_json::Value {
     serde_json::json!({

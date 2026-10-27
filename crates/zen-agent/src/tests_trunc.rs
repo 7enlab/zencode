@@ -1,5 +1,3 @@
-
-
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
@@ -8,7 +6,6 @@ use zen_core::*;
 
 use crate::agent::{TRUNCATED_CALL_NUDGE, TRUNCATION_CONTINUE_NUDGE};
 use crate::testutil::*;
-
 
 struct Rec {
     calls: Arc<Mutex<Vec<Value>>>,

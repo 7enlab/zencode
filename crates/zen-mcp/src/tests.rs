@@ -1,6 +1,3 @@
-
-
-
 use crate::*;
 use async_trait::async_trait;
 use serde_json::{json, Value};
@@ -17,8 +14,6 @@ fn tmpdir(tag: &str) -> PathBuf {
     std::fs::create_dir_all(&p).unwrap();
     p
 }
-
-
 
 #[test]
 fn untrusted_folder_skips_project_mcp_files() {
@@ -63,13 +58,11 @@ fn load_configs_project_user_and_cli() {
 
     assert_eq!(cfg["proj"].command.as_deref(), Some("echo"));
 
-
     let cli = vec![r#"{"mcpServers":{"cli":{"type":"http","url":"http://x"}}}"#.to_string()];
     let cfg = load_mcp_configs(&cwd, Some(&home), &cli, false).unwrap();
     assert_eq!(cfg.len(), 3);
     assert_eq!(cfg["cli"].url.as_deref(), Some("http://x"));
     assert!(cfg["cli"].is_http());
-
 
     let cfg = load_mcp_configs(&cwd, Some(&home), &cli, true).unwrap();
     assert_eq!(cfg.len(), 1);
@@ -90,7 +83,6 @@ fn c7_scope_paths_match_spec_and_are_loaded() {
     assert_eq!(project, cwd.join(".mcp.json"));
     assert_eq!(user, home.join(".zen").join("mcp.json"));
     assert!(scope_path("global", &cwd, Some(&home)).is_err());
-
 
     mcp_add(&user, "s", McpServerConfig { command: Some("u".into()), ..empty_cfg() }).unwrap();
     mcp_add(&user, "only_user", McpServerConfig { command: Some("u".into()), ..empty_cfg() }).unwrap();
@@ -179,17 +171,12 @@ fn load_configs_bare_map_and_bad_json() {
     let _ = std::fs::remove_dir_all(&home);
 }
 
-
-
 #[test]
 fn tool_name_sanitization() {
     assert_eq!(crate::manager::mcp_tool_name("my server", "do.thing"), "mcp__my_server__do_thing");
     assert_eq!(crate::manager::mcp_tool_name("a/b", "c:d"), "mcp__a_b__c_d");
     assert_eq!(crate::manager::sanitize_component("ok-name_1"), "ok-name_1");
 }
-
-
-
 
 fn python_exe() -> Option<String> {
     for cand in ["python3", "python"] {
@@ -367,7 +354,6 @@ async fn mcp_server_that_fails_to_start() {
     assert_eq!(mgr.status(), vec![("bad".to_string(), "failed".to_string())]);
     assert!(mgr.tools().is_empty());
 
-
     let py = match python_exe() {
         Some(p) => p,
         None => return,
@@ -383,9 +369,6 @@ async fn mcp_server_that_fails_to_start() {
     assert_eq!(mgr.status(), vec![("quit".to_string(), "failed".to_string())]);
     let _ = std::fs::remove_dir_all(&dir);
 }
-
-
-
 
 async fn spawn_http_mock(sse: bool) -> (String, tokio::task::JoinHandle<()>) {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -512,8 +495,6 @@ async fn mcp_http_sse_transport() {
     run_http_test(true).await;
 }
 
-
-
 #[test]
 fn load_agents_from_dirs_and_cli() {
     let cwd = tmpdir("agents_cwd");
@@ -550,7 +531,6 @@ fn load_agents_from_dirs_and_cli() {
 
     assert!(agents.iter().any(|a| a.name == "proj"));
 
-
     let only_user = load_agents(&tmpdir("empty_cwd"), Some(&home), None);
     let u = only_user.iter().find(|a| a.name == "researcher").unwrap();
     assert_eq!(u.description, "Finds things");
@@ -574,12 +554,10 @@ fn load_agents_cli_json_and_file() {
     assert_eq!(h.tools, Some(vec!["Read".to_string(), "Bash".to_string()]));
     assert_eq!(h.model, None);
 
-
     let file = cwd.join("agents.json");
     std::fs::write(&file, r#"{"fromfile":{"description":"d","prompt":"p"}}"#).unwrap();
     let agents = load_agents(&cwd, Some(&home), Some(&file.to_string_lossy()));
     assert!(agents.iter().any(|a| a.name == "fromfile"));
-
 
     let agents = load_agents(&cwd, Some(&home), None);
     assert_eq!(agents.iter().filter(|a| a.name == "general-purpose").count(), 1);
@@ -590,8 +568,6 @@ fn load_agents_cli_json_and_file() {
     let _ = std::fs::remove_dir_all(&cwd);
     let _ = std::fs::remove_dir_all(&home);
 }
-
-
 
 #[derive(Default)]
 struct RecordingRunner {
@@ -665,7 +641,6 @@ async fn task_tool_default_type_and_parent_id() {
     assert_eq!(calls[0].0, "general-purpose");
     assert_eq!(calls[0].2, "call_42");
 
-
     let mut ctx2 = ToolContext::new(dir.clone(), "sess");
     ctx2.current_tool_use_id = None;
     let out = tokio::time::timeout(
@@ -702,12 +677,10 @@ async fn task_tool_unknown_type_and_errors() {
     assert!(out.content.contains("general-purpose"));
     assert!(out.content.contains("researcher"));
 
-
     let out = tokio::time::timeout(TEST_TIMEOUT, tool.call(json!({"description": "d"}), &ctx))
         .await
         .unwrap();
     assert!(out.is_error);
-
 
     let failing = Arc::new(RecordingRunner { calls: Mutex::new(vec![]), fail: true });
     let tool2 = TaskTool::new(test_agents(), failing);
@@ -722,8 +695,6 @@ async fn task_tool_unknown_type_and_errors() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
-
-
 
 fn mcpcap_ctx(tag: &str) -> ToolContext {
     let dir = tmpdir(tag);
@@ -780,7 +751,6 @@ fn mcpcap_non_text_content_untouched_and_error_flag_kept() {
     assert!(!out.is_error);
     assert_eq!(out.content, "[image content]\ncaption");
     assert!(!c.session_dir.as_ref().unwrap().join("tool-output").exists());
-
 
     let c2 = mcpcap_ctx("err");
     let big = "e".repeat(crate::manager::MCP_MAX_CHARS * 3);

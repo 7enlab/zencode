@@ -1,20 +1,4 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 use std::collections::HashMap;
-
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Applied {
@@ -23,7 +7,6 @@ pub struct Applied {
 
     pub note: Option<String>,
 }
-
 
 pub fn apply_edit(text: &str, old: &str, new: &str, replace_all: bool, label: &str) -> Result<Applied, String> {
     if old.is_empty() {
@@ -40,7 +23,6 @@ pub fn apply_edit(text: &str, old: &str, new: &str, replace_all: bool, label: &s
         }
     }
 }
-
 
 fn apply_ladder(text: &str, old: &str, new: &str, replace_all: bool, label: &str) -> Result<Option<Applied>, String> {
     let occurrences = text.matches(old).count();
@@ -93,7 +75,6 @@ impl Strategy {
     }
 }
 
-
 fn split_keep(text: &str) -> Vec<&str> {
     text.split_inclusive('\n').collect()
 }
@@ -101,7 +82,6 @@ fn split_keep(text: &str) -> Vec<&str> {
 fn body(line: &str) -> &str {
     line.trim_end_matches(['\n', '\r'])
 }
-
 
 fn old_lines(old: &str) -> Vec<&str> {
     let mut lines: Vec<&str> = old.lines().collect();
@@ -155,8 +135,6 @@ fn fuzzy_replace(text: &str, old: &str, new: &str, strategy: Strategy, label: &s
             .map(|k| indent_of(body(file[start + k])))
             .unwrap_or("");
 
-
-
         let level_map: HashMap<&str, &str> = (0..n)
             .filter(|&k| !olds[k].trim().is_empty())
             .map(|k| (indent_of(olds[k]), indent_of(body(file[start + k]))))
@@ -188,12 +166,6 @@ fn fuzzy_replace(text: &str, old: &str, new: &str, strategy: Strategy, label: &s
     }
     Ok(Some(Applied { text: out, count: 1, note: Some(strategy.describe().to_string()) }))
 }
-
-
-
-
-
-
 
 fn strip_line_numbers(old: &str, new: &str) -> Option<(String, String)> {
     fn numbered(l: &str) -> Option<(u64, &str)> {
@@ -234,7 +206,6 @@ fn strip_line_numbers(old: &str, new: &str) -> Option<(String, String)> {
     let n = strip_all(new).unwrap_or_else(|| new.to_string());
     Some((o, n))
 }
-
 
 pub fn closest_candidates(text: &str, old: &str) -> String {
     const MIN_SCORE: f64 = 0.5;
@@ -281,7 +252,6 @@ pub fn closest_candidates(text: &str, old: &str) -> String {
     }
     out
 }
-
 
 fn similarity(a: &str, b: &str) -> f64 {
     if a == b {
@@ -352,7 +322,6 @@ mod tests {
 
     #[test]
     fn non_monotonic_number_prefixes_are_not_stripped() {
-
 
         assert!(strip_line_numbers("123\tfoo\n123\tbar", "x").is_none());
         assert!(strip_line_numbers("5\tfoo\n3\tbar", "x").is_none());

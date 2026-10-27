@@ -1,6 +1,3 @@
-
-
-
 use serde_json::json;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -18,8 +15,6 @@ fn tmpdir(tag: &str) -> PathBuf {
     std::fs::create_dir_all(&d).unwrap();
     d
 }
-
-
 
 async fn scripted_turn(dir: &std::path::Path, ctx: &ToolContext) -> Vec<String> {
     let calls: Vec<(&dyn Tool, serde_json::Value)> = vec![
@@ -81,7 +76,6 @@ async fn p0_3_tools_checkpoint_then_undo_restores() {
         "alpha\nbeta\n"
     );
     assert!(!dir.join("sub/b.txt").exists());
-
 
     let e = EditTool
         .call(

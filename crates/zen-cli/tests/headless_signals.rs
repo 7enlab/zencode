@@ -1,9 +1,3 @@
-
-
-
-
-
-
 mod common;
 
 use common::*;
@@ -41,14 +35,12 @@ fn wait_exit(child: &mut std::process::Child, limit: Duration) -> std::process::
     }
 }
 
-
 #[cfg(unix)]
 fn ps_stat(pid: &str) -> Option<String> {
     let o = std::process::Command::new("ps").args(["-o", "stat=", "-p", pid]).output().ok()?;
     let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
     (o.status.success() && !s.is_empty()).then_some(s)
 }
-
 
 #[cfg(unix)]
 fn alive(pid: &str) -> bool {
@@ -110,7 +102,6 @@ async fn start_sleeping_run(tag: &str, signal: &str) -> (std::process::ExitStatu
     use std::io::Read;
     child.stdout.take().unwrap().read_to_string(&mut stdout).unwrap();
 
-
     let start = Instant::now();
     while alive(&sleep_pid) && start.elapsed() < Duration::from_secs(5) {
         std::thread::sleep(Duration::from_millis(50));
@@ -149,7 +140,6 @@ async fn c8_9_sigint_ends_turn_with_error_result() {
     assert_eq!(v["subtype"], "error_during_execution");
     assert_eq!(v["result"], "Interrupted by user");
 }
-
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn c8_1_stdin_over_10mb_is_rejected() {

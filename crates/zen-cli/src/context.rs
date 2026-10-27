@@ -1,20 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 use anyhow::{anyhow, Result};
 use serde::Serialize;
 use serde_json::Value;
@@ -22,11 +5,9 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use zen_core::{ChatMessage, ToolDefinition};
 
-
 fn est_tokens(s: &str) -> u64 {
     s.len() as u64 / 4
 }
-
 
 fn message_tokens(m: &ChatMessage) -> u64 {
     let mut n = m.content.as_deref().map(est_tokens).unwrap_or(0);
@@ -42,16 +23,11 @@ fn message_tokens(m: &ChatMessage) -> u64 {
     n
 }
 
-
 fn tool_def_tokens(t: &ToolDefinition) -> u64 {
     serde_json::to_string(t).map(|s| est_tokens(&s)).unwrap_or(0)
 }
 
-
 pub const PRUNE_CANDIDATE_TOKENS: u64 = 2000;
-
-
-
 
 struct LoggedRequest {
     seq: u64,
@@ -62,12 +38,10 @@ struct LoggedRequest {
     messages: Vec<ChatMessage>,
 }
 
-
 struct SummaryRecord {
     timestamp: String,
     text: String,
 }
-
 
 struct ParsedSession {
     session_id: String,
@@ -77,7 +51,6 @@ struct ParsedSession {
     tools_by_hash: HashMap<String, Vec<ToolDefinition>>,
     summaries: Vec<SummaryRecord>,
 }
-
 
 fn parse_transcript(path: &Path, session_id: &str) -> Result<ParsedSession> {
     let text = std::fs::read_to_string(path)
@@ -158,9 +131,6 @@ fn parse_transcript(path: &Path, session_id: &str) -> Result<ParsedSession> {
     Ok(ParsedSession { session_id: session_id.to_string(), requests, usage_by_seq, tools_by_hash, summaries })
 }
 
-
-
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum TotalSource {
@@ -169,7 +139,6 @@ pub enum TotalSource {
 
     Estimated,
 }
-
 
 #[derive(Debug, Clone, Serialize)]
 pub struct TurnAttribution {
@@ -183,7 +152,6 @@ pub struct TurnAttribution {
     pub prune_reason: Option<String>,
 }
 
-
 #[derive(Debug, Clone, Serialize)]
 pub struct CompactionInfo {
     pub timestamp: String,
@@ -195,14 +163,12 @@ pub struct CompactionInfo {
     pub dropped_tokens: u64,
 }
 
-
 #[derive(Debug, Clone, Serialize)]
 pub struct ConsumerHint {
     pub label: String,
     pub tokens: u64,
     pub suggestion: String,
 }
-
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ContextAnalysis {
@@ -221,7 +187,6 @@ pub struct ContextAnalysis {
     pub compactions: Vec<CompactionInfo>,
     pub top_consumers: Vec<ConsumerHint>,
 }
-
 
 fn tool_call_label(name: &str, arguments: &str) -> String {
 
@@ -242,7 +207,6 @@ fn tool_call_label(name: &str, arguments: &str) -> String {
     }
 }
 
-
 fn tool_labels(messages: &[ChatMessage]) -> HashMap<String, String> {
     let mut out = HashMap::new();
     for m in messages {
@@ -262,7 +226,6 @@ fn tool_labels(messages: &[ChatMessage]) -> HashMap<String, String> {
 fn analyze(parsed: &ParsedSession) -> ContextAnalysis {
     let latest = parsed.requests.last();
     let model = latest.map(|r| r.model.clone()).unwrap_or_default();
-
 
     let (total_tokens, total_source) = match latest {
         Some(r) => match parsed.usage_by_seq.get(&r.seq) {
@@ -352,7 +315,6 @@ fn analyze(parsed: &ParsedSession) -> ContextAnalysis {
         }
     }
 
-
     let mut compactions: Vec<CompactionInfo> = vec![];
     for s in &parsed.summaries {
         let before = parsed.requests.iter().rev().find(|r| r.timestamp <= s.timestamp);
@@ -372,7 +334,6 @@ fn analyze(parsed: &ParsedSession) -> ContextAnalysis {
             dropped_tokens: tokens_before.saturating_sub(summary_tokens),
         });
     }
-
 
     let mut consumers: Vec<ConsumerHint> = vec![];
     if system_prompt_tokens > 0 {
@@ -423,12 +384,9 @@ fn analyze(parsed: &ParsedSession) -> ContextAnalysis {
     }
 }
 
-
-
 fn pct(part: u64, total: u64) -> f64 {
     if total == 0 { 0.0 } else { part as f64 * 100.0 / total as f64 }
 }
-
 
 pub fn render_text(a: &ContextAnalysis) -> String {
     let mut out = String::new();
@@ -509,9 +467,6 @@ pub fn render_text(a: &ContextAnalysis) -> String {
     out
 }
 
-
-
-
 pub fn resolve_session_path(
     home: Option<&Path>,
     cwd: &Path,
@@ -531,7 +486,6 @@ pub fn resolve_session_path(
     crate::session::latest_session_for_cwd(&home, &encoded)
         .ok_or_else(|| anyhow!("no sessions found for this directory"))
 }
-
 
 pub fn run_context(
     session: Option<&str>,
@@ -568,8 +522,6 @@ pub fn run_context(
     Ok(())
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -587,7 +539,6 @@ mod tests {
     fn msg(role: &str, content: &str) -> Value {
         serde_json::json!({"role": role, "content": content})
     }
-
 
     fn fixture(path: &Path) {
         let tools = serde_json::json!([
@@ -676,7 +627,6 @@ mod tests {
         std::fs::create_dir_all(&d).unwrap();
         let p = d.join("s.jsonl");
         fixture(&p);
-
 
         let r3 = serde_json::json!({
             "type": "request", "v": 1, "seq": 3, "timestamp": "2026-10-17T10:03:00Z",

@@ -1,46 +1,9 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 use serde_json::json;
 use zen_core::*;
 
 use crate::agent::Agent;
 use crate::client::chat_with_fallback;
 use crate::plan;
-
-
 
 pub(crate) fn context_tokens(agent: &Agent) -> u64 {
     if agent.last_prompt_tokens > 0 {
@@ -50,11 +13,9 @@ pub(crate) fn context_tokens(agent: &Agent) -> u64 {
     }
 }
 
-
 pub const TOOL_RESULT_CHARS: usize = 2000;
 
 const SUMMARY_PREFIX: &str = "[Compaction summary of the conversation so far]";
-
 
 fn summarization_prompt(focus: Option<&str>) -> String {
     let mut ask = String::from(
@@ -74,11 +35,6 @@ fn summarization_prompt(focus: Option<&str>) -> String {
     }
     ask
 }
-
-
-
-
-
 
 pub(crate) async fn compact_impl(
     agent: &mut Agent,
@@ -106,15 +62,12 @@ pub(crate) async fn compact_impl(
         return Ok(());
     }
 
-
     let msgs = vec![ChatMessage::user(format!(
         "<transcript>\n{}\n</transcript>\n\n{}",
         serialize_conversation(&agent.messages),
         summarization_prompt(focus)
     ))];
     let files = FileOps::collect(&agent.messages);
-
-
 
     let (resp, _ms, _model) = chat_with_fallback(
         &agent.llm,
@@ -139,7 +92,6 @@ pub(crate) async fn compact_impl(
         agent.model_calls_since_todo = 0;
     }
 
-
     agent.usage.input_tokens += resp.usage.prompt_tokens;
     agent.usage.output_tokens += resp.usage.completion_tokens;
 
@@ -158,7 +110,6 @@ pub(crate) async fn compact_impl(
         pre_tokens,
     });
 
-
     let post = agent
         .hooks
         .run(
@@ -173,7 +124,6 @@ pub(crate) async fn compact_impl(
     Ok(())
 }
 
-
 fn truncate_chars(s: &str, max: usize) -> String {
     let total = s.chars().count();
     if total <= max {
@@ -182,8 +132,6 @@ fn truncate_chars(s: &str, max: usize) -> String {
     let kept: String = s.chars().take(max).collect();
     format!("{kept}\n[… {} more characters truncated]", total - max)
 }
-
-
 
 pub fn serialize_conversation(msgs: &[ChatMessage]) -> String {
     let mut out: Vec<String> = Vec::new();
@@ -212,7 +160,6 @@ pub fn serialize_conversation(msgs: &[ChatMessage]) -> String {
     out.join("\n")
 }
 
-
 #[derive(Debug, Default, PartialEq)]
 pub struct FileOps {
     pub read: std::collections::BTreeSet<String>,
@@ -220,7 +167,6 @@ pub struct FileOps {
 }
 
 impl FileOps {
-
 
     pub fn collect(msgs: &[ChatMessage]) -> Self {
         let mut ops = FileOps::default();
@@ -251,7 +197,6 @@ impl FileOps {
         ops
     }
 
-
     pub fn render(&self) -> String {
         let mut out = String::new();
         for (tag, set) in [("read-files", &self.read), ("modified-files", &self.modified)] {
@@ -263,7 +208,6 @@ impl FileOps {
         out
     }
 }
-
 
 fn block_lines(text: &str, tag: &str) -> Vec<String> {
     let (open, close) = (format!("<{tag}>"), format!("</{tag}>"));

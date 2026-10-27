@@ -1,7 +1,3 @@
-
-
-
-
 mod common;
 
 use common::*;
@@ -16,8 +12,6 @@ fn tool_call(id: &str, name: &str, args: serde_json::Value) -> Reply {
         }])),
     )
 }
-
-
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn r7_snapshot_in_system_prompt_and_stable_across_requests() {
@@ -64,8 +58,6 @@ async fn r7_snapshot_in_system_prompt_and_stable_across_requests() {
     assert!(!system_message(&reqs[0]).contains("Project snapshot"));
 }
 
-
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn r7_verify_command_from_settings_feeds_failure_back() {
     let home = TempDir::new("r7_verify_home");
@@ -92,7 +84,6 @@ async fn r7_verify_command_from_settings_feeds_failure_back() {
     assert_eq!(reqs.len(), 3);
     let last = request_messages_text(&reqs[2]);
     assert!(last.contains("VERIFY-RAN-IN-") && last.contains("exit 1"), "{}", last);
-
 
     let cwd2 = TempDir::new("r7_verify_cwd2");
     let server = MockServer::start(vec![

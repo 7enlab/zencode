@@ -1,6 +1,3 @@
-
-
-
 setup_go_fetchall_bug() {
   printf 'module example.com/pool\n\ngo 1.22\n' > go.mod
   cat > pool.go <<'EOF'
@@ -175,7 +172,6 @@ func FetchAll(ids []int, workers int, f func(int) (string, error)) ([]string, er
 EOF
 }
 
-
 setup_go_semver_bug() {
   printf 'module example.com/semver\n\ngo 1.22\n' > go.mod
   cat > semver.go <<'EOF'
@@ -337,7 +333,6 @@ func cmpInt(a, b int) int {
 open("semver.go", "w").write(s)
 EOF
 }
-
 
 setup_go_rename_config() {
   printf 'module example.com/cfgtool\n\ngo 1.22\n' > go.mod
@@ -521,7 +516,6 @@ func (c *Config) Get(key, def string) string {
 }
 EOF
 }
-
 
 setup_go_todo_json() {
   printf 'module example.com/todo\n\ngo 1.22\n' > go.mod

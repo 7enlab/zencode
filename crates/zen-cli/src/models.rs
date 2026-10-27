@@ -1,20 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
@@ -22,11 +5,6 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use zen_core::{ChatMessage, ChatRequest, ChatResponse, LlmBackend, Usage};
-
-
-
-
-
 
 pub struct CatalogModel {
     pub id: &'static str,
@@ -41,11 +19,6 @@ pub const FREE_MODEL_CATALOG: &[CatalogModel] = &[
     CatalogModel { id: "nvidia/nemotron-3-ultra-550b-a55b:free", provider: "openrouter", context_window: 131_072 },
     CatalogModel { id: "cohere/north-mini-code:free", provider: "openrouter", context_window: 131_072 },
 ];
-
-
-
-
-
 
 struct ProbeTask {
     prompt: &'static str,
@@ -84,8 +57,6 @@ fn check_code_completion(out: &str) -> f64 {
     }
 }
 
-
-
 const PROBE_TASKS: &[ProbeTask] = &[
     ProbeTask { prompt: "Reply with exactly: OK", check: check_exact_ok },
     ProbeTask { prompt: "What is 2+2? Reply with just the number.", check: check_arithmetic },
@@ -95,16 +66,11 @@ const PROBE_TASKS: &[ProbeTask] = &[
     },
 ];
 
-
 pub const PROBE_MAX_TOKENS: u32 = 32;
-
 
 pub const PROBE_TIMEOUT_SECS: u64 = 30;
 
 pub const PROBE_GAP: Duration = Duration::from_secs(1);
-
-
-
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ModelProbe {
@@ -122,7 +88,6 @@ pub struct ModelProbe {
     pub last_error: Option<String>,
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelsCache {
 
@@ -131,7 +96,6 @@ pub struct ModelsCache {
     pub base_url: String,
     pub results: Vec<ModelProbe>,
 }
-
 
 pub const CACHE_STALE_SECS: i64 = 24 * 3600;
 
@@ -157,7 +121,6 @@ pub fn save_cache(home: Option<&Path>, cache: &ModelsCache) -> Result<()> {
     Ok(())
 }
 
-
 pub fn cache_age_secs(cache: &ModelsCache) -> Option<i64> {
     let verified = chrono::DateTime::parse_from_rfc3339(&cache.verified_at).ok()?;
     Some(chrono::Utc::now().signed_duration_since(verified).num_seconds())
@@ -166,11 +129,6 @@ pub fn cache_age_secs(cache: &ModelsCache) -> Option<i64> {
 pub fn cache_is_stale(cache: &ModelsCache) -> bool {
     cache_age_secs(cache).map(|a| a > CACHE_STALE_SECS).unwrap_or(true)
 }
-
-
-
-
-
 
 pub fn aggregate_score(qualities: &[f64], avg_latency_ms: u64) -> f64 {
     if qualities.is_empty() {
@@ -181,22 +139,12 @@ pub fn aggregate_score(qualities: &[f64], avg_latency_ms: u64) -> f64 {
     (mean_q / (1.0 + secs / 30.0)).clamp(0.0, 1.0)
 }
 
-
-
 pub fn best_model(results: &[ModelProbe]) -> Option<&ModelProbe> {
     results
         .iter()
         .filter(|r| r.success)
         .max_by(|a, b| a.score.partial_cmp(&b.score).unwrap_or(Ordering::Equal))
 }
-
-
-
-
-
-
-
-
 
 pub async fn probe_model(
     backend: &dyn LlmBackend,
@@ -250,7 +198,6 @@ pub async fn probe_model(
     }
 }
 
-
 fn short_error(msg: &str) -> String {
     let first_line = msg.lines().next().unwrap_or(msg);
     let mut s: String = first_line.chars().take(120).collect();
@@ -259,11 +206,6 @@ fn short_error(msg: &str) -> String {
     }
     s
 }
-
-
-
-
-
 
 pub struct ProbeClient {
     base_url: String,
@@ -343,20 +285,14 @@ impl LlmBackend for ProbeClient {
     }
 }
 
-
-
-
 pub struct DiscoveredModel {
     pub id: String,
     pub free: bool,
 }
 
-
 fn id_looks_free(id: &str) -> bool {
     id.ends_with(":free")
 }
-
-
 
 pub async fn fetch_models_list(base_url: &str, api_key: Option<&str>) -> Vec<DiscoveredModel> {
     let url = format!("{}/models", base_url.trim_end_matches('/'));
@@ -392,7 +328,6 @@ pub async fn fetch_models_list(base_url: &str, api_key: Option<&str>) -> Vec<Dis
         .collect()
 }
 
-
 fn body_pointer_free(body: &serde_json::Value, id: &str) -> bool {
     let entry = body
         .get("data")
@@ -407,15 +342,12 @@ fn body_pointer_free(body: &serde_json::Value, id: &str) -> bool {
         && pricing.get("completion").map(zero).unwrap_or(false)
 }
 
-
 pub struct Candidate {
     pub id: String,
     pub provider: String,
     pub context_window: Option<u32>,
     pub free: bool,
 }
-
-
 
 pub fn merge_candidates(catalog: &[CatalogModel], discovered: &[DiscoveredModel]) -> Vec<Candidate> {
     let mut out: Vec<Candidate> = catalog
@@ -432,7 +364,6 @@ pub fn merge_candidates(catalog: &[CatalogModel], discovered: &[DiscoveredModel]
             continue;
         }
 
-
         if d.free {
             out.push(Candidate {
                 id: d.id.clone(),
@@ -444,9 +375,6 @@ pub fn merge_candidates(catalog: &[CatalogModel], discovered: &[DiscoveredModel]
     }
     out
 }
-
-
-
 
 pub async fn models_command(
     cli: &crate::cli::Cli,
@@ -603,14 +531,11 @@ fn truncate(s: &str, max: usize) -> String {
     }
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::collections::VecDeque;
     use std::sync::Mutex;
-
 
     struct MockBackend {
         queue: Mutex<VecDeque<anyhow::Result<String>>>,
@@ -769,7 +694,6 @@ mod tests {
         };
         assert!(cache_is_stale(&old));
         assert!(cache_age_secs(&old).unwrap() > CACHE_STALE_SECS);
-
 
         std::fs::write(dir.join(".zen").join("models-cache.json"), "not json").unwrap();
         assert!(load_cache(Some(&dir)).is_none());

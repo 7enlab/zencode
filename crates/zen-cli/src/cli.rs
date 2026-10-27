@@ -1,14 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 
@@ -63,8 +52,6 @@ impl PermissionMode {
     }
 }
 
-
-
 fn parse_tool_bundle(s: &str) -> Result<zen_agent::ToolBundle, String> {
     s.parse::<zen_agent::ToolBundle>()
 }
@@ -95,7 +82,6 @@ impl std::fmt::Display for PermissionMode {
     }
 }
 
-
 fn parse_autocompact(s: &str) -> Result<String, String> {
     match s {
         "auto" | "off" => Ok(s.to_string()),
@@ -103,7 +89,6 @@ fn parse_autocompact(s: &str) -> Result<String, String> {
         _ => Err(format!("invalid --autocompact '{}': use auto, off or a token count", s)),
     }
 }
-
 
 fn parse_session_uuid(s: &str) -> Result<String, String> {
     uuid::Uuid::parse_str(s.trim())
@@ -118,232 +103,155 @@ pub struct Cli {
     #[arg(short = 'p', long = "print")]
     pub print: bool,
 
-
     #[arg(long = "acp")]
     pub acp: bool,
-
 
     #[arg(long = "output-format", value_enum, default_value_t = OutputFormat::Text)]
     pub output_format: OutputFormat,
 
-
     #[arg(long = "input-format", value_enum, default_value_t = InputFormat::Text)]
     pub input_format: InputFormat,
-
-
-
-
-
 
     #[arg(long = "include-partial-messages")]
     pub include_partial_messages: bool,
 
-
     #[arg(long = "verbose")]
     pub verbose: bool,
-
 
     #[arg(short = 'c', long = "continue")]
     pub continue_session: bool,
 
-
     #[arg(short = 'r', long = "resume", num_args = 0..=1, default_missing_value = "")]
     pub resume: Option<String>,
-
-
 
     #[arg(long = "autocompact", value_parser = parse_autocompact)]
     pub autocompact: Option<String>,
 
-
-
     #[arg(long = "prune", overrides_with = "no_prune")]
     pub prune: bool,
-
 
     #[arg(long = "no-prune", overrides_with = "prune")]
     pub no_prune: bool,
 
-
     #[arg(long = "prune-after")]
     pub prune_after: Option<usize>,
-
 
     #[arg(long = "max-result-tokens")]
     pub max_result_tokens: Option<u64>,
 
-
     #[arg(long = "session-id", value_parser = parse_session_uuid)]
     pub session_id: Option<String>,
-
 
     #[arg(long = "fork-session")]
     pub fork_session: bool,
 
-
     #[arg(long = "no-session-persistence")]
     pub no_session_persistence: bool,
-
-
-
 
     #[arg(long)]
     pub ephemeral: bool,
 
-
     #[arg(long = "model")]
     pub model: Option<String>,
-
-
 
     #[arg(long = "btw-model")]
     pub btw_model: Option<String>,
 
-
     #[arg(long = "base-url")]
     pub base_url: Option<String>,
-
-
 
     #[arg(long = "provider")]
     pub provider: Option<String>,
 
-
     #[arg(long = "permission-mode", value_parser = parse_permission_mode_flag)]
     pub permission_mode: Option<PermissionMode>,
-
 
     #[arg(long = "allowedTools", visible_alias = "allowed-tools", num_args = 1..)]
     pub allowed_tools: Vec<String>,
 
-
     #[arg(long = "disallowedTools", visible_alias = "disallowed-tools", num_args = 1..)]
     pub disallowed_tools: Vec<String>,
-
-
 
     #[arg(long = "tools", allow_hyphen_values = true)]
     pub tools: Option<String>,
 
-
     #[arg(long = "system-prompt")]
     pub system_prompt: Option<String>,
-
 
     #[arg(long = "append-system-prompt")]
     pub append_system_prompt: Option<String>,
 
-
     #[arg(long = "add-dir", num_args = 1..)]
     pub add_dir: Vec<PathBuf>,
-
 
     #[arg(long = "mcp-config", num_args = 1..)]
     pub mcp_config: Vec<String>,
 
-
     #[arg(long = "strict-mcp-config")]
     pub strict_mcp_config: bool,
-
 
     #[arg(long = "settings")]
     pub settings: Option<String>,
 
-
     #[arg(long = "setting-sources")]
     pub setting_sources: Option<String>,
-
 
     #[arg(long = "agents")]
     pub agents: Option<String>,
 
-
     #[arg(long = "agent")]
     pub agent: Option<String>,
-
 
     #[arg(long = "max-turns")]
     pub max_turns: Option<usize>,
 
-
-
-
     #[arg(long = "max-budget-usd")]
     pub max_budget_usd: Option<f64>,
-
-
 
     #[arg(long = "budget-warn-at")]
     pub budget_warn_at: Option<f64>,
 
-
-
     #[arg(long = "until")]
     pub until: Option<String>,
-
 
     #[arg(long = "max-verify-retries", default_value_t = 3)]
     pub max_verify_retries: usize,
 
-
     #[arg(long = "plan")]
     pub plan: bool,
-
 
     #[arg(short = 'y', long = "yes")]
     pub yes: bool,
 
-
     #[arg(long = "bare")]
     pub bare: bool,
-
-
 
     #[arg(long = "terse")]
     pub terse: bool,
 
-
     #[arg(long = "max-output-tokens")]
     pub max_output_tokens: Option<u32>,
-
-
 
     #[arg(long = "repomap-budget", default_value_t = crate::repomap::DEFAULT_MAP_TOKENS)]
     pub map_tokens: usize,
 
-
-
     #[arg(long = "trust-folder")]
     pub trust_folder: bool,
-
-
-
 
     #[arg(long = "i-understand-the-risks")]
     pub i_understand_the_risks: bool,
 
-
-
-
-
     #[arg(long = "tool-bundle", value_parser = parse_tool_bundle)]
     pub tool_bundle: Option<zen_agent::ToolBundle>,
 
-
-
     #[arg(long = "style", value_name = "STYLE")]
     pub style: Option<String>,
-
-
-
 
     #[arg(long = "json-schema", value_name = "FILE")]
     pub json_schema: Option<std::path::PathBuf>,
 
     #[command(subcommand)]
     pub subcommand: Option<Commands>,
-
-
 
     pub prompt: Vec<String>,
 }
@@ -416,15 +324,12 @@ pub struct CostArgs {
     pub output_format: OutputFormat,
 }
 
-
 #[derive(Args, Debug, Clone)]
 pub struct ContextArgs {
 
     #[arg(long = "session")]
     pub session: Option<String>,
 }
-
-
 
 #[derive(Args, Debug, Clone)]
 pub struct ExportArgs {
@@ -442,13 +347,11 @@ pub struct ExportArgs {
     pub redact: bool,
 }
 
-
 #[derive(Args, Debug, Clone)]
 pub struct ImportArgs {
 
     pub file: PathBuf,
 }
-
 
 #[derive(Args, Debug, Clone)]
 pub struct SessionsArgs {
@@ -483,7 +386,6 @@ pub enum SessionSubcommand {
         id: String,
     },
 }
-
 
 #[derive(Args, Debug, Clone)]
 pub struct EvalArgs {
@@ -637,8 +539,6 @@ pub struct ReviewArgs {
     #[arg(long, default_value_t = 100_000)]
     pub max_diff_bytes: usize,
 }
-
-
 
 #[cfg(test)]
 mod tests {
@@ -957,7 +857,6 @@ mod tests {
         let cli = parse(&["--prune-after", "3", "--max-result-tokens", "4000"]);
         assert_eq!(cli.prune_after, Some(3));
         assert_eq!(cli.max_result_tokens, Some(4000));
-
 
         let cli = parse(&["--prune", "--no-prune"]);
         assert!(cli.no_prune);

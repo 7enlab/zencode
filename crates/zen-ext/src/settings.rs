@@ -1,9 +1,6 @@
-
-
 use serde_json::{Map, Value};
 use std::path::{Path, PathBuf};
 use zen_core::Settings;
-
 
 #[derive(Debug, Clone)]
 pub struct LoadedSettings {
@@ -17,7 +14,6 @@ pub struct LoadedSettings {
 
     pub skipped: Vec<String>,
 }
-
 
 pub fn merge_json(base: Value, over: Value) -> Value {
     match (base, over) {
@@ -47,8 +43,6 @@ pub fn merge_json(base: Value, over: Value) -> Value {
     }
 }
 
-
-
 fn is_enabled(sources: Option<&[String]>, name: &str) -> bool {
     if matches!(name, "cli" | "managed") {
         return true;
@@ -62,12 +56,9 @@ fn single(key: &str, value: Value) -> Value {
     Value::Object(m)
 }
 
-
 fn fragment_ok(v: &Value) -> bool {
     serde_json::from_value::<Settings>(v.clone()).is_ok()
 }
-
-
 
 fn filter_array(
     items: Vec<Value>,
@@ -90,8 +81,6 @@ fn filter_array(
     }
     Some(Value::Array(kept))
 }
-
-
 
 fn sanitize_layer(layer: Value, label: &str, warnings: &mut Vec<String>) -> Value {
     let Value::Object(map) = layer else { return layer };
@@ -206,17 +195,6 @@ fn load_file_layer_bypass(
     }
 }
 
-
-
-
-
-
-
-
-
-
-
-
 fn load_hooks_file(
     path: &Path,
     label: &str,
@@ -252,8 +230,6 @@ fn load_hooks_file(
         }
     };
 
-
-
     let mut wrapper = Map::new();
     wrapper.insert("hooks".to_string(), hooks);
     *merged = merge_json(merged.clone(), Value::Object(wrapper));
@@ -287,7 +263,6 @@ fn load_cli_layer(
     if trimmed.is_empty() {
         return;
     }
-
 
     let path = PathBuf::from(trimmed);
     let candidate = if path.is_absolute() {
@@ -334,10 +309,6 @@ fn load_managed_layer(
     load_file_layer(&path, "managed", merged, sources, warnings, bypass_forbidden);
 }
 
-
-
-
-
 pub fn load_settings(
     cwd: &Path,
     home: Option<&Path>,
@@ -348,10 +319,6 @@ pub fn load_settings(
     let managed_path = std::env::var_os("ZEN_MANAGED_SETTINGS").map(PathBuf::from);
     load_settings_impl(cwd, home_dir.as_deref(), cli_settings, sources, managed_path.as_deref(), true)
 }
-
-
-
-
 
 pub fn load_settings_trust(
     cwd: &Path,
@@ -364,7 +331,6 @@ pub fn load_settings_trust(
     let managed_path = std::env::var_os("ZEN_MANAGED_SETTINGS").map(PathBuf::from);
     load_settings_impl(cwd, home_dir.as_deref(), cli_settings, sources, managed_path.as_deref(), trusted)
 }
-
 
 pub fn load_settings_with_managed(
     cwd: &Path,
@@ -390,7 +356,6 @@ fn load_settings_impl(
     let mut warnings = Vec::new();
     let mut bypass_forbidden = false;
 
-
     if is_enabled(sources, "user") {
         if let Some(home) = home {
             let path = home.join(".zen").join("settings.json");
@@ -400,14 +365,12 @@ fn load_settings_impl(
         }
     }
 
-
     if is_enabled(sources, "project") {
         let path = cwd.join(".zen").join("settings.json");
         load_file_layer_bypass(&path, "project", &mut merged, &mut loaded_sources, &mut warnings, trusted, &mut skipped);
         let hooks_path = cwd.join(".zen").join("hooks.json");
         load_hooks_file(&hooks_path, "project-hooks", &mut merged, &mut loaded_sources, &mut warnings, trusted, &mut skipped);
     }
-
 
     if is_enabled(sources, "local") {
         let path = cwd.join(".zen").join("settings.local.json");
@@ -416,16 +379,13 @@ fn load_settings_impl(
         load_hooks_file(&hooks_path, "local-hooks", &mut merged, &mut loaded_sources, &mut warnings, trusted, &mut skipped);
     }
 
-
     if is_enabled(sources, "cli") {
         load_cli_layer(cli_settings, cwd, &mut merged, &mut loaded_sources, &mut warnings, &mut bypass_forbidden);
     }
 
-
     if is_enabled(sources, "managed") {
         load_managed_layer(&mut merged, &mut loaded_sources, &mut warnings, managed_path, &mut bypass_forbidden);
     }
-
 
     let settings = match serde_json::from_value::<Settings>(merged) {
         Ok(s) => s,
@@ -490,31 +450,26 @@ mod tests {
         fs::create_dir_all(home.join(".zen")).unwrap();
         fs::create_dir_all(proj.join(".zen")).unwrap();
 
-
         fs::write(
             home.join(".zen/settings.json"),
             r#"{"model": "user-model", "fallbackModels": ["a", "b"], "env": {"A": "user", "B": "user"}, "permissions": {"allow": ["Read"]}, "maxTurns": 5}"#,
         ).unwrap();
-
 
         fs::write(
             proj.join(".zen/settings.json"),
             r#"{"model": "project-model", "fallbackModels": ["b", "c"], "env": {"A": "project"}, "permissions": {"allow": ["Edit"], "defaultMode": "plan"}}"#,
         ).unwrap();
 
-
         fs::write(
             proj.join(".zen/settings.local.json"),
             r#"{"baseUrl": "local-url", "maxTurns": 10}"#,
         ).unwrap();
-
 
         let cli_file = tmp.path().join("cli.json");
         fs::write(
             &cli_file,
             r#"{"model": "cli-model", "permissions": {"allow": ["Write"]}}"#,
         ).unwrap();
-
 
         let managed_file = tmp.path().join("managed.json");
         fs::write(
@@ -552,7 +507,6 @@ mod tests {
 
         fs::write(home.join(".zen/settings.json"), r#"{"model": "user-model"}"#).unwrap();
         fs::write(proj.join(".zen/settings.json"), r#"{"model": "project-model"}"#).unwrap();
-
 
         let loaded = load_settings(
             &proj,
@@ -862,11 +816,9 @@ mod tests {
         )
         .unwrap();
 
-
         let tr = load_settings_with_trust_for_test(&proj, &home, true);
         assert_eq!(hooks_json_hook_names(&tr.settings), vec!["PreToolUse"]);
         assert!(tr.skipped.is_empty());
-
 
         let un = load_settings_with_trust_for_test(&proj, &home, false);
         assert!(hooks_json_hook_names(&un.settings).is_empty());
@@ -947,7 +899,6 @@ mod tests {
             r#"{"PostToolUse": [{"matcher": "Bash", "hooks": []}]}"#,
         )
         .unwrap();
-
 
         let loaded = load_settings_impl(
             &proj,

@@ -1,17 +1,5 @@
-
-
-
-
-
-
-
-
-
-
-
 use std::path::{Path, PathBuf};
 use zen_core::SkillInfo;
-
 
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Frontmatter {
@@ -21,7 +9,6 @@ pub struct Frontmatter {
     pub disable_model_invocation: bool,
     pub extra: std::collections::HashMap<String, String>,
 }
-
 
 pub fn split_frontmatter(content: &str) -> (Option<Frontmatter>, String) {
     let mut lines = content.lines();
@@ -137,9 +124,6 @@ fn unquote(s: &str) -> String {
     t.trim().to_string()
 }
 
-
-
-
 pub fn discover_skills(cwd: &Path, home: Option<&Path>) -> Vec<SkillInfo> {
     discover_skill_entries(cwd, home)
         .into_iter()
@@ -147,8 +131,6 @@ pub fn discover_skills(cwd: &Path, home: Option<&Path>) -> Vec<SkillInfo> {
         .map(|(info, _)| info)
         .collect()
 }
-
-
 
 pub fn discover_skill_entries(cwd: &Path, home: Option<&Path>) -> Vec<(SkillInfo, Frontmatter)> {
     let home_dir = home.map(|p| p.to_path_buf()).or_else(dirs::home_dir);
@@ -192,11 +174,9 @@ fn scan_skill_dir(root: &Path) -> Vec<(SkillInfo, Frontmatter)> {
     out
 }
 
-
 pub fn load_skill(dir: &Path) -> Option<SkillInfo> {
     load_skill_entry(dir).map(|(info, _)| info)
 }
-
 
 pub fn load_skill_entry(dir: &Path) -> Option<(SkillInfo, Frontmatter)> {
     let path = dir.join("SKILL.md");
@@ -212,7 +192,6 @@ pub fn load_skill_entry(dir: &Path) -> Option<(SkillInfo, Frontmatter)> {
     if name.is_empty() {
         return None;
     }
-
 
     let description = fm
         .description
@@ -230,7 +209,6 @@ pub fn load_skill_entry(dir: &Path) -> Option<(SkillInfo, Frontmatter)> {
     Some((info, fm))
 }
 
-
 pub fn skills_prompt(skills: &[SkillInfo]) -> String {
     if skills.is_empty() {
         return String::new();
@@ -242,12 +220,9 @@ pub fn skills_prompt(skills: &[SkillInfo]) -> String {
     out.trim_end().to_string()
 }
 
-
-
 use async_trait::async_trait;
 use serde_json::Value;
 use zen_core::{Tool, ToolContext, ToolOutput};
-
 
 pub struct SkillTool {
     pub skills: Vec<SkillInfo>,

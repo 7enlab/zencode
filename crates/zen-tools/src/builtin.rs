@@ -1,33 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 use crate::gitignore::{is_ignored, load_ignore_rules};
 use async_trait::async_trait;
 use regex::Regex;
@@ -39,7 +9,6 @@ use tokio::io::AsyncReadExt;
 use crate::edit_match::apply_edit;
 use zen_core::{Tool, ToolContext, ToolOutput, TodoItem};
 
-
 pub const BASH_MAX_CHARS: usize = 30_000;
 
 pub const BASH_DEFAULT_TIMEOUT_MS: u64 = 120_000;
@@ -47,8 +16,6 @@ pub const BASH_DEFAULT_TIMEOUT_MS: u64 = 120_000;
 pub const READ_DEFAULT_LIMIT: usize = 2000;
 
 pub const READ_MAX_LINE_CHARS: usize = 2000;
-
-
 
 fn detect_binary_kind(bytes: &[u8]) -> &'static str {
     if bytes.len() >= 8 && &bytes[0..8] == b"\x89PNG\r\n\x1a\n" {
@@ -76,11 +43,6 @@ fn detect_binary_kind(bytes: &[u8]) -> &'static str {
     }
 }
 
-
-
-
-
-
 pub fn expand_tilde(input: &str) -> PathBuf {
     if input == "~" {
         return dirs::home_dir().unwrap_or_else(|| PathBuf::from("~"));
@@ -93,7 +55,6 @@ pub fn expand_tilde(input: &str) -> PathBuf {
     PathBuf::from(input)
 }
 
-
 pub fn resolve_path(cwd: &Path, input: &str) -> PathBuf {
     let expanded = expand_tilde(input);
     if expanded.is_absolute() {
@@ -103,14 +64,10 @@ pub fn resolve_path(cwd: &Path, input: &str) -> PathBuf {
     }
 }
 
-
 pub fn canonicalize_lenient(p: &Path) -> PathBuf {
     if let Ok(c) = std::fs::canonicalize(p) {
         return c;
     }
-
-
-
 
     let mut existing: &Path = p;
     let mut rest: Vec<std::ffi::OsString> = Vec::new();
@@ -138,7 +95,6 @@ pub fn canonicalize_lenient(p: &Path) -> PathBuf {
     lexical_normalize(&out)
 }
 
-
 fn lexical_normalize(p: &Path) -> PathBuf {
     let mut out = PathBuf::new();
     for comp in p.components() {
@@ -163,7 +119,6 @@ fn missing(key: &str) -> ToolOutput {
     ToolOutput::err(format!("Error: missing required parameter '{}'", key))
 }
 
-
 pub fn truncate_middle(s: &str, max_chars: usize) -> String {
     let count = s.chars().count();
     if count <= max_chars {
@@ -181,7 +136,6 @@ pub fn truncate_middle(s: &str, max_chars: usize) -> String {
     )
 }
 
-
 fn safe_file_stem(id: &str) -> String {
     let s: String = id
         .chars()
@@ -195,7 +149,6 @@ fn safe_file_stem(id: &str) -> String {
     }
 }
 
-
 fn fresh_stem() -> String {
     use std::sync::atomic::{AtomicU64, Ordering};
     static N: AtomicU64 = AtomicU64::new(0);
@@ -205,12 +158,6 @@ fn fresh_stem() -> String {
         .unwrap_or(0);
     format!("out-{}-{}-{}", std::process::id(), nanos, N.fetch_add(1, Ordering::Relaxed))
 }
-
-
-
-
-
-
 
 pub fn spill_output(text: &str, max_chars: usize, ctx: &ToolContext) -> String {
     let count = text.chars().count();
@@ -250,9 +197,6 @@ pub fn spill_output(text: &str, max_chars: usize, ctx: &ToolContext) -> String {
         tail
     )
 }
-
-
-
 
 pub struct ReadTool;
 
@@ -344,9 +288,6 @@ impl Tool for ReadTool {
     }
 }
 
-
-
-
 pub struct WriteTool;
 
 #[async_trait]
@@ -418,9 +359,6 @@ impl Tool for WriteTool {
     }
 }
 
-
-
-
 pub struct EditTool;
 
 #[async_trait]
@@ -483,14 +421,12 @@ impl Tool for EditTool {
     }
 }
 
-
 fn content_stamp(bytes: &[u8]) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
     bytes.hash(&mut h);
     h.finish()
 }
-
 
 fn check_fresh(ctx: &ToolContext, path: &Path, current: &[u8]) -> Result<(), ToolOutput> {
     let seen = ctx.read_files.lock().unwrap().get(path).copied();
@@ -502,7 +438,6 @@ fn check_fresh(ctx: &ToolContext, path: &Path, current: &[u8]) -> Result<(), Too
         _ => Ok(()),
     }
 }
-
 
 async fn load_for_edit(ctx: &ToolContext, fp: &str) -> Result<(PathBuf, String), ToolOutput> {
     let path = canonicalize_lenient(&resolve_path(&ctx.cwd(), fp));
@@ -523,7 +458,6 @@ async fn load_for_edit(ctx: &ToolContext, fp: &str) -> Result<(PathBuf, String),
     Ok((path, text))
 }
 
-
 async fn save_edit(ctx: &ToolContext, path: &Path, old: &str, text: &str) -> Result<Option<String>, ToolOutput> {
     if let Err(msg) = crate::syntax_guard::guard_write(path, Some(old), text).await {
         return Err(ToolOutput::err(msg));
@@ -541,11 +475,9 @@ async fn save_edit(ctx: &ToolContext, path: &Path, old: &str, text: &str) -> Res
     })
 }
 
-
 fn checkpoint_before(ctx: &ToolContext, path: &Path) -> Option<String> {
     ctx.checkpoints.as_ref().and_then(|c| c.before_write(path))
 }
-
 
 fn checkpoint_after(ctx: &ToolContext, path: &Path, content: &[u8]) {
     if let Some(c) = &ctx.checkpoints {
@@ -560,9 +492,6 @@ fn with_warning(mut msg: String, warning: Option<String>) -> String {
     }
     msg
 }
-
-
-
 
 pub struct MultiEditTool;
 
@@ -654,7 +583,6 @@ impl Tool for MultiEditTool {
     }
 }
 
-
 fn snippet_around(text: &str, needle: &str) -> String {
     let Some(pos) = text.find(needle) else { return String::new() };
     let start = text[..pos].rfind('\n').map(|i| i + 1).unwrap_or(0);
@@ -666,9 +594,6 @@ fn snippet_around(text: &str, needle: &str) -> String {
     }
     text[start..end.min(text.len())].to_string()
 }
-
-
-
 
 pub struct BashTool;
 
@@ -709,7 +634,6 @@ impl Tool for BashTool {
         let background = flag("background") || flag("run_in_background");
         let cwd = ctx.cwd();
 
-
         let shell = zen_core::resolve_shell("bash");
         if background {
 
@@ -726,11 +650,7 @@ impl Tool for BashTool {
             };
         }
 
-
-
-
         let marker = "__ZEN_PWD_8f3a__";
-
 
         let wrapped = match shell.kind {
             zen_core::ShellKind::Posix => format!(
@@ -784,7 +704,6 @@ impl Tool for BashTool {
                 };
                 let mut combined = String::from_utf8_lossy(&out_bytes).to_string();
 
-
                 if let Some(pos) = combined.rfind(&marker) {
                     let after = &combined[pos + marker.len()..];
                     let (new_pwd, rest) = match after.find('\n') {
@@ -813,9 +732,6 @@ impl Tool for BashTool {
         }
     }
 }
-
-
-
 
 pub struct GlobTool;
 
@@ -872,7 +788,6 @@ impl Tool for GlobTool {
 
 type Matches = Vec<(PathBuf, std::time::SystemTime)>;
 
-
 fn glob_paths(
     base: &Path,
     matcher: &globset::GlobMatcher,
@@ -914,9 +829,6 @@ fn glob_paths(
     out.truncate(cap);
     out
 }
-
-
-
 
 pub struct GrepTool;
 
@@ -985,13 +897,10 @@ impl Tool for GrepTool {
             ));
         }
 
-
-
         let (pattern, literal_note) = match regex::Regex::new(pattern) {
             Ok(_) => (pattern.to_string(), None),
             Err(e) => (regex::escape(pattern), Some(literal_fallback_note(pattern, &e.to_string()))),
         };
-
 
         let with_note = |s: String| -> ToolOutput {
             match &literal_note {
@@ -1030,7 +939,6 @@ impl Tool for GrepTool {
         ))
     }
 }
-
 
 fn literal_fallback_note(pattern: &str, err: &str) -> String {
     let first = err.lines().rev().find(|l| l.trim_start().starts_with("error:")).unwrap_or("").trim();
@@ -1129,7 +1037,6 @@ async fn run_rg(
     Ok(truncate_lines(&normalize_paths(&stdout, target, cwd), head_limit))
 }
 
-
 fn normalize_paths(text: &str, target: &Path, cwd: &Path) -> String {
     if !target.is_absolute() {
         return text.to_string();
@@ -1166,8 +1073,6 @@ fn truncate_lines(text: &str, head_limit: usize) -> String {
     ));
     out
 }
-
-
 
 #[allow(clippy::too_many_arguments)]
 pub fn search_builtin(
@@ -1283,9 +1188,6 @@ pub fn search_builtin(
     text
 }
 
-
-
-
 pub struct WebFetchTool;
 
 #[async_trait]
@@ -1389,7 +1291,6 @@ impl Tool for WebFetchTool {
     }
 }
 
-
 pub const WEBFETCH_MAX_BYTES: usize = 5 * 1024 * 1024;
 
 pub const WEBFETCH_MAX_CHARS: usize = 100_000;
@@ -1401,7 +1302,6 @@ fn upgrade_scheme(url: &str) -> String {
     }
     t.to_string()
 }
-
 
 fn is_public_ip(ip: std::net::IpAddr) -> bool {
     use std::net::IpAddr;
@@ -1432,7 +1332,6 @@ fn is_public_ip(ip: std::net::IpAddr) -> bool {
     }
 }
 
-
 fn url_host_port(url: &str) -> (String, u16) {
     let default_port = if url.starts_with("https://") { 443 } else { 80 };
     let after_scheme = url.split("://").nth(1).unwrap_or(url);
@@ -1454,7 +1353,6 @@ fn url_host_port(url: &str) -> (String, u16) {
     }
 }
 
-
 fn join_redirect_url(base: &str, loc: &str) -> Result<String, String> {
     let base_url = reqwest::Url::parse(base)
         .map_err(|e| format!("Error: cannot parse URL '{}': {}", base, e))?;
@@ -1463,9 +1361,6 @@ fn join_redirect_url(base: &str, loc: &str) -> Result<String, String> {
         .map(|u| u.to_string())
         .map_err(|e| format!("Error: bad redirect target '{}': {}", loc, e))
 }
-
-
-
 
 async fn check_fetch_target(url: &str, allow_private: bool) -> Result<(), String> {
     if allow_private {
@@ -1525,7 +1420,6 @@ async fn read_capped(resp: reqwest::Response, cap: usize) -> anyhow::Result<Vec<
     Ok(buf)
 }
 
-
 fn with_extra_roots(mut b: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
     if let Some(pem) = zen_core::extra_root_pem() {
         if let Ok(certs) = reqwest::Certificate::from_pem_bundle(&pem) {
@@ -1560,7 +1454,6 @@ fn decode_entities(s: &str) -> String {
         .replace("&#39;", "'")
         .replace("&apos;", "'")
 }
-
 
 pub fn html_to_text(html: &str) -> String {
     let mut s = html.to_string();
@@ -1597,9 +1490,6 @@ pub fn html_to_text(html: &str) -> String {
     }
     out.trim().to_string()
 }
-
-
-
 
 pub struct TodoWriteTool;
 
@@ -1674,7 +1564,6 @@ impl Tool for TodoWriteTool {
     }
 }
 
-
 pub fn render_todos(items: &[TodoItem]) -> String {
     if items.is_empty() {
         return "Todo list cleared (0 items).".to_string();
@@ -1700,9 +1589,6 @@ pub fn render_todos(items: &[TodoItem]) -> String {
     ));
     out
 }
-
-
-
 
 pub fn builtin_tools() -> Vec<std::sync::Arc<dyn Tool>> {
     vec![
@@ -1750,8 +1636,6 @@ mod tests {
         ToolContext::new(dir.to_path_buf(), "test-session")
     }
 
-
-
     #[tokio::test]
     async fn read_numbers_lines_and_pages() {
         let dir = tmpdir("read");
@@ -1768,7 +1652,6 @@ mod tests {
         assert!(!out.content.contains("alpha"));
         assert!(!out.content.contains("delta"));
 
-
         let canonical = canonicalize_lenient(&file);
         assert!(ctx.read_files.lock().unwrap().contains_key(&canonical));
 
@@ -1777,8 +1660,6 @@ mod tests {
         assert!(err.content.contains("missing.txt"));
         let _ = std::fs::remove_dir_all(&dir);
     }
-
-
 
     #[tokio::test]
     async fn write_requires_prior_read_for_existing_file() {
@@ -1792,12 +1673,10 @@ mod tests {
         assert!(denied.content.contains("has not been read"), "{}", denied.content);
         assert_eq!(std::fs::read_to_string(&existing).unwrap(), "old");
 
-
         ReadTool.call(json!({"file_path": "e.txt"}), &ctx).await;
         let ok = WriteTool.call(json!({"file_path": "e.txt", "content": "new"}), &ctx).await;
         assert!(!ok.is_error, "{}", ok.content);
         assert_eq!(std::fs::read_to_string(&existing).unwrap(), "new");
-
 
         let created = WriteTool
             .call(json!({"file_path": "deep/nested/f.txt", "content": "hi"}), &ctx)
@@ -1807,8 +1686,6 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-
-
     #[tokio::test]
     async fn edit_unique_replace_all_and_not_found() {
         let dir = tmpdir("edit");
@@ -1817,20 +1694,17 @@ mod tests {
         let ctx = ctx_for(&dir);
         ReadTool.call(json!({"file_path": "c.txt"}), &ctx).await;
 
-
         let nf = EditTool
             .call(json!({"file_path": "c.txt", "old_string": "zzz", "new_string": "x"}), &ctx)
             .await;
         assert!(nf.is_error);
         assert!(nf.content.contains("not found"), "{}", nf.content);
 
-
         let amb = EditTool
             .call(json!({"file_path": "c.txt", "old_string": "one", "new_string": "ONE"}), &ctx)
             .await;
         assert!(amb.is_error);
         assert!(amb.content.contains("occurs 2 times"), "{}", amb.content);
-
 
         let all = EditTool
             .call(
@@ -1841,13 +1715,11 @@ mod tests {
         assert!(!all.is_error, "{}", all.content);
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "ONE\ntwo\nONE\n");
 
-
         let one = EditTool
             .call(json!({"file_path": "c.txt", "old_string": "two", "new_string": "TWO"}), &ctx)
             .await;
         assert!(!one.is_error, "{}", one.content);
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "ONE\nTWO\nONE\n");
-
 
         let same = EditTool
             .call(json!({"file_path": "c.txt", "old_string": "TWO", "new_string": "TWO"}), &ctx)
@@ -1868,8 +1740,6 @@ mod tests {
         assert!(out.content.contains("has not been read"), "{}", out.content);
         let _ = std::fs::remove_dir_all(&dir);
     }
-
-
 
     #[tokio::test]
     async fn bash_reports_exit_code_and_combines_output() {
@@ -1956,8 +1826,6 @@ mod tests {
         assert_eq!(truncate_middle("short", 100), "short");
     }
 
-
-
     #[tokio::test]
     async fn glob_sorts_by_mtime_desc_and_skips_ignored() {
         let dir = tmpdir("glob");
@@ -1979,8 +1847,6 @@ mod tests {
         assert_eq!(lines, vec!["new.rs", "old.rs"], "got: {}", out.content);
         let _ = std::fs::remove_dir_all(&dir);
     }
-
-
 
     #[tokio::test]
     async fn grep_three_modes_builtin_walker() {
@@ -2014,7 +1880,6 @@ mod tests {
         assert!(counts.contains("src/a.rs:1"), "{}", counts);
         assert!(counts.contains("src/c.txt:1"), "{}", counts);
 
-
         let ci = GrepTool
             .call(json!({"pattern": "ALPHA", "-i": true, "glob": "*.rs"}), &ctx)
             .await;
@@ -2039,8 +1904,6 @@ mod tests {
         assert!(out.is_error);
         let _ = std::fs::remove_dir_all(&dir);
     }
-
-
 
     #[test]
     fn html_to_text_strips_markup_and_scripts() {
@@ -2068,8 +1931,6 @@ mod tests {
         assert_eq!(truncate_chars("abc", 10), "abc");
     }
 
-
-
     #[tokio::test]
     async fn todo_write_replaces_list_and_renders() {
         let dir = tmpdir("todo");
@@ -2091,7 +1952,6 @@ mod tests {
         assert!(out.content.contains("1 of 3 done"), "{}", out.content);
         assert_eq!(ctx.todos.lock().unwrap().len(), 3);
 
-
         TodoWriteTool
             .call(json!({"todos": [{"content": "only", "status": "pending"}]}), &ctx)
             .await;
@@ -2104,8 +1964,6 @@ mod tests {
         assert!(bad.is_error);
         let _ = std::fs::remove_dir_all(&dir);
     }
-
-
 
     #[test]
     fn builtin_tools_cover_the_spec_list() {
@@ -2124,8 +1982,6 @@ mod tests {
         assert!(!readonly("Write") && !readonly("Edit") && !readonly("MultiEdit") && !readonly("Bash") && !readonly("WebFetch"));
     }
 
-
-
     #[tokio::test]
     async fn r7_edit_and_write_refuse_a_file_changed_since_read() {
         let dir = tmpdir("stale");
@@ -2142,7 +1998,6 @@ mod tests {
         let w = WriteTool.call(json!({"file_path": "s.txt", "content": "x"}), &ctx).await;
         assert!(w.is_error && w.content.contains("changed on disk"), "{}", w.content);
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "hello world\n");
-
 
         ReadTool.call(json!({"file_path": "s.txt"}), &ctx).await;
         for (o, n) in [("hello", "bye"), ("world", "moon")] {
@@ -2220,8 +2075,6 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "const a = 10;\nconst bb = 2;\nconst c = 3;\n");
         let _ = std::fs::remove_dir_all(&dir);
     }
-
-
 
     #[tokio::test]
     async fn r8_edit_that_breaks_python_is_not_written() {

@@ -1,42 +1,18 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 use std::time::Duration;
-
 
 pub const OLLAMA_PREFIX: &str = "ollama/";
 
-
 pub const OLLAMA_DEFAULT_BASE_URL: &str = "http://localhost:11434/v1";
 
-
 pub const OLLAMA_HOST_ENV: &str = "OLLAMA_HOST";
-
 
 pub fn is_ollama_id(model: &str) -> bool {
     model.starts_with(OLLAMA_PREFIX)
 }
 
-
-
-
 pub fn strip_ollama_prefix(model: &str) -> Option<&str> {
     model.strip_prefix(OLLAMA_PREFIX)
 }
-
-
-
 
 pub fn normalize_ollama_host(raw: Option<&str>) -> String {
     let raw = raw.map(str::trim).unwrap_or_default();
@@ -56,22 +32,14 @@ pub fn normalize_ollama_host(raw: Option<&str>) -> String {
     }
 }
 
-
 pub fn ollama_base_url() -> String {
     normalize_ollama_host(std::env::var(OLLAMA_HOST_ENV).ok().as_deref())
 }
-
-
 
 pub fn api_origin(base_url: &str) -> String {
     let t = base_url.trim_end_matches('/');
     t.strip_suffix("/v1").unwrap_or(t).to_string()
 }
-
-
-
-
-
 
 pub fn model_matches(available: &str, requested: &str) -> bool {
     if available == requested {
@@ -85,18 +53,6 @@ pub fn model_matches(available: &str, requested: &str) -> bool {
     }
     false
 }
-
-
-
-
-
-
-
-
-
-
-
-
 
 pub fn apply_ollama_routing(
     provider_is_ollama: bool,
@@ -120,8 +76,6 @@ pub fn apply_ollama_routing(
     (bare, base_url, api_key, true)
 }
 
-
-
 fn is_local_origin(origin: &str) -> bool {
     let b = origin.to_ascii_lowercase();
     b.contains("://127.0.0.1") || b.contains("://localhost") || b.contains("://[::1]")
@@ -134,7 +88,6 @@ fn tags_client(origin: &str) -> Result<reqwest::Client, reqwest::Error> {
     }
     builder.build()
 }
-
 
 async fn fetch_tags(base_url: &str) -> Result<Vec<String>, reqwest::Error> {
     let origin = api_origin(base_url);
@@ -157,17 +110,12 @@ async fn fetch_tags(base_url: &str) -> Result<Vec<String>, reqwest::Error> {
         .unwrap_or_default())
 }
 
-
-
-
 pub async fn list_local_models(base_url: &str) -> anyhow::Result<Vec<String>> {
     let origin = api_origin(base_url);
     fetch_tags(base_url)
         .await
         .map_err(|e| anyhow::anyhow!("could not query Ollama at {origin}/api/tags: {e}"))
 }
-
-
 
 pub async fn ensure_ollama_ready(base_url: &str, model: &str) -> anyhow::Result<()> {
     let origin = api_origin(base_url);
@@ -318,15 +266,11 @@ mod tests {
         assert!(!o);
     }
 
-
-
-
     async fn fake_tags_server(tags_json: &'static str) -> String {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         tokio::spawn(async move {
             use tokio::io::{AsyncReadExt, AsyncWriteExt};
-
 
             loop {
                 let Ok((mut sock, _)) = listener.accept().await else {

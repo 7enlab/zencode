@@ -1,22 +1,12 @@
-
-
-
-
-
-
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use zen_core::{ChatMessage, ChatRequest, LlmBackend};
 
-
-
 pub const BTW_SYSTEM_PROMPT: &str = "You are a helpful assistant answering a quick side question. \
     Answer concisely and directly. Do not ask follow-up questions. Do not use tools.";
 
-
 pub const BTW_MAX_TOKENS: u32 = 1024;
-
 
 pub fn settings_btw_model(extra: &HashMap<String, serde_json::Value>) -> Option<String> {
     extra
@@ -25,12 +15,6 @@ pub fn settings_btw_model(extra: &HashMap<String, serde_json::Value>) -> Option<
         .as_str()
         .map(|s| s.to_string())
 }
-
-
-
-
-
-
 
 pub async fn run_btw(
     llm: &Arc<dyn LlmBackend>,

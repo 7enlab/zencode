@@ -1,7 +1,3 @@
-
-
-
-
 _r8_ts_pkg() {
   cat > package.json <<EOF
 {"name": "$1", "version": "1.0.0", "type": "module", "private": true,
@@ -12,7 +8,6 @@ TypeScript run directly by Node 22 (`--experimental-strip-types`, no tsc, no dep
 Imports end in `.ts`. Run the tests with `npm test`.
 EOF
 }
-
 
 setup_ts_emitter_bug() {
   _r8_ts_pkg emitter test/emitter.test.ts
@@ -188,7 +183,6 @@ export class Emitter {
 EOF
 }
 
-
 setup_ts_groupby_feature() {
   _r8_ts_pkg collections test/collections.test.ts
   mkdir -p src/collections test
@@ -297,7 +291,6 @@ export function partition<T>(items: readonly T[], pred: (item: T, index: number)
 EOF
   echo 'export { groupBy, countBy, partition } from "./collections/group.ts";' >> src/index.ts
 }
-
 
 setup_ts_money_cents() {
   _r8_ts_pkg shop test/checkout.test.ts
@@ -426,7 +419,6 @@ s = s.replace("  const discount = (sub * discountPct) / 100;\n  const tax = (sub
 open("src/checkout.ts", "w").write(s)
 EOF
 }
-
 
 setup_js_routes_long() {
   python3 - <<'EOF'

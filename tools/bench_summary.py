@@ -8,7 +8,6 @@ import statistics as st
 import sys
 from collections import defaultdict
 
-
 def main(paths):
     by = defaultdict(list)
     for p in paths:
@@ -35,7 +34,6 @@ def main(paths):
                 fails[t["task"] + ("(infra)" if t.get("infra") else "")] += 1
         if fails:
             print("  failed: " + ", ".join("%s x%d" % kv for kv in sorted(fails.items())))
-
 
 if __name__ == "__main__":
     main(sys.argv[1:])

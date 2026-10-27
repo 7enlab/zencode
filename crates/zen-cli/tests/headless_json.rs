@@ -1,14 +1,7 @@
-
-
-
-
-
-
 use std::process::Command;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
-
 
 async fn read_request(sock: &mut tokio::net::TcpStream) -> Vec<u8> {
     let mut buf = Vec::new();
@@ -147,8 +140,6 @@ async fn headless_json_against_mock_server() {
     assert!(success, "process exited non-zero; stderr: {}", stderr);
 }
 
-
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn headless_stream_json_against_mock_server() {
     let out = tokio::time::timeout(Duration::from_secs(30), async {
@@ -215,7 +206,6 @@ async fn headless_stream_json_against_mock_server() {
     assert!(lines.iter().any(|l| l["type"] == "assistant"), "no assistant line: {}", stdout);
 }
 
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn headless_text_mode_prints_result_only() {
     let out = tokio::time::timeout(Duration::from_secs(30), async {
@@ -262,8 +252,6 @@ async fn headless_text_mode_prints_result_only() {
     assert_eq!(stdout.trim(), "plain text answer");
 }
 
-
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn resume_replays_prior_messages() {
     let ok = tokio::time::timeout(Duration::from_secs(30), async {
@@ -273,7 +261,6 @@ async fn resume_replays_prior_messages() {
         let _ = std::fs::remove_dir_all(&cwd);
         std::fs::create_dir_all(&home).unwrap();
         std::fs::create_dir_all(&cwd).unwrap();
-
 
         let l1 = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let a1 = l1.local_addr().unwrap();
@@ -303,7 +290,6 @@ async fn resume_replays_prior_messages() {
             .expect("spawn turn1");
         let _ = s1.await;
         assert!(o1.status.success(), "turn1 failed: {}", String::from_utf8_lossy(&o1.stderr));
-
 
         let l2 = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let a2 = l2.local_addr().unwrap();
@@ -351,8 +337,6 @@ async fn resume_replays_prior_messages() {
     .expect("timed out");
     assert!(ok);
 }
-
-
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn tool_call_round_trip_and_allowed_tools_filter() {
@@ -419,7 +403,6 @@ async fn tool_call_round_trip_and_allowed_tools_filter() {
     let (success, stdout, req2) = ok;
     assert!(success, "stdout: {}", stdout);
 
-
     let first: serde_json::Value = serde_json::from_str(stdout.lines().next().unwrap()).unwrap();
     let tools: Vec<String> = first["tools"]
         .as_array()
@@ -429,12 +412,10 @@ async fn tool_call_round_trip_and_allowed_tools_filter() {
         .collect();
     assert_eq!(tools, vec!["Read".to_string()], "tools not filtered: {:?}", tools);
 
-
     let body = req2.split("\r\n\r\n").nth(1).unwrap_or("");
     let sent: serde_json::Value = serde_json::from_str(body).expect("body json");
     let joined = serde_json::to_string(&sent["messages"]).unwrap();
     assert!(joined.contains("tool-content-42"), "tool result missing: {}", joined);
-
 
     let last = stdout.lines().rfind(|l| !l.trim().is_empty()).unwrap();
     let v: serde_json::Value = serde_json::from_str(last).unwrap();

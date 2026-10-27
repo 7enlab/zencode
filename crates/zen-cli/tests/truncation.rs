@@ -1,12 +1,8 @@
-
-
-
 #![cfg(unix)]
 
 mod common;
 
 use common::*;
-
 
 fn cut(mut reply: Reply) -> Reply {
     reply.body = reply

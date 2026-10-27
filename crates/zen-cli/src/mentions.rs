@@ -1,19 +1,6 @@
-
-
-
-
-
-
-
-
-
-
-
-
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-
 
 pub const DEFAULT_MENTION_TOKEN_BUDGET: u64 = 10_000;
 
@@ -21,13 +8,11 @@ pub const MAX_MENTION_FILE_BYTES: u64 = 512 * 1024;
 
 const BINARY_SNIFF_BYTES: usize = 8000;
 
-
 pub fn mention_token_budget(v: Option<&serde_json::Value>) -> u64 {
     v.and_then(|v| v.get("tokenBudget"))
         .and_then(|n| n.as_u64())
         .unwrap_or(DEFAULT_MENTION_TOKEN_BUDGET)
 }
-
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Mention {
@@ -38,12 +23,9 @@ pub struct Mention {
     pub end: usize,
 }
 
-
-
 fn strip_trailing_punct(token: &str) -> &str {
     token.trim_end_matches([',', ';', ':', '!', '?', ')', ']', '}', '"', '\''])
 }
-
 
 fn looks_like_path(token: &str) -> bool {
     token.contains('/')
@@ -55,10 +37,6 @@ fn looks_like_path(token: &str) -> bool {
         || token.starts_with("./")
         || token.starts_with("../")
 }
-
-
-
-
 
 pub fn find_mentions(input: &str, cwd: &Path) -> Vec<Mention> {
     let bytes = input.as_bytes();
@@ -89,7 +67,6 @@ pub fn find_mentions(input: &str, cwd: &Path) -> Vec<Mention> {
     out
 }
 
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExpandedFile {
 
@@ -97,7 +74,6 @@ pub struct ExpandedFile {
 
     pub tokens: u64,
 }
-
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Expansion {
@@ -108,7 +84,6 @@ pub struct Expansion {
 
     pub warnings: Vec<String>,
 }
-
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NoMatchError(pub String);
@@ -129,12 +104,10 @@ fn has_glob_meta(pattern: &str) -> bool {
     pattern.contains('*') || pattern.contains('?') || pattern.contains('[') || pattern.contains('{')
 }
 
-
 fn normalize_pattern(pattern: &str) -> String {
     let p = pattern.replace('\\', "/");
     p.strip_prefix("./").unwrap_or(&p).to_string()
 }
-
 
 fn display_path(path: &Path, cwd: &Path) -> String {
     match path.strip_prefix(cwd) {
@@ -142,8 +115,6 @@ fn display_path(path: &Path, cwd: &Path) -> String {
         Err(_) => path.to_string_lossy().replace('\\', "/"),
     }
 }
-
-
 
 fn read_mention_file(path: &Path) -> String {
     let bytes = match std::fs::read(path) {
@@ -166,7 +137,6 @@ fn read_mention_file(path: &Path) -> String {
     }
     text
 }
-
 
 fn expand_pattern(pattern: &str, cwd: &Path) -> Result<Vec<PathBuf>, NoMatchError> {
     let norm = normalize_pattern(pattern);
@@ -197,7 +167,6 @@ fn expand_pattern(pattern: &str, cwd: &Path) -> Result<Vec<PathBuf>, NoMatchErro
         }
         return Ok(vec![abs]);
     }
-
 
     let matcher = globset::GlobBuilder::new(&norm)
         .literal_separator(true)
@@ -237,11 +206,6 @@ fn expand_pattern(pattern: &str, cwd: &Path) -> Result<Vec<PathBuf>, NoMatchErro
     hits.sort();
     Ok(hits)
 }
-
-
-
-
-
 
 pub fn expand_mentions(
     input: &str,
@@ -287,17 +251,11 @@ pub fn expand_mentions(
     Ok(Expansion { prompt, files, warnings })
 }
 
-
-
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ShellDecision {
     Run,
     Denied(String),
 }
-
-
-
 
 pub fn decide_shell(
     permissions: &Arc<dyn zen_core::PermissionChecker>,
@@ -331,7 +289,6 @@ pub fn decide_shell(
     }
 }
 
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShellOutput {
 
@@ -339,8 +296,6 @@ pub struct ShellOutput {
     pub exit_code: i32,
     pub success: bool,
 }
-
-
 
 pub fn run_shell_command(cmd: &str, cwd: &Path, env: &HashMap<String, String>) -> ShellOutput {
     let sh = zen_core::resolve_shell("bash");
@@ -369,7 +324,6 @@ pub fn run_shell_command(cmd: &str, cwd: &Path, env: &HashMap<String, String>) -
         },
     }
 }
-
 
 pub fn shell_passthrough_record(cmd: &str, out: &ShellOutput) -> String {
     format!(
@@ -402,8 +356,6 @@ mod tests {
         std::fs::write(&p, content).unwrap();
         p
     }
-
-
 
     #[test]
     fn find_single_mention() {
@@ -453,8 +405,6 @@ mod tests {
 
         assert_eq!(&"see @src/main.rs, thanks"[ms[0].end..], ", thanks");
     }
-
-
 
     #[test]
     fn expand_literal_file() {
@@ -541,8 +491,6 @@ mod tests {
         assert!(exp.files.is_empty());
     }
 
-
-
     #[test]
     fn budget_config_parsing() {
         assert_eq!(mention_token_budget(None), DEFAULT_MENTION_TOKEN_BUDGET);
@@ -559,8 +507,6 @@ mod tests {
             DEFAULT_MENTION_TOKEN_BUDGET
         );
     }
-
-
 
     struct StubChecker {
         decision: zen_core::PermissionDecision,
@@ -673,8 +619,6 @@ mod tests {
         assert!(!out.success);
         assert_eq!(out.exit_code, 3);
     }
-
-
 
     #[test]
     fn shell_then_mention_compose() {

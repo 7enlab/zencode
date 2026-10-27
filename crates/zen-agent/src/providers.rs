@@ -1,34 +1,4 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 use std::collections::HashMap;
-
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ApiStandard {
@@ -48,16 +18,12 @@ impl ApiStandard {
     }
 }
 
-
 #[derive(Debug, Clone)]
 pub struct ProviderInfo {
 
     pub key: &'static str,
 
     pub display_name: &'static str,
-
-
-
 
     pub openai_base_url: Option<&'static str>,
 
@@ -69,10 +35,7 @@ pub struct ProviderInfo {
 
     pub model_ids: &'static [&'static str],
 
-
-
     pub pricing: &'static [(&'static str, f64, f64)],
-
 
     pub featured: &'static [&'static str],
 
@@ -80,11 +43,6 @@ pub struct ProviderInfo {
 }
 
 impl ProviderInfo {
-
-
-
-
-
 
     pub fn endpoint(&self, anthropic_available: bool) -> Option<(ApiStandard, &'static str)> {
         if anthropic_available {
@@ -96,20 +54,12 @@ impl ProviderInfo {
             .map(|url| (ApiStandard::OpenAi, url))
     }
 
-
     pub fn price_for(&self, model: &str) -> Option<(f64, f64)> {
         self.pricing
             .iter()
             .find(|(m, _, _)| *m == model)
             .map(|(_, i, o)| (*i, *o))
     }
-
-
-
-
-
-
-
 
     pub fn endpoint_resolved(
         &self,
@@ -120,13 +70,6 @@ impl ProviderInfo {
     }
 }
 
-
-
-
-
-
-
-
 pub fn resolve_url_template(url: &str) -> Option<String> {
     if !url.contains('{') {
         return Some(url.to_string());
@@ -136,12 +79,6 @@ pub fn resolve_url_template(url: &str) -> Option<String> {
         .filter(|v| !v.is_empty())?;
     Some(url.replace("{ACCOUNT_ID}", &account_id))
 }
-
-
-
-
-
-
 
 pub fn provider_registry() -> Vec<ProviderInfo> {
     vec![
@@ -251,7 +188,6 @@ pub fn provider_registry() -> Vec<ProviderInfo> {
             key: "cloudflare",
             display_name: "Cloudflare Workers AI",
 
-
             openai_base_url: Some(
                 "https://api.cloudflare.com/client/v4/accounts/{ACCOUNT_ID}/ai/v1",
             ),
@@ -260,11 +196,7 @@ pub fn provider_registry() -> Vec<ProviderInfo> {
             docs_url: "https://developers.cloudflare.com/workers-ai/",
             model_ids: &["@cf/meta/llama-3.1-8b-instruct", "@cf/cloudflare/clef-flash"],
 
-
-
-
             pricing: &[("@cf/cloudflare/clef-flash", 0.09, 0.0)],
-
 
             featured: &["@cf/cloudflare/clef-flash", "@cf/meta/llama-3.1-8b-instruct"],
             rate_limit_notes: "Free tier: 10,000 Neurons/day (resets 00:00 UTC), \
@@ -347,16 +279,13 @@ pub fn provider_registry() -> Vec<ProviderInfo> {
     ]
 }
 
-
 pub fn find_provider(key: &str) -> Option<ProviderInfo> {
     let key = key.to_ascii_lowercase();
     provider_registry().into_iter().find(|p| p.key == key)
 }
 
-
 #[derive(Debug, Clone)]
 pub struct ModelSpec {
-
 
     pub provider: String,
 
@@ -370,11 +299,6 @@ pub struct ModelSpec {
 }
 
 impl ModelSpec {
-
-
-
-
-
 
     pub fn parse(spec: &str, default_base_url: &str, anthropic_available: bool) -> Self {
         let spec = spec.trim();
@@ -392,9 +316,7 @@ impl ModelSpec {
                         };
                     }
 
-
                 }
-
 
                 Self {
                     provider: "default".to_string(),
@@ -414,7 +336,6 @@ impl ModelSpec {
         }
     }
 
-
     pub fn api_key(&self, ambient: Option<&str>) -> Option<String> {
         if let Some(env) = &self.api_key_env {
             if let Ok(v) = std::env::var(env) {
@@ -427,22 +348,14 @@ impl ModelSpec {
     }
 }
 
-
-
-
 pub fn model_pricing(provider_key: &str, model: &str) -> Option<(f64, f64)> {
     find_provider(provider_key)?.price_for(model)
 }
-
 
 pub fn call_cost_usd(input_tokens: u64, output_tokens: u64, pricing: (f64, f64)) -> f64 {
     (input_tokens as f64) * pricing.0 / 1_000_000.0
         + (output_tokens as f64) * pricing.1 / 1_000_000.0
 }
-
-
-
-
 
 pub fn featured_models() -> Vec<(String, String)> {
     let mut out = Vec::new();
@@ -453,9 +366,6 @@ pub fn featured_models() -> Vec<(String, String)> {
     }
     out
 }
-
-
-
 
 pub fn authable_providers() -> Vec<ProviderInfo> {
     let preferred_order = [
@@ -472,8 +382,6 @@ pub fn authable_providers() -> Vec<ProviderInfo> {
         .filter(|p| p.api_key_env.is_some())
         .collect()
 }
-
-
 
 pub fn cheap_first_order() -> Vec<String> {
     let mut priced: Vec<(&str, f64)> = Vec::new();
@@ -674,7 +582,6 @@ mod tests {
     fn cheap_first_order_puts_cloudflare_first() {
         let order = cheap_first_order();
 
-
         assert_eq!(order[0], "cloudflare");
         assert_eq!(order[1], "deepseek");
 
@@ -690,9 +597,6 @@ mod tests {
         assert_eq!(s.api_key(Some("ambient-key")), Some("ambient-key".to_string()));
         assert_eq!(s.api_key(None), None);
     }
-
-
-
 
     fn with_account_id_env(value: Option<&str>, f: impl FnOnce()) {
         static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -715,7 +619,6 @@ mod tests {
         assert_eq!(p.display_name, "Cloudflare Workers AI");
         assert_eq!(p.api_key_env, Some("CLOUDFLARE_API_TOKEN"));
         assert!(p.anthropic_base_url.is_none());
-
 
         let (std, url) = p.endpoint(false).unwrap();
         assert_eq!(std, ApiStandard::OpenAi);
@@ -754,8 +657,6 @@ mod tests {
     #[test]
     fn cloudflare_without_account_id_falls_back_to_default() {
 
-
-
         with_account_id_env(None, || {
             let p = find_provider("cloudflare").unwrap();
             assert!(p.endpoint_resolved(false).is_none());
@@ -779,7 +680,6 @@ mod tests {
 
     #[test]
     fn cloudflare_clef_flash_pricing_is_verified() {
-
 
         let p = model_pricing("cloudflare", "@cf/cloudflare/clef-flash").unwrap();
         assert_eq!(p, (0.09, 0.0));

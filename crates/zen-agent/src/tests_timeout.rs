@@ -1,5 +1,3 @@
-
-
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -8,7 +6,6 @@ use zen_core::*;
 
 use crate::client::{request_id_from_error, AnthropicClient, HttpTimeouts, OpenAiClient};
 use crate::testutil::*;
-
 
 #[derive(Clone)]
 struct Reply {
@@ -30,7 +27,6 @@ fn reply(delay_ms: u64, status: u16, headers: &'static str, body: &'static str) 
         stall_after: None,
     }
 }
-
 
 async fn slow_server(replies: Vec<Reply>) -> (String, Arc<AtomicUsize>) {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -222,7 +218,6 @@ async fn p0_2_request_id_header_is_in_the_error_and_never_the_key() {
     assert!(!err.contains("SECRET"), "{err}");
     assert_eq!(request_id_from_error(&err).as_deref(), Some("abc"));
 
-
     let (url, _) = slow_server(vec![
         reply(0, 503, "request-id: req_503\r\n", "busy"),
         reply(0, 200, "", OK_BODY),
@@ -234,7 +229,6 @@ async fn p0_2_request_id_header_is_in_the_error_and_never_the_key() {
         .await
         .unwrap();
     assert!(retry_errors(&sink)[0].contains("[request id: req_503]"));
-
 
     let (url, _) = slow_server(vec![reply(
         0,

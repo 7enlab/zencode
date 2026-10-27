@@ -1,27 +1,6 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 use crate::cli::Cli;
 use anyhow::Result;
 use std::path::Path;
-
-
-
-
-
 
 pub const DEFAULT_SYSTEM_PROMPT: &str = "\
 You are zen, a CLI coding agent: reading and editing code, running commands, searching \
@@ -42,8 +21,6 @@ tests unless the user asks you to.
 then report what you changed.
 ";
 
-
-
 pub const TERSE_STYLE_BLOCK: &str = "\
 Terse mode: be maximally concise. No preamble, no restated context, no summaries unless asked. \
 Lead with the result, then only the details needed to act. One-line explanations; bullets over \
@@ -62,10 +39,8 @@ pub fn has_terse_style(prompt: &str) -> bool {
     prompt.ends_with(&TERSE_STYLE_BLOCK)
 }
 
-
 pub fn build_system_prompt(cli: &Cli, cwd: &Path, home: Option<&Path>) -> Result<String> {
     let mut parts: Vec<String> = Vec::new();
-
 
     match &cli.system_prompt {
         Some(s) => parts.push(s.clone()),
@@ -74,24 +49,18 @@ pub fn build_system_prompt(cli: &Cli, cwd: &Path, home: Option<&Path>) -> Result
 
     if !cli.bare {
 
-
         if let Some(snap) = crate::envsnap::project_snapshot(cwd) {
             parts.push(snap);
         }
-
-
 
         if let Some(map) = crate::repomap::repo_map(cwd, cli.map_tokens) {
             parts.push(map.text().to_string());
         }
 
-
         let mem = zen_ext::memory_prompt(cwd, home);
         if !mem.trim().is_empty() {
             parts.push(mem);
         }
-
-
 
         let skills = zen_ext::discover_skills(cwd, home);
         let skills_txt = crate::skills::skills_prompt_with_tiers(home, &skills);
@@ -99,17 +68,14 @@ pub fn build_system_prompt(cli: &Cli, cwd: &Path, home: Option<&Path>) -> Result
             parts.push(skills_txt);
         }
 
-
         parts.push(DONE_GUIDANCE.to_string());
     }
-
 
     if let Some(extra) = &cli.append_system_prompt {
         if !extra.trim().is_empty() {
             parts.push(extra.clone());
         }
     }
-
 
     if let Some(style) = &cli.style {
         let instruction = match style.as_str() {
@@ -123,7 +89,6 @@ pub fn build_system_prompt(cli: &Cli, cwd: &Path, home: Option<&Path>) -> Result
         }
     }
 
-
     if let Some(schema_path) = &cli.json_schema {
         if let Ok(schema_text) = std::fs::read_to_string(schema_path) {
             parts.push(format!(
@@ -133,10 +98,6 @@ pub fn build_system_prompt(cli: &Cli, cwd: &Path, home: Option<&Path>) -> Result
         }
     }
 
-
-
-
-
     let prompt = format!(
         "{}{}{}",
         parts.join("\n\n"),
@@ -144,15 +105,12 @@ pub fn build_system_prompt(cli: &Cli, cwd: &Path, home: Option<&Path>) -> Result
         environment_block(cwd)
     );
 
-
-
     if cli.terse {
         Ok(with_terse_style(&prompt))
     } else {
         Ok(prompt)
     }
 }
-
 
 pub const DONE_GUIDANCE: &str = "\
 Definition of done:
@@ -162,8 +120,6 @@ Definition of done:
 - Stay inside the task's scope: do not add features, files, or public APIs that were
   not requested. If the work genuinely needs a wider scope, say so and get confirmation.
 - Editing a file you have not read is refused by the harness -- read before changing.";
-
-
 
 pub fn environment_block(cwd: &Path) -> String {
     let date = chrono::Utc::now().format("%Y-%m-%d").to_string();
@@ -202,10 +158,6 @@ mod tests {
         assert!(p.contains("date:"));
     }
 
-
-
-
-
     #[test]
     fn stable_prefix_contains_no_volatile_values() {
         let c = cli(&["--bare"]);
@@ -225,7 +177,6 @@ mod tests {
 
     #[test]
     fn volatile_block_comes_last() {
-
 
         let c = cli(&["--bare"]);
         let p = build_system_prompt(&c, Path::new("/tmp"), None).unwrap();
@@ -290,7 +241,6 @@ mod tests {
     #[test]
     fn c2_default_prompt_has_change_workflow() {
 
-
         let p = build_system_prompt(&cli(&["-p", "x"]), Path::new("/tmp"), None).unwrap();
         for step in ["Explore", "Reproduce", "root cause", "Rerun", "edge cases", "Do not edit, delete"] {
             assert!(p.contains(step), "missing {step:?} in {p}");
@@ -298,8 +248,6 @@ mod tests {
         let custom = build_system_prompt(&cli(&["-p", "x", "--system-prompt", "R"]), Path::new("/tmp"), None).unwrap();
         assert!(!custom.contains("Workflow for a change"), "--system-prompt replaces it");
     }
-
-
 
 const ORIGINAL_SYSTEM_PROMPT: &str = "\
 You are zen, a command-line coding agent. You help the user with software engineering tasks in \
@@ -328,9 +276,6 @@ call sites) and check them too. Only then report what you changed.
 
     #[test]
     fn distilled_prompt_is_smaller_than_original() {
-
-
-
 
         let new_toks = DEFAULT_SYSTEM_PROMPT.len() / 4;
         let old_toks = ORIGINAL_SYSTEM_PROMPT.len() / 4;

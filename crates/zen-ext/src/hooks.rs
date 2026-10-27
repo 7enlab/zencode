@@ -1,44 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -49,9 +8,7 @@ use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 use zen_core::{HookEvent, HookOutcome, HookRunner, PermissionDecision, PermissionMode};
 
-
 pub const HOOK_OUTPUT_LIMIT: usize = 10_000;
-
 
 pub struct CommandHooks {
     pub hooks: Value,
@@ -67,7 +24,6 @@ pub struct CommandHooks {
     pub api_key_env: Option<String>,
 }
 
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum OnFailure {
 
@@ -76,7 +32,6 @@ pub enum OnFailure {
 
     Block,
 }
-
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CommandHookSpec {
@@ -108,25 +63,20 @@ impl CommandHooks {
         }
     }
 
-
     pub fn with_disabled(mut self, disabled: bool) -> Self {
         self.disabled = disabled;
         self
     }
-
 
     pub fn with_env(mut self, env: HashMap<String, String>) -> Self {
         self.env = env;
         self
     }
 
-
     pub fn with_api_key_env(mut self, api_key_env: Option<String>) -> Self {
         self.api_key_env = api_key_env;
         self
     }
-
-
 
     pub fn matching_specs(&self, event: HookEvent, matcher_target: &str) -> Vec<CommandHookSpec> {
         if self.disabled {
@@ -194,7 +144,6 @@ impl CommandHooks {
     }
 }
 
-
 pub fn matches_target(matcher: Option<&str>, target: &str) -> bool {
     let Some(m) = matcher.map(str::trim) else {
         return true;
@@ -215,7 +164,6 @@ pub fn matches_target(matcher: Option<&str>, target: &str) -> bool {
     regex::Regex::new(m).map(|re| re.is_match(target)).unwrap_or(false)
 }
 
-
 fn cap_output(s: &str) -> String {
     let count = s.chars().count();
     if count <= HOOK_OUTPUT_LIMIT {
@@ -224,7 +172,6 @@ fn cap_output(s: &str) -> String {
     let head: String = s.chars().take(HOOK_OUTPUT_LIMIT).collect();
     format!("{}\n[hook output truncated: {} of {} chars shown]", head, HOOK_OUTPUT_LIMIT, count)
 }
-
 
 fn exit2_blocks(event: HookEvent) -> bool {
     matches!(
@@ -245,7 +192,6 @@ fn decision_rank(d: &PermissionDecision) -> u8 {
         PermissionDecision::Allow => 0,
     }
 }
-
 
 #[derive(Debug, Clone, PartialEq, Default)]
 struct SingleOutcome {
@@ -468,7 +414,6 @@ fn interpret_json_stdout(obj: &serde_json::Map<String, Value>, event: HookEvent)
     let mut out = SingleOutcome::default();
     let is_stop = matches!(event, HookEvent::Stop | HookEvent::SubagentStop);
 
-
     if obj.get("continue").and_then(|v| v.as_bool()) == Some(false) {
         out.stop_run = true;
         out.stop_reason = obj
@@ -482,7 +427,6 @@ fn interpret_json_stdout(obj: &serde_json::Map<String, Value>, event: HookEvent)
             out.system_message = Some(sm.to_string());
         }
     }
-
 
     if let Some(decision) = obj.get("decision").and_then(|v| v.as_str()) {
         let reason = obj.get("reason").and_then(|v| v.as_str()).unwrap_or("");
@@ -516,7 +460,6 @@ fn interpret_json_stdout(obj: &serde_json::Map<String, Value>, event: HookEvent)
                     _ => {}
                 }
 
-
                 if pd.eq_ignore_ascii_case("allow") || pd.eq_ignore_ascii_case("ask") {
                     push_feedback(&mut out, reason);
                 }
@@ -534,7 +477,6 @@ fn interpret_json_stdout(obj: &serde_json::Map<String, Value>, event: HookEvent)
                 });
             }
         }
-
 
         if let Some(ctx) = hso.get("additionalContext").and_then(|v| v.as_str()) {
             if !ctx.trim().is_empty() {
@@ -1069,9 +1011,6 @@ mod tests {
         assert_eq!(v["hook_event_name"], "PostToolUse");
         assert_eq!(v["transcript_path"], "/tmp/transcript.jsonl");
     }
-
-
-
 
     #[tokio::test]
     async fn payload_schema_five_events() {

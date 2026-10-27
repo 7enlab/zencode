@@ -1,32 +1,11 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 use zen_agent::AgentConfig;
 use zen_core::PermissionMode;
 
-
 pub const PLAN_BADGE: &str = "[PLAN]";
-
-
 
 pub fn is_approve_word(s: &str) -> bool {
     matches!(s.trim().to_ascii_lowercase().as_str(), "approve" | "yes")
 }
-
-
-
 
 pub fn strip_plan_exit_markers(text: &str) -> String {
     let mut lines: Vec<&str> = text.lines().collect();
@@ -41,13 +20,6 @@ pub fn strip_plan_exit_markers(text: &str) -> String {
     lines.join("\n").trim_end().to_string()
 }
 
-
-
-
-
-
-
-
 pub fn set_permission_mode(
     config: &mut AgentConfig,
     mode: PermissionMode,
@@ -56,7 +28,6 @@ pub fn set_permission_mode(
     config.permission_mode = mode;
     config.system_prompt = zen_agent::plan::system_prompt_for_mode(base_system_prompt, mode);
 }
-
 
 pub fn prompt_for(mode: PermissionMode) -> &'static str {
     if mode == PermissionMode::Plan {

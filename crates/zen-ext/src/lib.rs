@@ -1,9 +1,3 @@
-
-
-
-
-
-
 mod commands;
 mod hooks;
 mod memory;

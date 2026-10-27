@@ -1,34 +1,14 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
 use serde_json::json;
 use std::str::FromStr;
 use zen_core::{FunctionDefinition, ToolDefinition, ToolRegistry};
-
-
-
-
 
 pub fn estimate_schema_tokens(def: &ToolDefinition) -> u64 {
     serde_json::to_string(def).map(|s| s.len() as u64 / 4).unwrap_or(0)
 }
 
-
 pub fn total_schema_tokens(defs: &[ToolDefinition]) -> u64 {
     defs.iter().map(estimate_schema_tokens).sum()
 }
-
-
 
 pub fn per_tool_costs(defs: &[ToolDefinition]) -> Vec<(String, u64)> {
     let mut v: Vec<(String, u64)> = defs
@@ -38,7 +18,6 @@ pub fn per_tool_costs(defs: &[ToolDefinition]) -> Vec<(String, u64)> {
     v.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
     v
 }
-
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ToolPhase {
@@ -63,11 +42,6 @@ impl ToolPhase {
     }
 }
 
-
-
-
-
-
 pub fn tool_phase(name: &str) -> Option<ToolPhase> {
     match name {
         "TodoWrite" => Some(ToolPhase::Core),
@@ -77,7 +51,6 @@ pub fn tool_phase(name: &str) -> Option<ToolPhase> {
         _ => None,
     }
 }
-
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ToolBundle {
@@ -104,8 +77,6 @@ impl ToolBundle {
             ToolBundle::Exec => "exec",
         }
     }
-
-
 
     fn full_phases(self) -> Option<&'static [ToolPhase]> {
         match self {
@@ -135,19 +106,12 @@ impl FromStr for ToolBundle {
     }
 }
 
-
-
-
-
-
 pub const SCHEMA_TOKEN_BUDGETS: &[(ToolBundle, u64)] = &[
     (ToolBundle::Core, 1_000),
     (ToolBundle::Read, 1_700),
     (ToolBundle::Write, 1_500),
     (ToolBundle::Exec, 1_500),
 ];
-
-
 
 pub fn deferred_stub(name: &str) -> ToolDefinition {
     ToolDefinition {
@@ -161,11 +125,6 @@ pub fn deferred_stub(name: &str) -> ToolDefinition {
         },
     }
 }
-
-
-
-
-
 
 pub fn definitions_for_bundle(
     registry: &ToolRegistry,
@@ -193,8 +152,6 @@ pub fn definitions_for_bundle(
     defs.sort_by(|a, b| a.function.name.cmp(&b.function.name));
     defs
 }
-
-
 
 pub fn is_deferred(registry: &ToolRegistry, bundle: ToolBundle, name: &str) -> bool {
     if registry.get(name).is_none() {
@@ -251,9 +208,6 @@ mod tests {
     fn registry() -> ToolRegistry {
         let mut r = ToolRegistry::new();
 
-
-
-
         for (name, desc) in [
             (
                 "Write",
@@ -282,9 +236,6 @@ mod tests {
         }
         r
     }
-
-
-
 
     #[test]
     fn bundle_parsing_roundtrip() {
@@ -350,7 +301,6 @@ mod tests {
         let stub = deferred_stub("Write");
         assert_eq!(stub.function.name, "Write");
         assert!(stub.function.description.contains("[deferred]"));
-
 
         assert!(estimate_schema_tokens(&stub) < 60);
     }

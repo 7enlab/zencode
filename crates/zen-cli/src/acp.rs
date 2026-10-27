@@ -1,10 +1,3 @@
-
-
-
-
-
-
-
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -18,8 +11,6 @@ use zen_core::{AgentEvent, ChatMessage, EventSink, LlmBackend};
 use crate::agent_run;
 use crate::cli::Cli;
 use crate::settings;
-
-
 
 #[derive(Debug, Deserialize)]
 struct RpcRequest {
@@ -68,10 +59,7 @@ impl RpcResponse {
     }
 }
 
-
-
 const PROTOCOL_VERSION: u64 = 1;
-
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -113,10 +101,6 @@ struct ToolCallResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     content: Option<Vec<ContentBlock>>,
 }
-
-
-
-
 
 #[derive(Clone)]
 struct AcpSink {
@@ -168,7 +152,6 @@ impl EventSink for AcpSink {
                 });
             }
 
-
             AgentEvent::ApiRetry { .. }
             | AgentEvent::PermissionDenied(_)
             | AgentEvent::CompactBoundary { .. } => {}
@@ -196,16 +179,11 @@ fn emit_assistant(sink: &AcpSink, message: &ChatMessage) {
     }
 }
 
-
-
 struct AcpSession {
     agent: zen_agent::Agent,
     sink: Arc<AcpSink>,
     cancelled: Arc<std::sync::atomic::AtomicBool>,
 }
-
-
-
 
 pub async fn run_acp_server(cli: &Cli) -> Result<i32> {
     let home = dirs::home_dir();
@@ -348,7 +326,6 @@ async fn handle_session_new(
         tools: Arc::new(Mutex::new(HashMap::new())),
     });
 
-
     let assembly = agent_run::assemble(cli, &cwd, home, &cfg, &session_id, None).await?;
     assembly.subagent_sink.set(sink.clone());
 
@@ -378,7 +355,6 @@ async fn handle_session_new(
         },
     ))
 }
-
 
 fn prompt_text(params: &Value) -> String {
     params
@@ -418,12 +394,10 @@ async fn handle_prompt(
     let text = prompt_text(params);
     let result = session.agent.run_turn(&text).await;
 
-
     session.sink.notify(SessionUpdate::UsageUpdate {
         used: result.usage.input_tokens + result.usage.output_tokens,
         size: session.agent.config.context_window,
     });
-
 
     let stop_reason = if session.cancelled.load(std::sync::atomic::Ordering::SeqCst) {
         "cancelled"
@@ -444,8 +418,6 @@ fn handle_cancel(sessions: &HashMap<String, AcpSession>, params: &Value) {
         }
     }
 }
-
-
 
 #[cfg(test)]
 mod tests {

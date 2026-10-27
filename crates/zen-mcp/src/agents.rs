@@ -1,10 +1,6 @@
-
-
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 use zen_core::AgentDefinition;
-
-
 
 pub(crate) fn split_frontmatter(text: &str) -> (Vec<(String, String)>, String) {
     let mut fields = Vec::new();
@@ -85,11 +81,9 @@ fn agent_from_markdown(name_hint: &str, text: &str) -> Option<AgentDefinition> {
         .unwrap_or(name_hint)
         .to_string();
 
-
     if name.is_empty() {
         return None;
     }
-
 
     let description = field(&fields, "description").map(str::trim).filter(|d| !d.is_empty())?.to_string();
     let tools = field(&fields, "tools").and_then(parse_tools);
@@ -242,10 +236,7 @@ pub(crate) fn builtin_general_purpose() -> AgentDefinition {
     }
 }
 
-
 const READ_ONLY_TOOLS: &[&str] = &["Read", "Glob", "Grep", "WebFetch", "WebSearch", "TodoWrite"];
-
-
 
 pub fn builtin_agents() -> Vec<AgentDefinition> {
     let read_only = Some(READ_ONLY_TOOLS.iter().map(|s| s.to_string()).collect::<Vec<_>>());
@@ -277,10 +268,6 @@ fn home_dir(home: Option<&Path>) -> Option<PathBuf> {
     }
 }
 
-
-
-
-
 pub fn load_agents(cwd: &Path, home: Option<&Path>, cli_agents: Option<&str>) -> Vec<AgentDefinition> {
     let mut out: Vec<AgentDefinition> = Vec::new();
 
@@ -293,16 +280,11 @@ pub fn load_agents(cwd: &Path, home: Option<&Path>, cli_agents: Option<&str>) ->
     out
 }
 
-
-
-
 pub fn load_cli_agents(cli_agents: Option<&str>) -> Vec<AgentDefinition> {
     let mut out = Vec::new();
     add_cli_agents(&mut out, cli_agents);
     out
 }
-
-
 
 fn add_cli_agents(out: &mut Vec<AgentDefinition>, cli_agents: Option<&str>) {
     if let Some(raw) = cli_agents {
@@ -320,7 +302,6 @@ fn add_cli_agents(out: &mut Vec<AgentDefinition>, cli_agents: Option<&str>) {
             }
         }
     }
-
 
     let mut builtins: Vec<AgentDefinition> = builtin_agents()
         .into_iter()
@@ -403,7 +384,6 @@ mod c6_tests {
         assert_eq!(get(&agents, "a").as_deref(), Some("cli"), "--agents > project");
         assert_eq!(get(&agents, "general-purpose").as_deref(), Some("mine"));
         assert_eq!(agents.iter().filter(|a| a.name == "general-purpose").count(), 1);
-
 
         let bare = load_cli_agents(None);
         let names: Vec<&str> = bare.iter().map(|a| a.name.as_str()).collect();

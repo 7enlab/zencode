@@ -1,21 +1,7 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use zen_core::{glob_match, TodoItem, ToolOutput};
-
 
 pub const EDIT_REPEAT_LIMIT: usize = 4;
 
@@ -25,13 +11,11 @@ pub const TODO_REINJECT_EVERY: usize = 6;
 
 const EDIT_TOOLS: &[&str] = &["Edit", "MultiEdit", "Write"];
 
-
 #[derive(Default)]
 pub struct TurnGuard {
     edits: HashMap<String, usize>,
     failures: HashMap<String, usize>,
     nudged: HashSet<String>,
-
 
     scope: Vec<String>,
 
@@ -40,18 +24,13 @@ pub struct TurnGuard {
 
 impl TurnGuard {
 
-
     pub fn set_scope(&mut self, scope: Vec<String>) {
         self.scope = scope;
     }
 
-
-
     pub fn set_cwd(&mut self, cwd: PathBuf) {
         self.cwd = cwd;
     }
-
-
 
     fn normalize(&self, file: &str) -> String {
         let p = Path::new(file);
@@ -62,7 +41,6 @@ impl TurnGuard {
         };
         rel.to_string_lossy().replace('\\', "/")
     }
-
 
     fn check_scope(&mut self, tool: &str, args: &Value) -> Option<String> {
         if self.scope.is_empty() || !EDIT_TOOLS.contains(&tool) {
@@ -83,8 +61,6 @@ impl TurnGuard {
             None
         }
     }
-
-
 
     pub fn observe(&mut self, tool: &str, args: &Value, out: &ToolOutput) -> Option<String> {
         if out.is_error {
@@ -120,7 +96,6 @@ impl TurnGuard {
         None
     }
 }
-
 
 pub fn todo_reminder(todos: &[TodoItem]) -> Option<String> {
     if todos.is_empty() {

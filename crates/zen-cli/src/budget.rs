@@ -1,14 +1,4 @@
-
-
-
-
-
-
 use zen_agent::budget::BudgetPolicy;
-
-
-
-
 
 pub fn resolve_budget(
     cli_max: Option<f64>,
@@ -46,7 +36,6 @@ pub fn resolve_budget(
     )
 }
 
-
 pub fn budget_line(policy: &BudgetPolicy, spent_usd: f64) -> String {
     let pct = if policy.max_budget_usd > 0.0 {
         spent_usd / policy.max_budget_usd * 100.0
@@ -72,7 +61,6 @@ pub fn budget_line(policy: &BudgetPolicy, spent_usd: f64) -> String {
 mod tests {
     use super::*;
     use std::sync::{Mutex, MutexGuard};
-
 
     static ENV_LOCK: Mutex<()> = Mutex::new(());
 

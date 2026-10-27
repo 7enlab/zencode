@@ -6,22 +6,17 @@ pub const DEFAULT_BASE_URL: &str = "https://api.experientiallabs.ai/api/v1";
 pub const DEFAULT_MODEL: &str = "google/gemini-4-argon:free";
 pub const DEFAULT_MAX_TURNS: usize = 50;
 
-
 #[derive(Debug, Clone)]
 pub struct ResolvedConfig {
     pub model: String,
-
 
     pub btw_model: Option<String>,
     pub base_url: String,
     pub api_key: Option<String>,
 
-
     pub api_key_env: Option<String>,
 
     pub allow_private_network: bool,
-
-
 
     pub ollama: bool,
     pub fallback_models: Vec<String>,
@@ -37,9 +32,7 @@ pub struct ResolvedConfig {
 
     pub retry_max_wait_secs: u64,
 
-
     pub request_timeout_secs: Option<u64>,
-
 
     pub idle_timeout_secs: Option<u64>,
 
@@ -50,7 +43,6 @@ pub struct ResolvedConfig {
     pub tool_bundle: zen_agent::ToolBundle,
 
     pub auto_archive_days: u64,
-
 
     pub max_parallel_tool_calls: usize,
     pub max_turns: usize,
@@ -63,7 +55,6 @@ pub struct ResolvedConfig {
     pub warnings: Vec<String>,
     pub setting_sources: Vec<String>,
     pub bypass_forbidden: bool,
-
 
     pub folder_trusted: bool,
 
@@ -79,9 +70,6 @@ impl ResolvedConfig {
         self.api_key.as_deref()
     }
 
-
-
-
     pub fn llm_client(
         &self,
         sink: std::sync::Arc<dyn zen_core::EventSink>,
@@ -95,21 +83,14 @@ impl ResolvedConfig {
         )
     }
 
-
     pub fn http_timeouts(&self) -> zen_agent::HttpTimeouts {
         zen_agent::HttpTimeouts::from_secs(&self.base_url, self.request_timeout_secs, self.idle_timeout_secs)
     }
-
-
 
     pub fn rate_gate_for(&self, home: Option<&std::path::Path>) -> (zen_agent::RateGateSettings, Option<std::path::PathBuf>) {
         let store_path = home.map(zen_agent::RateGate::default_store_path);
         (self.rate_gate.clone(), store_path)
     }
-
-
-
-
 
     pub fn gated_llm_client(
         &self,
@@ -128,36 +109,25 @@ impl ResolvedConfig {
     }
 }
 
-
-
-
 pub fn tool_timeouts(v: Option<&serde_json::Value>) -> std::collections::HashMap<String, u64> {
     v.and_then(|v| v.as_object())
         .map(|o| o.iter().filter_map(|(k, v)| v.as_u64().map(|n| (k.clone(), n))).collect())
         .unwrap_or_default()
 }
 
-
-
 pub fn max_continuations(v: Option<&serde_json::Value>) -> usize {
     v.and_then(|v| v.as_u64()).map_or(zen_agent::DEFAULT_MAX_CONTINUATIONS, |n| n as usize)
 }
 
-
-
 fn tool_bundle(v: Option<&serde_json::Value>) -> zen_agent::ToolBundle {
     v.and_then(|v| v.as_str()).and_then(|s| s.parse().ok()).unwrap_or_default()
 }
-
-
 
 pub fn sessions_auto_archive_days(v: Option<&serde_json::Value>) -> u64 {
     v.and_then(|v| v.get("autoArchiveDays"))
         .and_then(|n| n.as_u64())
         .unwrap_or(0)
 }
-
-
 
 pub fn api_timeout_secs(api: Option<&serde_json::Value>, key: &str, env: Option<&str>) -> Option<u64> {
     let num = |v: &serde_json::Value| v.as_u64().or_else(|| v.as_f64().filter(|f| *f >= 0.0).map(|f| f as u64));
@@ -167,19 +137,13 @@ pub fn api_timeout_secs(api: Option<&serde_json::Value>, key: &str, env: Option<
     api.and_then(|a| a.get(key)).and_then(num)
 }
 
-
-
-
-
 pub fn max_parallel_tool_calls(v: Option<&serde_json::Value>) -> usize {
     v.and_then(|v| v.as_u64())
         .map_or(zen_agent::DEFAULT_MAX_PARALLEL_TOOL_CALLS, |n| n as usize)
         .max(1)
 }
 
-
 pub const DEFAULT_RETRY_MAX_WAIT_SECS: u64 = 300;
-
 
 pub fn retry_max_wait_secs(retry: Option<&serde_json::Value>) -> u64 {
     retry
@@ -188,10 +152,6 @@ pub fn retry_max_wait_secs(retry: Option<&serde_json::Value>) -> u64 {
         .unwrap_or(DEFAULT_RETRY_MAX_WAIT_SECS)
 }
 
-
-
-
-
 pub fn rate_gate_settings(cfg: &zen_core::RateGateFileConfig) -> zen_agent::RateGateSettings {
     zen_agent::RateGateSettings {
         enabled: cfg.enabled.unwrap_or(true),
@@ -199,8 +159,6 @@ pub fn rate_gate_settings(cfg: &zen_core::RateGateFileConfig) -> zen_agent::Rate
         limits: cfg.limits.clone(),
     }
 }
-
-
 
 pub fn merge_settings(base: &Settings, over: &Settings) -> Settings {
     let mut out = base.clone();
@@ -272,9 +230,6 @@ fn dedup_append<T: PartialEq + Clone>(target: &mut Vec<T>, source: &[T]) {
     }
 }
 
-
-
-
 fn resolve_model(cli: &Cli, settings_model: Option<&str>) -> String {
     if let Some(m) = &cli.model {
         return m.clone();
@@ -290,7 +245,6 @@ fn resolve_model(cli: &Cli, settings_model: Option<&str>) -> String {
         .unwrap_or_else(|| DEFAULT_MODEL.to_string())
 }
 
-
 fn resolve_base_url(cli: &Cli, settings_url: Option<&str>) -> String {
     if let Some(u) = &cli.base_url {
         return u.clone();
@@ -305,7 +259,6 @@ fn resolve_base_url(cli: &Cli, settings_url: Option<&str>) -> String {
         .map(String::from)
         .unwrap_or_else(|| DEFAULT_BASE_URL.to_string())
 }
-
 
 fn resolve_api_key(api_key_env: Option<&str>) -> Option<String> {
     if let Ok(v) = std::env::var("ZEN_API_KEY") {
@@ -329,8 +282,6 @@ fn resolve_api_key(api_key_env: Option<&str>) -> Option<String> {
     }
     None
 }
-
-
 
 fn resolve_permission_mode(
     cli: &Cli,
@@ -360,7 +311,6 @@ fn resolve_permission_mode(
     Ok(PermissionMode::Default)
 }
 
-
 fn sources_filter(raw: &Option<String>) -> Option<Vec<String>> {
     raw.as_ref().map(|s| {
         s.split(',')
@@ -382,8 +332,6 @@ fn split_rules(inputs: &[String]) -> Vec<String> {
     }
     out
 }
-
-
 
 pub fn resolve_config(cli: &Cli, cwd: &std::path::Path) -> anyhow::Result<ResolvedConfig> {
     resolve_config_with_home(cli, cwd, dirs::home_dir().as_deref())
@@ -423,7 +371,6 @@ pub fn resolve_config_with_home(
         warnings.push("permission mode 'auto' is not supported; using 'default'".to_string());
     }
 
-
     if !cli.print {
         for w in &warnings {
             eprintln!("warning: {}", w);
@@ -435,11 +382,6 @@ pub fn resolve_config_with_home(
         .btw_model
         .clone()
         .or_else(|| crate::btw::settings_btw_model(&merged.extra));
-
-
-
-
-
 
     let spec = zen_agent::providers::ModelSpec::parse(&raw_model, DEFAULT_BASE_URL, false);
     let provider_key = spec
@@ -485,11 +427,6 @@ pub fn resolve_config_with_home(
         Some(k) => Some(k),
         None => resolve_api_key(merged.api_key_env.as_deref()),
     };
-
-
-
-
-
 
     let provider = cli.provider.clone().or_else(|| {
         std::env::var("ZEN_PROVIDER").ok().filter(|s| !s.is_empty())
@@ -598,12 +535,9 @@ pub fn resolve_config_with_home(
     })
 }
 
-
 pub fn folder_trusted(cli: &Cli, cwd: &std::path::Path, home: Option<&std::path::Path>) -> bool {
     cli.trust_folder || zen_ext::trust_env_set() || zen_ext::is_folder_trusted(cwd, home)
 }
-
-
 
 #[cfg(test)]
 mod tests {
@@ -611,8 +545,6 @@ mod tests {
     use crate::cli::Cli;
     use clap::Parser;
     use std::fs;
-
-
 
     static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
     fn env_lock() -> std::sync::MutexGuard<'static, ()> {
@@ -628,7 +560,6 @@ mod tests {
         let _env = env_lock();
         let mut cli = base_cli();
         cli.model = Some("cli-model".into());
-
 
         let old = std::env::var("ZEN_MODEL").ok();
         std::env::set_var("ZEN_MODEL", "env-model");
@@ -735,7 +666,6 @@ mod tests {
         assert_eq!(cfg.model, "cli-override");
     }
 
-
     #[test]
     fn c1_3_env_model_overrides_settings_and_flag_overrides_env() {
         let _env = env_lock();
@@ -760,7 +690,6 @@ mod tests {
         assert_eq!(from_flag, "flag-model");
         assert_eq!(from_file, "from-file");
     }
-
 
     #[test]
     fn c2_11_settings_mode_aliases() {
@@ -852,7 +781,6 @@ mod tests {
         let old = std::env::var(zen_ext::TRUST_ENV).ok();
         std::env::remove_var(zen_ext::TRUST_ENV);
 
-
         let cfg = resolve_config_with_home(&base_cli(), &proj, Some(&home)).unwrap();
         assert!(!cfg.folder_trusted);
         assert_eq!(cfg.model, "pm");
@@ -860,18 +788,15 @@ mod tests {
         assert!(cfg.permissions.allow.is_empty());
         assert_eq!(cfg.trust_skipped, vec![".zen/settings.json: hooks, permissions.allow"]);
 
-
         let cli = Cli::parse_from(["zen", "--trust-folder"]);
         let cfg = resolve_config_with_home(&cli, &proj, Some(&home)).unwrap();
         assert!(cfg.folder_trusted && cfg.hooks.get("Stop").is_some());
         assert!(!zen_ext::is_folder_trusted(&proj, Some(&home)));
 
-
         std::env::set_var(zen_ext::TRUST_ENV, "1");
         let cfg = resolve_config_with_home(&base_cli(), &proj, Some(&home)).unwrap();
         std::env::remove_var(zen_ext::TRUST_ENV);
         assert!(cfg.folder_trusted && cfg.permissions.allow == vec!["Bash"]);
-
 
         zen_ext::trust_folder(&proj, Some(&home)).unwrap();
         assert!(home.join(".zen/trusted-folders.json").is_file());
@@ -971,7 +896,6 @@ mod tests {
     #[test]
     fn provider_routing_default_model_untouched_without_key() {
 
-
         let _env = env_lock();
         let old = std::env::var("GOOGLE_API_KEY").ok();
         std::env::remove_var("GOOGLE_API_KEY");
@@ -1010,7 +934,6 @@ mod tests {
 
     #[test]
     fn provider_routing_warns_without_key() {
-
 
         let _env = env_lock();
         let old = std::env::var("MOONSHOT_API_KEY").ok();
@@ -1052,8 +975,6 @@ mod tests {
             std::env::remove_var("DEEPSEEK_API_KEY");
         }
     }
-
-
 
     fn clear_ollama_env() {
         for v in ["ZEN_MODEL", "ZEN_BASE_URL", "ZEN_PROVIDER", "OLLAMA_HOST"] {

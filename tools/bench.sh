@@ -1,31 +1,4 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 set -euo pipefail
-
 
 export PYTHONDONTWRITEBYTECODE=1
 
@@ -51,12 +24,9 @@ case "${BENCH_SET:-base}" in
 esac
 RUNS="${BENCH_RUNS:-1}"
 
-
 export RUSTUP_HOME="${RUSTUP_HOME:-$HOME/.rustup}" CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}"
 export GOCACHE="${GOCACHE:-$HOME/.cache/go-build}" GOPATH="${GOPATH:-$HOME/go}"
 export GOTOOLCHAIN=local GOPROXY=off
-
-
 
 summarize() {
   python3 "$ROOT/tools/bench_summary.py" "$@"
@@ -69,15 +39,10 @@ fi
 TASKS=("$@")
 [ ${
 
-
-
-
-
 setup_fix_failing_test() {
   cat > calc.py <<'EOF'
 def add(a, b):
     return a - b
-
 
 def mul(a, b):
     return a * b
@@ -86,14 +51,12 @@ EOF
 import unittest
 from calc import add, mul
 
-
 class CalcTest(unittest.TestCase):
     def test_add(self):
         self.assertEqual(add(2, 3), 5)
 
     def test_mul(self):
         self.assertEqual(mul(2, 3), 6)
-
 
 if __name__ == "__main__":
     unittest.main()
@@ -111,7 +74,6 @@ def get_usr(uid):
 EOF
   cat > app/report.py <<'EOF'
 from app.users import get_usr
-
 
 def report(ids):
     return ", ".join(get_usr(i)["name"] for i in ids)
@@ -136,14 +98,12 @@ setup_add_cli_flag() {
   cat > greet.py <<'EOF'
 import argparse
 
-
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Greet someone.")
     parser.add_argument("--name", default="world")
     args = parser.parse_args(argv)
     message = "hello " + args.name
     print(message)
-
 
 if __name__ == "__main__":
     main()
@@ -177,14 +137,12 @@ setup_implement_from_test() {
   cat > textstats.py <<'EOF'
 """Small text helpers."""
 
-
 def word_count(text):
     return len(text.split())
 EOF
   cat > test_textstats.py <<'EOF'
 import unittest
 from textstats import word_count, top_words
-
 
 class TextStatsTest(unittest.TestCase):
     def test_word_count(self):
@@ -197,7 +155,6 @@ class TextStatsTest(unittest.TestCase):
     def test_top_words_is_case_insensitive_and_ties_alphabetical(self):
         self.assertEqual(top_words("B a b A c", 3), [("a", 2), ("b", 2), ("c", 1)])
 
-
 if __name__ == "__main__":
     unittest.main()
 EOF
@@ -209,8 +166,6 @@ check_implement_from_test() {
 solve_implement_from_test() {
   printf '\n\ndef top_words(text, n):\n    counts = {}\n    for w in text.lower().split():\n        counts[w] = counts.get(w, 0) + 1\n    return sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[:n]\n' >> textstats.py
 }
-
-
 
 if [ "${BENCH_SELFTEST:-}" = 1 ]; then
   bad=0
@@ -226,7 +181,6 @@ if [ "${BENCH_SELFTEST:-}" = 1 ]; then
   done
   exit $bad
 fi
-
 
 if [ -z "${ZEN_BIN:-}" ]; then
   for c in "${CARGO_TARGET_DIR:-$ROOT/target}/release/zen" "${CARGO_TARGET_DIR:-$ROOT/target}/debug/zen"; do
@@ -259,7 +213,6 @@ for task in "${TASKS[@]}"; do
   mkdir -p "$dir" "$WORK/home"
   ( cd "$dir" && "setup_$task" && git init -q . && git add -A && git -c user.email=b@b -c user.name=b commit -qm init )
   mkdir -p "$dir/.zen"
-
 
   echo '{"verify": {"enabled": true}}' > "$dir/.zen/settings.json"
   prompt="$("prompt_$task")"

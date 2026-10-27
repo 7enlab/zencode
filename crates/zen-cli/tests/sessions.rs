@@ -1,22 +1,12 @@
-
-
-
-
-
-
-
-
 mod common;
 
 use common::*;
 use std::fs;
 
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn resume_session_replays_transcript() {
     let home = TempDir::new("resume_home");
     let cwd = TempDir::new("resume_cwd");
-
 
     let server1 = MockServer::single_text("first reply").await;
     let (stdout1, _, code1) = tokio::time::timeout(TEST_TIMEOUT, async {
@@ -36,7 +26,6 @@ async fn resume_session_replays_transcript() {
     let v1 = last_result(&stdout1);
     let session_id = v1["session_id"].as_str().unwrap().to_string();
     assert_eq!(session_id, "00000000-0000-4000-8000-000000000004");
-
 
     let server2 = MockServer::single_text("second reply").await;
     let (_stdout2, _, code2) = tokio::time::timeout(TEST_TIMEOUT, async {
@@ -62,20 +51,16 @@ async fn resume_session_replays_transcript() {
     assert_eq!(msgs_text.matches("what did I say?").count(), 1, "duplicate prompt");
 }
 
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn continue_picks_latest_session() {
     let home = TempDir::new("continue_home");
     let cwd = TempDir::new("continue_cwd");
 
-
     let proj_dir = home.path().join(".zen").join("projects").join(session::encode_cwd(cwd.path()));
     fs::create_dir_all(&proj_dir).unwrap();
 
-
     let p1 = proj_dir.join("first.jsonl");
     let _ = fs::write(&p1, r#"{"type":"user","uuid":"u1","parent_uuid":null,"session_id":"first","timestamp":"2024-01-01T00:00:00Z","cwd":"/tmp","message":{"role":"user","content":"first"}}"#);
-
 
     std::thread::sleep(std::time::Duration::from_millis(50));
     let p2 = proj_dir.join("second.jsonl");
@@ -103,12 +88,10 @@ async fn continue_picks_latest_session() {
     assert!(msgs_text.contains("second"), "should replay latest session: {}", msgs_text);
 }
 
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn fork_session_creates_new_id() {
     let home = TempDir::new("fork_home");
     let cwd = TempDir::new("fork_cwd");
-
 
     let server1 = MockServer::single_text("first reply").await;
     let (stdout1, _, code1) = tokio::time::timeout(TEST_TIMEOUT, async {
@@ -127,7 +110,6 @@ async fn fork_session_creates_new_id() {
     assert_eq!(code1, 0);
     let v1 = last_result(&stdout1);
     assert_eq!(v1["session_id"], "00000000-0000-4000-8000-000000000005");
-
 
     let server2 = MockServer::single_text("forked reply").await;
     let (stdout2, _, code2) = tokio::time::timeout(TEST_TIMEOUT, async {
@@ -155,7 +137,6 @@ async fn fork_session_creates_new_id() {
     assert!(msgs_text.contains("forked prompt"), "new prompt should be present: {}", msgs_text);
 }
 
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn no_session_persistence_writes_no_file() {
     let home = TempDir::new("nopersist_home");
@@ -182,7 +163,6 @@ async fn no_session_persistence_writes_no_file() {
     assert!(!proj_dir.exists() || fs::read_dir(&proj_dir).unwrap().count() == 0,
         "no transcript file should exist with --no-session-persistence");
 }
-
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn session_id_consistent_across_turns() {
@@ -245,8 +225,6 @@ async fn session_id_consistent_across_turns() {
     assert_eq!(v1["session_id"], "00000000-0000-4000-8000-000000000007");
 }
 
-
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn resume_nonexistent_session_errors() {
     let home = TempDir::new("resume_new_home");
@@ -275,7 +253,6 @@ async fn resume_nonexistent_session_errors() {
     assert_eq!(server.requests().await.len(), 0, "model must not be called");
 }
 
-
 mod session {
     use std::path::Path;
     pub fn encode_cwd(path: &Path) -> String {
@@ -284,7 +261,6 @@ mod session {
         s.replace(['/', '.'], "-")
     }
 }
-
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn c9_2_session_id_rejects_non_uuid() {
@@ -308,7 +284,6 @@ async fn c9_2_session_id_rejects_non_uuid() {
     assert!(!home.path().join(".zen").join("projects").exists());
 }
 
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn c9_3_usage_accumulates_across_resume() {
     let home = TempDir::new("usage_home");
@@ -328,9 +303,6 @@ async fn c9_3_usage_accumulates_across_resume() {
     assert_eq!(c2, 0, "{}", e2);
     assert_eq!(last_result(&o2)["usage"], serde_json::json!({"input_tokens": 14, "output_tokens": 6, "cache_read_input_tokens": 0}));
 }
-
-
-
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn p0b_3_session_file_rebuilds_last_request_byte_identical() {
@@ -378,9 +350,6 @@ fn walk_find(root: &std::path::Path, name: &str) -> Option<std::path::PathBuf> {
     }
     None
 }
-
-
-
 
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

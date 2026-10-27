@@ -1,23 +1,9 @@
-
-
-
-
-
-
-
-
-
-
 use zen_agent::safety as agent_safety;
-
 
 pub use agent_safety::{
     auth_login_warning, concurrency_cap_warning, first_429_notice, parallel_sessions_warning,
     quota_exhausted_error, repeated_429_warning, SAFETY_DISCLAIMER,
 };
-
-
-
 
 pub fn check_parallel_sessions(
     provider: &str,
@@ -34,7 +20,6 @@ pub fn check_parallel_sessions(
         None
     }
 }
-
 
 pub fn doctor_safety_checklist(version: &str) -> String {
     let mut out = String::new();
@@ -58,8 +43,6 @@ pub fn doctor_safety_checklist(version: &str) -> String {
     out.push_str(&format!("    - {SAFETY_DISCLAIMER}\n"));
     out
 }
-
-
 
 pub fn auth_login_safety_summary(provider: &str) -> String {
     auth_login_warning(provider)

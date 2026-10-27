@@ -1,31 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use serde_json::{json, Value};
@@ -34,9 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use zen_core::{ChatMessage, ChatRequest, ChatResponse, LlmBackend, ToolDefinition, ToolJournal};
 
-
 pub const EVENT_LOG_VERSION: u64 = 1;
-
 
 pub fn fnv1a_hex(bytes: &[u8]) -> String {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
@@ -59,7 +29,6 @@ struct State {
     chains: HashMap<String, (u64, Vec<ChatMessage>)>,
 }
 
-
 pub struct Recorder {
     state: Mutex<State>,
 }
@@ -69,11 +38,9 @@ impl Recorder {
         Arc::new(Self { state: Mutex::new(State { path, ..Default::default() }) })
     }
 
-
     pub fn set_path(&self, path: PathBuf) {
         *self.state.lock().unwrap() = State { path, ..Default::default() };
     }
-
 
     fn record_request(&self, req: &ChatRequest) -> Result<u64> {
         let body = serde_json::to_string(req)?;
@@ -84,9 +51,6 @@ impl Recorder {
             st.tool_hashes = hashes;
             st.scanned = true;
         }
-
-
-
 
         let seq = st.next_seq;
         let mut lines: Vec<Value> = vec![];
@@ -125,7 +89,6 @@ impl Recorder {
             "body_bytes": body.len(),
         }));
         let path = st.path.clone();
-
 
         for l in &lines {
             crate::session::append_record(&path, l)?;
@@ -172,7 +135,6 @@ impl Recorder {
 
 impl Recorder {
 
-
     fn journal(&self, rec: Value) {
         let st = self.state.lock().unwrap();
         let res = (|| -> Result<()> {
@@ -216,7 +178,6 @@ impl ToolJournal for Recorder {
     }
 }
 
-
 fn scan(path: &Path) -> (u64, HashSet<String>) {
     let mut next = 0;
     let mut hashes = HashSet::new();
@@ -239,7 +200,6 @@ fn scan(path: &Path) -> (u64, HashSet<String>) {
     }
     (next, hashes)
 }
-
 
 pub struct RecordingBackend {
     pub inner: Arc<dyn LlmBackend>,
@@ -265,7 +225,6 @@ impl LlmBackend for RecordingBackend {
     }
 }
 
-
 pub fn wrap(inner: Arc<dyn LlmBackend>, recorder: Option<&Arc<Recorder>>) -> Arc<dyn LlmBackend> {
     match recorder {
         Some(r) => Arc::new(RecordingBackend { inner, recorder: r.clone() }),
@@ -273,13 +232,9 @@ pub fn wrap(inner: Arc<dyn LlmBackend>, recorder: Option<&Arc<Recorder>>) -> Arc
     }
 }
 
-
-
-
 pub fn rebuild_requests(path: &Path) -> Result<Vec<(u64, String)>> {
     Ok(rebuild(path)?.into_iter().map(|(seq, _, body)| (seq, body)).collect())
 }
-
 
 fn rebuild(path: &Path) -> Result<Vec<(u64, Vec<ChatMessage>, String)>> {
     let text = std::fs::read_to_string(path)?;
@@ -332,17 +287,8 @@ fn rebuild(path: &Path) -> Result<Vec<(u64, Vec<ChatMessage>, String)>> {
     Ok(out)
 }
 
-
 pub const INTERRUPTED_TOOL_RESULT: &str =
     "[Tool call interrupted: the session ended before this tool finished; it may or may not have taken effect.]";
-
-
-
-
-
-
-
-
 
 pub fn resume_history(path: &Path) -> Result<(Vec<ChatMessage>, Vec<ChatMessage>)> {
     let committed = crate::session::load_history(path)?;
@@ -373,7 +319,6 @@ fn interrupted_turn(path: &Path) -> Result<Option<Vec<ChatMessage>>> {
     let requests = rebuild(path)?;
     let msgs_of = |seq: Option<u64>| requests.iter().find(|(s, _, _)| Some(*s) == seq).map(|(_, m, _)| m.clone());
     let Some(main) = msgs_of(seq_of(&tail[ri])) else { return Ok(None) };
-
 
     let later = tail[ai + 1..]
         .iter()
@@ -410,7 +355,6 @@ fn interrupted_turn(path: &Path) -> Result<Option<Vec<ChatMessage>>> {
     Ok(Some(messages))
 }
 
-
 pub fn rebuild_last_request(path: &Path) -> Result<Option<String>> {
     Ok(rebuild_requests(path)?.pop().map(|(_, b)| b))
 }
@@ -419,8 +363,6 @@ pub fn rebuild_last_request(path: &Path) -> Result<Option<String>> {
 mod tests {
     use super::*;
     use zen_core::*;
-
-
 
     struct Scripted {
         replies: Mutex<Vec<ChatResponse>>,
@@ -467,8 +409,6 @@ mod tests {
         std::fs::create_dir_all(&d).unwrap();
         d
     }
-
-
 
     #[tokio::test]
     async fn p0_2_request_id_is_recorded_in_the_session_and_the_key_is_not() {
@@ -587,7 +527,6 @@ mod tests {
         assert_eq!(rebuilt[3].1.as_bytes(), sent.last().unwrap().as_bytes());
         assert_eq!(rebuild_last_request(&transcript).unwrap().unwrap(), serde_json::to_string(&side).unwrap());
 
-
         let text = std::fs::read_to_string(&transcript).unwrap();
         let recs: Vec<Value> = text.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
         assert_eq!(recs.iter().filter(|r| r["type"] == "tools").count(), 1);
@@ -596,7 +535,6 @@ mod tests {
         assert_eq!(reqs[3]["base"], 2);
         assert_eq!(reqs[3]["append"].as_array().unwrap().len(), 2, "assistant call + tool result");
         assert_eq!(recs.iter().filter(|r| r["type"] == "response").count(), 4);
-
 
         let history = crate::session::load_history(&transcript).unwrap();
         assert_eq!(history, agent.messages());
@@ -641,7 +579,6 @@ mod tests {
         assert_eq!(res.result, "It says alpha.");
         writer.persist_turn(&[], agent.messages()).unwrap();
 
-
         let sent = scripted.bodies.lock().unwrap().clone();
         assert_eq!(sent.len(), 5);
         let rebuilt = rebuild_requests(&transcript).unwrap();
@@ -651,7 +588,6 @@ mod tests {
         }
         assert!(sent[1].contains("cut off by the output token limit. Continue exactly"));
         assert!(sent[2].contains("in the middle of a tool call, so no tool was run"));
-
 
         let text = std::fs::read_to_string(&transcript).unwrap();
         let recs: Vec<Value> = text.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
@@ -680,7 +616,6 @@ mod tests {
         assert!(rebuild_requests(&path).unwrap().is_empty());
         assert_eq!(rebuild_last_request(&path).unwrap(), None);
         assert_eq!(crate::session::load_history(&path).unwrap(), msgs);
-
 
         let req = |m: &str| ChatRequest {
             model: "m".into(),
@@ -728,8 +663,6 @@ mod tests {
         r
     }
 
-
-
     #[derive(Clone, Copy)]
     struct Hang(&'static str, bool);
     #[async_trait]
@@ -769,8 +702,6 @@ mod tests {
         agent.journal = Some(recorder.clone());
         agent
     }
-
-
 
     async fn killed_after_one_of_two_tools(hang: Hang) {
         let dir = tmp("dtr");
@@ -812,7 +743,6 @@ mod tests {
         let sent = scripted.bodies.lock().unwrap().clone();
         let rebuilt = rebuild_requests(&path).unwrap();
         assert_eq!(rebuilt.iter().map(|(_, b)| b.clone()).collect::<Vec<_>>(), sent);
-
 
         let mut w2 = crate::session::TranscriptWriter::new(path.clone(), "sess", &dir);
         w2.persist_turn(&committed, &history).unwrap();

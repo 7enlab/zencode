@@ -1,29 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 use serde_json::{json, Value};
 use std::sync::Arc;
 use std::time::Instant;
@@ -35,17 +9,13 @@ use crate::compaction;
 use crate::prune::{PruneConfig, PruneStats};
 use crate::finish;
 
-
 const MAX_EMPTY_REQUERIES: usize = 2;
 
 const UNPARSED_REPLY_NUDGE: &str = "[zen: the server could not parse your last reply. Continue the task: make one tool call with plain JSON arguments, or give your final answer.]";
 
-
-
 fn is_unparsed_sample(err: &str) -> bool {
     err.contains("model returned no choices") || err.contains("gateway error in 200 response")
 }
-
 
 pub const TRUNCATION_CONTINUE_NUDGE: &str = "[zen: your last reply was cut off by the output token limit. Continue exactly where you stopped, without repeating anything you already wrote.]";
 
@@ -53,15 +23,12 @@ pub const TRUNCATED_CALL_NUDGE: &str = "[zen: your last reply was cut off by the
 
 pub const DEFAULT_MAX_CONTINUATIONS: usize = 3;
 
-
-
 pub fn is_truncated(finish_reason: Option<&str>) -> bool {
     finish_reason.is_some_and(|r| {
         let r = r.to_ascii_lowercase();
         r == "length" || r == "max_tokens" || r == "max_output_tokens"
     })
 }
-
 
 pub fn content_filter_message(partial: &str) -> String {
     let mut m = String::from(
@@ -74,17 +41,13 @@ pub fn content_filter_message(partial: &str) -> String {
     m
 }
 
-
 const EMPTY_REPLY_NUDGE: &str =
     "[zen: your last reply was empty. Continue the task: call a tool, or give your final answer.]";
 use crate::guard;
 use crate::plan;
 use crate::repair;
 
-
 pub const DEFAULT_STOP_HOOK_CONTINUES: usize = 8;
-
-
 
 #[derive(Debug, Clone)]
 pub struct AgentConfig {
@@ -97,11 +60,9 @@ pub struct AgentConfig {
 
     pub max_turns: usize,
 
-
     pub budget: Option<BudgetPolicy>,
 
     pub permission_mode: PermissionMode,
-
 
     pub context_window: u64,
 
@@ -113,19 +74,15 @@ pub struct AgentConfig {
 
     pub verify_reminder: bool,
 
-
     pub verify_command: Option<String>,
 
     pub verify_timeout_secs: u64,
-
 
     pub verify_after_edit: Option<String>,
 
     pub verify_after_edit_timeout_secs: u64,
 
-
     pub tool_timeouts: std::collections::HashMap<String, u64>,
-
 
     pub max_continuations: usize,
 
@@ -133,40 +90,22 @@ pub struct AgentConfig {
 
     pub max_output_tokens: Option<u32>,
 
-
-
     pub tool_bundle: ToolBundle,
 
-
-
     pub max_parallel_tool_calls: usize,
-
-
-
 
     pub done_scope: Vec<String>,
 }
 
-
 pub const DEFAULT_TOOL_TIMEOUT_MS: u64 = 300_000;
-
-
 
 pub const DEFAULT_MAX_PARALLEL_TOOL_CALLS: usize = 4;
 
 impl AgentConfig {
 
-
     pub fn tool_timeout_ms(&self, tool: &str) -> Option<u64> {
         self.tool_timeout_with_source(tool).0
     }
-
-
-
-
-
-
-
 
     pub fn tool_timeout_with_source(&self, tool: &str) -> (Option<u64>, TimeoutSource) {
         if tool == "Bash" {
@@ -174,7 +113,6 @@ impl AgentConfig {
         }
         match self.tool_timeouts.get(tool) {
             Some(t) => ((t > &0).then_some(*t), TimeoutSource::PerTool),
-
 
             None if matches!(tool, "Task" | "JobOutput") => (None, TimeoutSource::None),
             None => match self.tool_timeouts.get("default") {
@@ -184,7 +122,6 @@ impl AgentConfig {
         }
     }
 }
-
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TimeoutSource {
@@ -197,7 +134,6 @@ pub enum TimeoutSource {
 
     None,
 }
-
 
 async fn run_tool(
     tool: Arc<dyn Tool>,
@@ -225,11 +161,7 @@ async fn run_tool(
     }
 }
 
-
-
 const TOOL_PROGRESS_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
-
-
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn run_tool_with_heartbeat(
@@ -291,10 +223,6 @@ impl Default for AgentConfig {
     }
 }
 
-
-
-
-
 pub struct Agent {
 
     pub llm: Arc<dyn LlmBackend>,
@@ -327,14 +255,9 @@ pub struct Agent {
 
     pub budget_warned: bool,
 
-
     pub model_calls_since_todo: usize,
 
-
-
     pub journal: Option<Arc<dyn ToolJournal>>,
-
-
 
     pub prune_turn_starts: Vec<usize>,
 
@@ -377,7 +300,6 @@ impl Agent {
         }
     }
 
-
     pub fn set_messages(&mut self, messages: Vec<ChatMessage>) {
         self.messages = messages;
 
@@ -386,18 +308,13 @@ impl Agent {
         self.prune_turn_starts = vec![0];
     }
 
-
     pub fn messages(&self) -> &[ChatMessage] {
         &self.messages
     }
 
-
     pub fn set_stop_hook_max_continues(&mut self, n: usize) {
         self.stop_hook_max_continues = n.max(1);
     }
-
-
-
 
     pub fn tools_for_request(&self) -> Vec<ToolDefinition> {
         let defs = crate::tool_bundles::definitions_for_bundle(&self.tools, self.config.tool_bundle);
@@ -408,9 +325,6 @@ impl Agent {
         }
     }
 
-
-
-
     fn request_messages(&self) -> Vec<ChatMessage> {
         let mut msgs: Vec<ChatMessage> = Vec::with_capacity(self.messages.len() + 1);
         if !self.config.system_prompt.is_empty() {
@@ -419,7 +333,6 @@ impl Agent {
         msgs.extend(self.messages.iter().cloned());
         crate::plan::ensure_tool_responses(msgs)
     }
-
 
     fn run_result(
         &self,
@@ -440,9 +353,6 @@ impl Agent {
             result,
             session_id: self.ctx.session_id.clone(),
 
-
-
-
             total_cost_usd: crate::budget::estimate_cost_usd(
                 &self.config.model,
                 self.usage.input_tokens,
@@ -455,7 +365,6 @@ impl Agent {
         }
     }
 
-
     fn record_denial(&mut self, tool_name: &str, tool_use_id: &str, input: &Value) {
         let denial = PermissionDenial {
             tool_name: tool_name.to_string(),
@@ -465,8 +374,6 @@ impl Agent {
         self.sink.emit(AgentEvent::PermissionDenied(denial.clone()));
         self.denials.push(denial);
     }
-
-
 
     async fn notify_permission_prompt(&self, tool_name: &str) {
         let note = self
@@ -494,7 +401,6 @@ impl Agent {
         }
     }
 
-
     fn emit_tool_result(&self, tool_use_id: &str, content: &str, is_error: bool, parallel: bool) {
         self.sink.emit(AgentEvent::ToolResult {
             tool_use_id: tool_use_id.to_string(),
@@ -505,14 +411,11 @@ impl Agent {
         });
     }
 
-
     fn journal_result(&self, tool_use_id: &str, content: &str, is_error: bool, final_result: bool) {
         if let Some(j) = &self.journal {
             j.tool_result(tool_use_id, content, is_error, final_result);
         }
     }
-
-
 
     fn plan_text(&self) -> Option<String> {
         let mut parts: Vec<String> = Vec::new();
@@ -546,16 +449,9 @@ impl Agent {
         }
     }
 
-
-
-
-
-
-
     pub async fn run_turn(&mut self, prompt: &str) -> RunResult {
         let started = Instant::now();
         let mut duration_api_ms: u64 = 0;
-
 
         let ups = self
             .hooks
@@ -621,16 +517,12 @@ impl Agent {
                 );
             }
 
-
             if let Some(threshold) = self.config.auto_compact_threshold {
                 let used = compaction::context_tokens(self);
                 if used > threshold && !self.messages.is_empty() {
                     let _ = compaction::compact_impl(self, None, "auto").await;
                 }
             }
-
-
-
 
             self.prune_turn_starts.push(self.messages.len());
             self.prune_old_results();
@@ -641,9 +533,6 @@ impl Agent {
             }
             let messages = self.request_messages();
             let tools = self.tools_for_request();
-
-
-
 
             if let Some(policy) = self.config.budget.clone() {
                 let model = self.config.model.clone();
@@ -708,8 +597,6 @@ impl Agent {
                 Ok(v) => v,
                 Err(e) if is_unparsed_sample(&e.to_string()) && empty_requeries < MAX_EMPTY_REQUERIES => {
 
-
-
                     empty_requeries += 1;
                     self.messages.push(ChatMessage::user(UNPARSED_REPLY_NUDGE));
                     continue;
@@ -733,7 +620,6 @@ impl Agent {
             self.last_prompt_tokens = resp.usage.prompt_tokens;
 
             let mut resp = resp;
-
 
             if crate::client::is_content_filtered(resp.finish_reason.as_deref())
                 && resp.message.tool_calls.as_ref().is_none_or(|c| c.is_empty())
@@ -838,8 +724,6 @@ impl Agent {
 
             if tool_calls.is_empty() && final_text.trim().is_empty() && empty_requeries < MAX_EMPTY_REQUERIES {
 
-
-
                 empty_requeries += 1;
                 self.messages.pop();
                 self.messages.push(ChatMessage::user(EMPTY_REPLY_NUDGE));
@@ -857,7 +741,6 @@ impl Agent {
             }
 
             if tool_calls.is_empty() {
-
 
                 let stop = if self.config.depth == 0 {
                     self.hooks
@@ -902,7 +785,6 @@ impl Agent {
                     continue;
                 }
 
-
                 if self.config.depth == 0 && !plan_mode {
                     let decision = finish_gate
                         .decide(
@@ -942,10 +824,6 @@ impl Agent {
                 );
             }
 
-
-
-
-
             let mut stop_run: Option<String> = None;
             let mut batch: Vec<Slot> = Vec::new();
             for tc in tool_calls {
@@ -983,7 +861,6 @@ impl Agent {
         }
     }
 
-
     fn call_ctx(&self, tool_use_id: &str, tool_name: &str) -> ToolContext {
         let mut call_ctx = self.ctx.clone();
         call_ctx.current_tool_use_id = Some(tool_use_id.to_string());
@@ -994,8 +871,6 @@ impl Agent {
         call_ctx
     }
 
-
-
     async fn prepare_call(
         &mut self,
         tc: &ToolCall,
@@ -1004,9 +879,6 @@ impl Agent {
         stop_run: &Option<String>,
     ) -> Slot {
         let tool_use_id = tc.id.clone();
-
-
-
 
         let mut repair_notes: Vec<String> = Vec::new();
         if text_call_id == Some(tool_use_id.as_str()) {
@@ -1037,15 +909,12 @@ impl Agent {
         };
         if !repair_notes.is_empty() {
 
-
             self.rewrite_tool_call(&tool_use_id, &tool_name, &args);
         }
-
 
         if stop_run.is_some() {
             return Slot::Done(tool_use_id, "[tool call skipped: run stopping]".to_string(), false);
         }
-
 
         let pre = self
             .hooks
@@ -1061,7 +930,6 @@ impl Agent {
             .await;
         self.emit_system_message(HookEvent::PreToolUse, &pre);
         if pre.stop_run {
-
 
             let reason = pre
                 .stop_reason
@@ -1083,7 +951,6 @@ impl Agent {
             _ => args,
         };
 
-
         let tool = match self.tools.get(&tool_name) {
             Some(t) => t,
             None => {
@@ -1096,8 +963,6 @@ impl Agent {
             }
         };
 
-
-
         if crate::tool_bundles::is_deferred(&self.tools, self.config.tool_bundle, &tool_name) {
             let content = format!(
                 "Tool '{}' is deferred in tool bundle '{}': its schema was not sent to save context. \
@@ -1109,16 +974,10 @@ impl Agent {
         }
         let read_only = tool.is_read_only();
 
-
-
-
         if plan_mode && !read_only {
             let content = format!("Tool '{}' is not available in plan mode", tool_name);
             return Slot::Done(tool_use_id, content, true);
         }
-
-
-
 
         let checked = self.permissions.check(&tool_name, &args, read_only, &self.ctx);
         let ask_rule = matches!(checked, PermissionDecision::Ask)
@@ -1137,7 +996,6 @@ impl Agent {
                     self.notify_permission_prompt(&tool_name).await;
                     match p.ask_permission(&tool_name, &args) {
                         PromptAnswer::Yes => {}
-
 
                         PromptAnswer::Always(rules) => {
                             for rule in rules.lines() {
@@ -1165,11 +1023,6 @@ impl Agent {
         Slot::Run(PendingCall { tool_use_id, tool_name, args, repair_notes, tool, parallel })
     }
 
-
-
-
-
-
     async fn flush_calls(
         &mut self,
         slots: Vec<Slot>,
@@ -1186,8 +1039,6 @@ impl Agent {
 
         let mut ran_parallel = vec![false; slots.len()];
         if runnable > 1 {
-
-
 
             let limit = self.config.max_parallel_tool_calls.max(1);
             let run_idx: Vec<usize> = slots
@@ -1255,7 +1106,6 @@ impl Agent {
                         continue;
                     }
 
-
                     p.parallel = ran_parallel[i];
                     let out = match outs.get_mut(i).and_then(Option::take) {
                         Some(o) => o,
@@ -1285,8 +1135,6 @@ impl Agent {
             }
         }
     }
-
-
 
     async fn finish_call(
         &mut self,
@@ -1353,7 +1201,6 @@ impl Agent {
             self.journal_result(&tool_use_id, &out.content, out.is_error, true);
         }
 
-
         if self.config.prune.enabled {
             let max = self.config.prune.max_result_tokens;
             if crate::prune::est_tokens(&out.content) > max {
@@ -1376,8 +1223,6 @@ impl Agent {
         }
     }
 
-
-
     async fn verify_after_edit(&self, tool_name: &str, is_error: bool) -> Option<Option<String>> {
         let cmd = self.config.verify_after_edit.as_deref()?;
         if is_error || !matches!(tool_name, "Edit" | "MultiEdit" | "Write") {
@@ -1393,8 +1238,6 @@ impl Agent {
             cmd, status, tail
         )))
     }
-
-
 
     fn maybe_reinject_todos(&mut self) {
         self.model_calls_since_todo += 1;
@@ -1413,7 +1256,6 @@ impl Agent {
         }
     }
 
-
     fn rewrite_tool_call(&mut self, id: &str, name: &str, args: &Value) {
         let Some(msg) = self.messages.iter_mut().rev().find(|m| m.role == "assistant") else { return };
         if let Some(call) = msg.tool_calls.iter_mut().flatten().find(|c| c.id == id) {
@@ -1422,21 +1264,12 @@ impl Agent {
         }
     }
 
-
-
-
-
-
-
-
     fn prune_old_results(&mut self) {
         if !self.config.prune.enabled {
             return;
         }
         let current_turn = self.prune_turn_starts.len().saturating_sub(1);
         let min_age = self.config.prune.min_age();
-
-
 
         let mut protected = self.plan_text().unwrap_or_default();
         protected.push('\n');
@@ -1475,7 +1308,6 @@ impl Agent {
         }
     }
 
-
     pub fn prune_stats(&self) -> &PruneStats {
         &self.prune_stats
     }
@@ -1485,18 +1317,9 @@ impl Agent {
     }
 }
 
-
-
-
-
-
-
-
-
 pub(crate) fn is_parallel_safe(tool_name: &str) -> bool {
     matches!(tool_name, "Read" | "Glob" | "Grep" | "LS")
 }
-
 
 struct PendingCall {
     tool_use_id: String,
@@ -1507,7 +1330,6 @@ struct PendingCall {
     parallel: bool,
 }
 
-
 enum Slot {
 
     Done(String, String, bool),
@@ -1516,12 +1338,6 @@ enum Slot {
 
     Run(PendingCall),
 }
-
-
-
-
-
-
 
 pub(crate) fn combine_permission(
     checked: PermissionDecision,

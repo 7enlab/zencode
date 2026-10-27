@@ -1,17 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 use std::path::Path;
 
 use anyhow::Result;
@@ -19,14 +5,11 @@ use clap::Parser;
 
 use crate::cli::Cli;
 
-
 pub const PROMPT_BUDGET_TOKENS: u64 = 1_200;
-
 
 pub fn estimate_tokens(text: &str) -> u64 {
     text.len() as u64 / 4
 }
-
 
 pub struct PromptBudget {
     pub system_prompt_tokens: u64,
@@ -38,7 +21,6 @@ impl PromptBudget {
     pub fn total(&self) -> u64 {
         self.system_prompt_tokens + self.tool_definitions_tokens
     }
-
 
     pub fn report(&self) -> String {
         let mut out = String::from("prompt budget breakdown (tokens, chars/4):\n");
@@ -55,14 +37,11 @@ impl PromptBudget {
     }
 }
 
-
-
 pub fn measure_default_budget() -> Result<PromptBudget> {
 
     let cli = Cli::try_parse_from(["zen", "--bare"])?;
     let sys = crate::system_prompt::build_system_prompt(&cli, Path::new("/tmp"), None)?;
     let system_prompt_tokens = estimate_tokens(&sys);
-
 
     let mut registry = zen_core::ToolRegistry::new();
     for t in zen_tools::builtin_tools() {
@@ -92,10 +71,6 @@ pub fn measure_default_budget() -> Result<PromptBudget> {
 mod tests {
     use super::*;
 
-
-
-
-
     #[test]
     #[ignore = "g4 target not yet met: 2,331 > 1,200 tokens; awaiting Z Core's cuts"]
     fn g4_prompt_budget_within_1200_tokens() {
@@ -109,9 +84,6 @@ mod tests {
             b.report()
         );
     }
-
-
-
 
     const CURRENT_BUDGET_TOKENS: u64 = 2_331;
 

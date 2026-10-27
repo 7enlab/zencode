@@ -1,16 +1,6 @@
-
-
-
-
-
-
-
-
-
 mod common;
 
 use common::*;
-
 
 fn fake_mcp_server_script() -> String {
 
@@ -100,16 +90,13 @@ if __name__ == "__main__":
     .to_string()
 }
 
-
 fn write_mcp_server_script(dir: &TempDir) -> std::path::PathBuf {
     dir.write("mcp_fake_server.py", &fake_mcp_server_script())
 }
 
-
 fn mcp_config_json(server_path: &str) -> String {
     format!(r#"{{"mcpServers":{{"fake":{{"command":"python3","args":["{}"]}}}}}}"#, server_path)
 }
-
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn mcp_server_connected_and_tool_works() {
@@ -153,23 +140,18 @@ async fn mcp_server_connected_and_tool_works() {
     assert_eq!(init["type"], "system");
     assert_eq!(init["subtype"], "init");
 
-
     let mcp_servers = init["mcp_servers"].as_array().expect("mcp_servers array");
     assert!(!mcp_servers.is_empty(), "mcp_servers should list our fake server");
     let fake_server = mcp_servers.iter().find(|s| s["name"] == "fake").expect("fake server in list");
     assert_eq!(fake_server["status"], "connected", "fake server should be connected: {}", fake_server);
-
-
 
     let tools: Vec<String> = init["tools"].as_array().unwrap()
         .iter().filter_map(|t| t.as_str().map(|s| s.to_string()))
         .collect();
     assert!(tools.contains(&"mcp__fake__echo".to_string()), "MCP tool should be in tools list: {:?}", tools);
 
-
     let v = last_result(&stdout);
     assert_eq!(v["result"], "mcp tool worked");
-
 
     let requests = server.requests().await;
     assert_eq!(requests.len(), 2);
@@ -177,12 +159,10 @@ async fn mcp_server_connected_and_tool_works() {
     assert!(second_req.contains("ECHO: hello mcp"), "MCP tool result should be in model request: {}", second_req);
 }
 
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn mcp_server_failed_shows_failed_status() {
     let home = TempDir::new("mcp_fail_home");
     let cwd = TempDir::new("mcp_fail_cwd");
-
 
     let mcp_config = r#"{"mcpServers":{"broken":{"command":"nonexistent-command-xyz","args":[]}}}"#;
 
@@ -208,7 +188,6 @@ async fn mcp_server_failed_shows_failed_status() {
     let broken_server = mcp_servers.iter().find(|s| s["name"] == "broken").expect("broken server in list");
     assert_eq!(broken_server["status"], "failed", "broken server should show failed: {}", broken_server);
 }
-
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn multiple_mcp_servers_mixed_status() {
@@ -249,12 +228,10 @@ async fn multiple_mcp_servers_mixed_status() {
     assert_eq!(bad["status"], "failed");
 }
 
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn strict_mcp_config_ignores_file_configs() {
     let home = TempDir::new("mcp_strict_home");
     let cwd = TempDir::new("mcp_strict_cwd");
-
 
     cwd.write(".mcp.json", r#"{"mcpServers":{"project":{"command":"python3","args":["/nonexistent.py"]}}}"#);
 
@@ -328,8 +305,6 @@ async fn c7_3_invalid_entries_reported_in_init() {
     assert!(!stderr.contains("skipped"), "stderr: {}", stderr);
 }
 
-
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn c7_5_mcp_subcommands_round_trip() {
     let home = TempDir::new("mcp_cmd_home");
@@ -339,7 +314,6 @@ async fn c7_5_mcp_subcommands_round_trip() {
         ZenRun::new("mcp_cmd", &home, &cwd).args(args).run_output()
     };
     let s = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>();
-
 
     let (_, err, code) = run(s(&[
         "mcp", "add", "-e", "K=V", "fake", "--", "python3", "${ZEN_TEST_NOPE:-SCRIPT}",
@@ -354,7 +328,6 @@ async fn c7_5_mcp_subcommands_round_trip() {
         .unwrap()
         .replace("SCRIPT", &script.display().to_string());
     std::fs::write(cwd.path().join(".zen/mcp.json"), text).unwrap();
-
 
     let (_, err, code) = run(s(&[
         "mcp", "add", "--transport", "http", "-s", "project", "--header",
@@ -372,7 +345,6 @@ async fn c7_5_mcp_subcommands_round_trip() {
     assert_ne!(code, 0, "non-object JSON must be rejected");
     let (_, _, code) = run(s(&["mcp", "add", "--transport", "smoke", "x", "y"]));
     assert_ne!(code, 0, "unknown transport must be rejected");
-
 
     let server = MockServer::single_text("ok").await;
     let (stdout, stderr, code) = tokio::time::timeout(TEST_TIMEOUT, async {
@@ -396,7 +368,6 @@ async fn c7_5_mcp_subcommands_round_trip() {
     assert!(st.contains(&("fake".into(), "connected".into())), "{:?}", st);
     assert!(st.contains(&("web".into(), "failed".into())), "{:?}", st);
     assert!(init["tools"].as_array().unwrap().iter().any(|t| t == "mcp__fake__echo"));
-
 
     let (_, err, code) = run(s(&["mcp", "remove", "fake"]));
     assert_eq!(code, 0, "{}", err);

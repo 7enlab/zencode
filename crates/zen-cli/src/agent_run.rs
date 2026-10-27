@@ -1,19 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 use crate::cli::{Cli, OutputFormat};
 use crate::commands;
 use crate::output::{print_result, Buffered, StreamJsonSink};
@@ -26,7 +10,6 @@ use zen_core::{
     PermissionDenial, PermissionMode, Prompter, RunResult, Tool, ToolContext, ToolRegistry,
 };
 
-
 pub struct AgentAssembly {
     pub registry: ToolRegistry,
     pub permissions: Arc<dyn PermissionChecker>,
@@ -37,17 +20,12 @@ pub struct AgentAssembly {
     pub slash_commands: Vec<String>,
     pub skills: Vec<zen_core::SkillInfo>,
 
-
     pub agent_system_prompt: Option<String>,
-
-
 
     pub subagent_sink: Arc<ForwardSink>,
 
-
     pub recorder: Option<Arc<crate::eventlog::Recorder>>,
 }
-
 
 #[derive(Default)]
 pub struct ForwardSink {
@@ -69,7 +47,6 @@ impl EventSink for ForwardSink {
     }
 }
 
-
 pub fn core_mode(m: crate::cli::PermissionMode) -> PermissionMode {
     match m {
         crate::cli::PermissionMode::Default => PermissionMode::Default,
@@ -79,7 +56,6 @@ pub fn core_mode(m: crate::cli::PermissionMode) -> PermissionMode {
         crate::cli::PermissionMode::DontAsk => PermissionMode::DontAsk,
     }
 }
-
 
 pub struct ReplPrompter;
 
@@ -108,16 +84,6 @@ impl Prompter for ReplPrompter {
         }
     }
 }
-
-
-
-
-
-
-
-
-
-
 
 pub fn select_builtin_tools(spec: Option<&str>, all: Vec<Arc<dyn Tool>>) -> Result<Vec<Arc<dyn Tool>>> {
     let list = match spec {
@@ -156,7 +122,6 @@ pub async fn assemble(
 
     let recorder = transcript_path.map(|p| crate::eventlog::Recorder::new(p.to_path_buf()));
 
-
     let mut registry = ToolRegistry::new();
     let all_builtins = zen_tools::builtin_tools();
     let selected = select_builtin_tools(cli.tools.as_deref(), all_builtins)?;
@@ -170,14 +135,9 @@ pub async fn assemble(
         }
     }
 
-
     let mut mcp_status: Vec<(String, String)> = vec![];
     let mut mcp_errors: Vec<(String, String)> = vec![];
     let mut skills: Vec<zen_core::SkillInfo> = vec![];
-
-
-
-
 
     let skill_gate = Arc::new(crate::skills::SkillPermissionGate::new(
         build_permissions(cwd, cfg, cli),
@@ -185,7 +145,6 @@ pub async fn assemble(
     if !cli.bare {
         skills = zen_ext::discover_skills(cwd, home);
         if cli.tools.as_deref() != Some("") {
-
 
             let installed = home
                 .map(crate::skills::load_enabled_skills)
@@ -197,8 +156,6 @@ pub async fn assemble(
             )));
         }
     }
-
-
 
     if !cli.bare || !cli.mcp_config.is_empty() {
 
@@ -227,7 +184,6 @@ pub async fn assemble(
             .map(|e| (e.server_name, e.reason))
             .collect();
 
-
         {
             use std::io::IsTerminal;
             if std::io::stderr().is_terminal() {
@@ -240,11 +196,7 @@ pub async fn assemble(
             registry.register(t);
         }
 
-
     }
-
-
-
 
     let allowed_bare: Vec<String> = split_rule_names(&cli.allowed_tools)
         .into_iter()
@@ -259,18 +211,12 @@ pub async fn assemble(
         registry = registry.filtered(&kept);
     }
 
-
-
-
     let mut deny_rules = cfg.permissions.deny.clone();
     deny_rules.extend(split_rule_names(&cli.disallowed_tools));
     let tool_denied =
         |name: &str| deny_rules.iter().any(|r| zen_tools::rule_removes_tool(r, name));
     let kept: Vec<String> = registry.names().into_iter().filter(|n| !tool_denied(n)).collect();
     registry = registry.filtered(&kept);
-
-
-
 
     let mut agent_system_prompt: Option<String> = None;
 
@@ -295,7 +241,6 @@ pub async fn assemble(
         }
     }
 
-
     let mut assembly_permissions: Arc<dyn PermissionChecker> = build_permissions(cwd, cfg, cli);
     let hooks = build_hooks(cli, cfg, session_id, transcript_path, cwd);
     let _ = &assembly_permissions;
@@ -319,11 +264,8 @@ pub async fn assemble(
             Arc::new(executor),
         )));
 
-
         assembly_permissions = Arc::new(skill_gate.shared(build_permissions(cwd, cfg, cli)));
     }
-
-
 
     if cli.tools.as_deref() != Some("") {
         let lsp_manager = Arc::new(zen_mcp::LspManager::new());
@@ -333,7 +275,6 @@ pub async fn assemble(
             Arc::new(zen_mcp::FindReferencesTool::new(lsp_manager.clone())),
         ];
         for tool in lsp_tools {
-
 
             let name = tool.name();
             let allowed = allowed_bare.is_empty()
@@ -362,9 +303,6 @@ pub async fn assemble(
         recorder,
     })
 }
-
-
-
 
 fn lsp_tool_allowed(spec: Option<&str>, name: &str) -> bool {
     let list = match spec {
@@ -401,7 +339,6 @@ fn split_rule_names(rules: &[String]) -> Vec<String> {
 fn build_permissions(cwd: &Path, cfg: &ResolvedConfig, cli: &Cli) -> Arc<dyn PermissionChecker> {
     build_permissions_with(cwd, cfg, cli, &[])
 }
-
 
 pub(crate) fn build_permissions_with(
     cwd: &Path,
@@ -462,8 +399,6 @@ fn build_hooks(
     )
 }
 
-
-
 pub fn resolve_tool_bundle(cli: &Cli, cfg: &ResolvedConfig) -> zen_agent::ToolBundle {
     if let Some(b) = cli.tool_bundle {
         return b;
@@ -475,11 +410,6 @@ pub fn resolve_tool_bundle(cli: &Cli, cfg: &ResolvedConfig) -> zen_agent::ToolBu
     }
     cfg.tool_bundle
 }
-
-
-
-
-
 
 fn resolve_auto_compact_threshold(
     flag: Option<&str>,
@@ -523,7 +453,6 @@ pub fn base_agent_config(cfg: &ResolvedConfig, cli: &Cli, system_prompt: &str) -
         max_continuations: cfg.max_continuations,
         prune: zen_agent::prune::PruneConfig {
 
-
             enabled: !cli.no_prune,
             prune_after: cli
                 .prune_after
@@ -547,13 +476,6 @@ pub fn base_agent_config(cfg: &ResolvedConfig, cli: &Cli, system_prompt: &str) -
     );
     config
 }
-
-
-
-
-
-
-
 
 pub fn apply_verify_settings(config: &mut zen_agent::AgentConfig, cfg: &ResolvedConfig, interactive: bool) {
     let v = cfg.verify.as_ref().filter(|v| v.is_object());
@@ -588,7 +510,6 @@ pub fn apply_verify_settings(config: &mut zen_agent::AgentConfig, cfg: &Resolved
     }
 }
 
-
 pub fn tool_context_public(
     cwd: &Path,
     cfg: &ResolvedConfig,
@@ -610,7 +531,6 @@ fn tool_context(cwd: &Path, cfg: &ResolvedConfig, cli: &Cli, session_id: &str) -
     ctx.extra_dirs = extra;
     ctx
 }
-
 
 #[allow(clippy::too_many_arguments)]
 pub async fn run_agent_headless(
@@ -639,8 +559,6 @@ pub async fn run_agent_headless(
     Ok(code)
 }
 
-
-
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn run_agent_with_result(
     cli: &Cli,
@@ -654,7 +572,6 @@ pub(crate) async fn run_agent_with_result(
     history_from: Option<&Path>,
 ) -> Result<(i32, RunResult)> {
     let resume = history_from.is_some();
-
 
     let mut signals = SignalWatch::install();
 
@@ -673,11 +590,9 @@ pub(crate) async fn run_agent_with_result(
         }
     }
 
-
     let (prompt, slash_cmd) = match &builtin {
         Some((name, args)) if name == "review" => (commands::review_prompt(args), None),
         Some((name, _)) if name == "init" => {
-
 
             let candidates = zen_ext::detect_import_candidates(cwd);
             let prompt = if candidates.is_empty() {
@@ -698,8 +613,6 @@ pub(crate) async fn run_agent_with_result(
         .unwrap_or_else(|| cfg.model.clone());
 
     let assembly = assemble(cli, cwd, home, cfg, session_id, transcript_path).await?;
-
-
 
     let buf = Arc::new(if cli.output_format == OutputFormat::StreamJson {
         Buffered::stdout()
@@ -735,8 +648,6 @@ pub(crate) async fn run_agent_with_result(
     let mut config = base_agent_config(cfg, cli, system_prompt);
     config.model = effective_model.clone();
 
-
-
     let base_prompt = match &assembly.agent_system_prompt {
         Some(body) => format!("{}\n\n{}", body, crate::system_prompt::environment_block(cwd)),
         None => system_prompt.to_string(),
@@ -746,7 +657,6 @@ pub(crate) async fn run_agent_with_result(
 
     let mut ctx = tool_context(cwd, cfg, cli, session_id);
     ctx.session_dir = transcript_path.map(crate::session::session_scratch_dir);
-
 
     let permissions = match slash_cmd.as_ref().filter(|c| !c.allowed_tools.is_empty()) {
         Some(c) => build_permissions_with(cwd, cfg, cli, &c.allowed_tools),
@@ -764,10 +674,6 @@ pub(crate) async fn run_agent_with_result(
         config,
     );
     agent.journal = assembly.recorder.clone().map(|r| r as Arc<dyn zen_core::ToolJournal>);
-
-
-
-
 
     let mut writer = transcript_path
         .map(|p| crate::session::TranscriptWriter::new(p.to_path_buf(), session_id, cwd));
@@ -795,9 +701,6 @@ pub(crate) async fn run_agent_with_result(
         }
     }
     let usage_before = agent.usage.clone();
-
-
-
 
     let mut local_failed = false;
     if let Some((name, args)) = &builtin {
@@ -895,7 +798,6 @@ pub(crate) async fn run_agent_with_result(
         return Ok((if is_error { 1 } else { 0 }, result));
     }
 
-
     let mut prompt = prompt;
     if let Some(ctx) = run_session_start(
         &assembly.hooks,
@@ -909,13 +811,11 @@ pub(crate) async fn run_agent_with_result(
         prompt.push_str(&ctx);
     }
 
-
     if let Some(s) = &stream_sink {
         s.set_prompt_input(prompt.clone());
     }
 
     let verify = verify_config(cli);
-
 
     let mut usage_before = usage_before;
     let mut verify_attempt: usize = 0;
@@ -931,7 +831,6 @@ pub(crate) async fn run_agent_with_result(
                     r = &mut turn => Ok(r),
                     i = sig.recv() => {
 
-
                         kill_descendants();
                         Err(i)
                     }
@@ -943,9 +842,7 @@ pub(crate) async fn run_agent_with_result(
             Ok(r) => r,
             Err(interrupt) => {
 
-
                 run_session_end(&assembly.hooks, session_id, cwd, cfg, "other").await;
-
 
                 let total_cost_usd = zen_agent::budget::estimate_cost_usd(
                     &cfg.model,
@@ -982,7 +879,6 @@ pub(crate) async fn run_agent_with_result(
             }
         };
 
-
         if let Some(w) = writer.as_mut() {
             if let Err(e) = w.persist_turn(&before, agent.messages()) {
                 eprintln!("warning: could not write transcript: {}", e);
@@ -998,9 +894,6 @@ pub(crate) async fn run_agent_with_result(
             &cfg.base_url,
         );
         usage_before = agent.usage.clone();
-
-
-
 
         let Some(v) = verify.as_ref() else {
             break turn_result;
@@ -1034,7 +927,6 @@ pub(crate) async fn run_agent_with_result(
         }
     };
 
-
     run_session_end(&assembly.hooks, session_id, cwd, cfg, "other").await;
 
     print_result(&result, &cli.output_format, &buf, false);
@@ -1043,7 +935,6 @@ pub(crate) async fn run_agent_with_result(
     if cli.output_format == OutputFormat::Text && !result.result.ends_with('\n') {
         println!();
     }
-
 
     if let Some(schema_path) = &cli.json_schema {
         if cli.output_format != OutputFormat::Json {
@@ -1057,10 +948,6 @@ pub(crate) async fn run_agent_with_result(
     Ok((if result.is_error { 1 } else { 0 }, result))
 }
 
-
-
-
-
 #[allow(clippy::too_many_arguments)]
 pub async fn run_plan_flow(
     cli: &Cli,
@@ -1073,7 +960,6 @@ pub async fn run_plan_flow(
     transcript_path: Option<&Path>,
     history_from: Option<&Path>,
 ) -> Result<i32> {
-
 
     let mut plan_cli = cli.clone();
     plan_cli.plan = false;
@@ -1122,7 +1008,6 @@ pub async fn run_plan_flow(
     .await
 }
 
-
 fn ask_plan_approval() -> bool {
     use std::io::{IsTerminal, Write};
     if !std::io::stdin().is_terminal() {
@@ -1137,8 +1022,6 @@ fn ask_plan_approval() -> bool {
     }
     matches!(line.trim().to_lowercase().as_str(), "y" | "yes")
 }
-
-
 
 fn persist_usage(
     path: Option<&Path>,
@@ -1174,7 +1057,6 @@ fn persist_usage(
     );
 }
 
-
 fn local_result(
     session_id: &str,
     model: &str,
@@ -1183,8 +1065,6 @@ fn local_result(
     is_error: bool,
     duration_ms: u64,
 ) -> RunResult {
-
-
 
     let total_cost_usd = zen_agent::budget::estimate_cost_usd(
         model,
@@ -1208,7 +1088,6 @@ fn local_result(
     }
 }
 
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Interrupt {
 
@@ -1216,7 +1095,6 @@ pub enum Interrupt {
 
     Int,
 }
-
 
 pub struct SignalWatch {
     #[cfg(unix)]
@@ -1257,14 +1135,9 @@ impl SignalWatch {
     }
 }
 
-
-
-
 pub fn kill_descendants() {
     kill_new_descendants(&[]);
 }
-
-
 
 pub fn kill_new_descendants(keep: &[u32]) {
     let pids: Vec<u32> = descendants_of(std::process::id())
@@ -1280,7 +1153,6 @@ pub fn kill_new_descendants(keep: &[u32]) {
         eprintln!("warning: could not stop child processes: {}", e);
     }
 }
-
 
 pub fn descendants_of(root: u32) -> Vec<u32> {
     let mut parent_of: Vec<(u32, u32)> = Vec::new();
@@ -1310,8 +1182,6 @@ pub fn descendants_of(root: u32) -> Vec<u32> {
     out
 }
 
-
-
 pub(crate) async fn run_session_start(
     hooks: &Arc<dyn HookRunner>,
     session_id: &str,
@@ -1327,14 +1197,12 @@ pub(crate) async fn run_session_start(
         "source": source,
     });
 
-
     hooks
         .run(HookEvent::SessionStart, source, payload)
         .await
         .feedback
         .filter(|s| !s.trim().is_empty())
 }
-
 
 pub(crate) async fn run_session_end(
     hooks: &Arc<dyn HookRunner>,
@@ -1353,7 +1221,6 @@ pub(crate) async fn run_session_end(
     let _ = hooks.run(HookEvent::SessionEnd, reason, payload).await;
 }
 
-
 fn compact_focus(prompt: &str) -> Option<Option<&str>> {
     let rest = prompt.trim().strip_prefix("/compact")?;
     if !rest.is_empty() && !rest.starts_with(char::is_whitespace) {
@@ -1362,8 +1229,6 @@ fn compact_focus(prompt: &str) -> Option<Option<&str>> {
     let focus = rest.trim();
     Some(if focus.is_empty() { None } else { Some(focus) })
 }
-
-
 
 pub fn expand_slash_prompt(
     cli: &Cli,
@@ -1375,8 +1240,6 @@ pub fn expand_slash_prompt(
 ) -> Result<String> {
     Ok(expand_slash_prompt_cmd(cli, cwd, home, prompt, cfg, session_id)?.0)
 }
-
-
 
 pub fn expand_slash_prompt_cmd(
     cli: &Cli,
@@ -1414,7 +1277,6 @@ pub fn expand_slash_prompt_cmd(
     })
 }
 
-
 pub fn denied_result(session_id: &str, model: &str, denials: Vec<PermissionDenial>) -> RunResult {
     RunResult {
         record_type: "result".into(),
@@ -1432,21 +1294,17 @@ pub fn denied_result(session_id: &str, model: &str, denials: Vec<PermissionDenia
     }
 }
 
-
 pub fn emit_notice(_ev: AgentEvent) {}
-
 
 const VERIFY_TIMEOUT_SECS: u64 = 300;
 
 const VERIFY_OUTPUT_CAP: usize = 6000;
-
 
 #[derive(Debug, Clone)]
 pub struct VerifyConfig {
     pub command: String,
     pub max_retries: usize,
 }
-
 
 pub fn verify_config(cli: &Cli) -> Option<VerifyConfig> {
     cli.until
@@ -1458,7 +1316,6 @@ pub fn verify_config(cli: &Cli) -> Option<VerifyConfig> {
             max_retries: cli.max_verify_retries,
         })
 }
-
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VerifyOutcome {
@@ -1473,7 +1330,6 @@ impl VerifyOutcome {
     pub fn success(&self) -> bool {
         self.exit_code == 0
     }
-
 
     pub fn combined_output(&self) -> String {
         let mut out = String::new();
@@ -1490,7 +1346,6 @@ impl VerifyOutcome {
     }
 }
 
-
 fn truncate_head_tail(s: &str, max_chars: usize) -> String {
     let len = s.chars().count();
     if len <= max_chars {
@@ -1503,7 +1358,6 @@ fn truncate_head_tail(s: &str, max_chars: usize) -> String {
     format!("{h}\n…[truncated {} chars]…\n{t}", len - max_chars)
 }
 
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VerifyDecision {
 
@@ -1513,7 +1367,6 @@ pub enum VerifyDecision {
 
     Failed,
 }
-
 
 pub fn decide_verify(
     outcome: &VerifyOutcome,
@@ -1529,7 +1382,6 @@ pub fn decide_verify(
     }
     VerifyDecision::Retry(verify_feedback_prompt(command, outcome, attempt, max_retries))
 }
-
 
 pub fn verify_feedback_prompt(
     command: &str,
@@ -1550,8 +1402,6 @@ pub fn verify_feedback_prompt(
         output = outcome.combined_output(),
     )
 }
-
-
 
 pub async fn run_verify_command(
     command: &str,
@@ -1608,7 +1458,6 @@ pub async fn run_verify_command(
         },
     }
 }
-
 
 fn verify_failed_result(
     base: &RunResult,
@@ -1793,7 +1642,6 @@ mod verify_tests {
     #[tokio::test]
     async fn run_verify_command_timeout() {
         let env = std::collections::HashMap::new();
-
 
         std::env::set_var("VERIFY_TIMEOUT_SECS", "1");
         let o = run_verify_command("sleep 30", &std::env::temp_dir(), &env).await;

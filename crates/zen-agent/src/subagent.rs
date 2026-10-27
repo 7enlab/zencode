@@ -1,33 +1,9 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 use async_trait::async_trait;
 use serde_json::json;
 use std::sync::Arc;
 use zen_core::*;
 
 use crate::agent::{Agent, AgentConfig};
-
-
-
 
 pub struct SubAgentExecutor {
 
@@ -47,7 +23,6 @@ pub struct SubAgentExecutor {
 
     pub max_depth: usize,
 
-
     pub skills: Vec<SkillInfo>,
 }
 
@@ -65,11 +40,9 @@ impl SubAgentExecutor {
         Self { llm, tools, permissions, hooks, sink, ctx, base_config, max_depth: 1, skills: Vec::new() }
     }
 
-
     pub fn set_max_depth(&mut self, depth: usize) {
         self.max_depth = depth.max(1);
     }
-
 
     fn skill_body(&self, name: &str) -> Option<String> {
         let (path, body) = match self.skills.iter().find(|s| s.name == name) {
@@ -89,7 +62,6 @@ impl SubAgentExecutor {
         Some(body.replace("${ZEN_SKILL_DIR}", &dir).trim().to_string())
     }
 }
-
 
 fn strip_frontmatter(raw: &str) -> &str {
     let Some(rest) = raw.strip_prefix("---") else { return raw };
@@ -120,7 +92,6 @@ impl SubAgentRunner for SubAgentExecutor {
                 def.name
             );
         }
-
 
         let mut tools = match &def.tools {
             Some(list) if !list.is_empty() => self.tools.filtered(list),
@@ -156,7 +127,6 @@ impl SubAgentRunner for SubAgentExecutor {
                 def.system_prompt
             )
         };
-
 
         for name in &def.skills {
             match self.skill_body(name) {
@@ -218,7 +188,6 @@ impl SubAgentRunner for SubAgentExecutor {
         );
         agent.parent_tool_use_id = Some(parent_tool_use_id.to_string());
 
-
         let start = self
             .hooks
             .run(
@@ -232,9 +201,6 @@ impl SubAgentRunner for SubAgentExecutor {
         }
 
         let mut result = agent.run_turn(prompt).await;
-
-
-
 
         let mut continues = 0usize;
         loop {
@@ -269,12 +235,6 @@ impl SubAgentRunner for SubAgentExecutor {
         Ok(result.result)
     }
 }
-
-
-
-
-
-
 
 pub(crate) fn subagent_mode(parent: PermissionMode, requested: Option<&str>) -> PermissionMode {
     let Some(req) = requested.and_then(PermissionMode::parse) else {

@@ -1,28 +1,5 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 use crate::skills::{discover_skill_entries, split_frontmatter, Frontmatter};
 use std::path::{Path, PathBuf};
-
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SlashSource {
@@ -31,7 +8,6 @@ pub enum SlashSource {
 
     Skill,
 }
-
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SlashCommand {
@@ -65,7 +41,6 @@ impl SlashCommand {
         }
     }
 
-
     pub fn skill_dir(&self) -> Option<PathBuf> {
         match self.source {
             SlashSource::Skill => self.path.parent().map(Path::to_path_buf),
@@ -73,7 +48,6 @@ impl SlashCommand {
         }
     }
 }
-
 
 pub struct ExpandContext<'a> {
 
@@ -113,7 +87,6 @@ fn collect_md(root: &Path, dir: &Path, out: &mut Vec<(String, PathBuf)>) {
     }
 }
 
-
 pub fn discover_custom_commands(cwd: &Path, home: Option<&Path>) -> Vec<SlashCommand> {
     let home_dir = home.map(Path::to_path_buf).or_else(dirs::home_dir);
     let mut roots = Vec::new();
@@ -136,8 +109,6 @@ pub fn discover_custom_commands(cwd: &Path, home: Option<&Path>) -> Vec<SlashCom
     out
 }
 
-
-
 pub fn discover_slash_commands(cwd: &Path, home: Option<&Path>) -> Vec<SlashCommand> {
     let mut out = discover_custom_commands(cwd, home);
     for (info, fm) in discover_skill_entries(cwd, home) {
@@ -157,11 +128,9 @@ pub fn discover_slash_commands(cwd: &Path, home: Option<&Path>) -> Vec<SlashComm
     out
 }
 
-
 pub fn find_slash_command(cwd: &Path, home: Option<&Path>, name: &str) -> Option<SlashCommand> {
     discover_slash_commands(cwd, home).into_iter().find(|c| c.name == name)
 }
-
 
 pub fn split_args(args: &str) -> Vec<String> {
     let mut out = Vec::new();
@@ -200,8 +169,6 @@ pub fn split_args(args: &str) -> Vec<String> {
     }
     out
 }
-
-
 
 fn substitute_args(body: &str, args: &str) -> (String, bool) {
     let parts = split_args(args);
@@ -255,7 +222,6 @@ fn resolve_ref(raw: &str, base: &Path) -> Option<PathBuf> {
     p.is_file().then_some(p)
 }
 
-
 fn inline_files(text: &str, base: &Path) -> String {
     let mut out = String::with_capacity(text.len());
     let mut prev_ws = true;
@@ -286,7 +252,6 @@ fn inline_files(text: &str, base: &Path) -> String {
     }
     out
 }
-
 
 fn run_shell_blocks(text: &str, ctx: &ExpandContext<'_>) -> String {
     let mut out = String::with_capacity(text.len());
@@ -334,7 +299,6 @@ fn run_shell_blocks(text: &str, ctx: &ExpandContext<'_>) -> String {
     out
 }
 
-
 pub fn expand_command(cmd: &SlashCommand, args: &str, ctx: &ExpandContext<'_>) -> String {
     let mut body = cmd.body.clone();
     if let Some(dir) = cmd.skill_dir() {
@@ -352,8 +316,6 @@ pub fn expand_command(cmd: &SlashCommand, args: &str, ctx: &ExpandContext<'_>) -
     let body = inline_files(&body, &ctx.project_dir);
     run_shell_blocks(&body, ctx)
 }
-
-
 
 pub fn expand_slash_prompt(
     prompt: &str,

@@ -1,25 +1,6 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
-
-
-
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct RegistryEntry {
@@ -42,7 +23,6 @@ fn default_tier() -> String {
     "community".to_string()
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct CurationMeta {
 
@@ -50,14 +30,11 @@ pub struct CurationMeta {
 
     pub review_date: String,
 
-
     pub review_notes: String,
-
 
     #[serde(default)]
     pub reviewed_version: String,
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct CuratedEntry {
@@ -66,7 +43,6 @@ pub struct CuratedEntry {
     pub curation: CurationMeta,
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CuratedRegistry {
     pub format_version: u32,
@@ -74,17 +50,11 @@ pub struct CuratedRegistry {
     pub entries: Vec<CuratedEntry>,
 }
 
-
 const EMBEDDED_REGISTRY: &str = include_str!("../registry-curated.json");
-
-
 
 pub fn embedded_registry() -> Result<CuratedRegistry> {
     serde_json::from_str(EMBEDDED_REGISTRY).context("embedded registry-curated.json is invalid")
 }
-
-
-
 
 pub fn load_curated_registry(home: Option<&Path>) -> Result<CuratedRegistry> {
     let mut reg = embedded_registry()?;
@@ -123,8 +93,6 @@ pub fn load_curated_registry(home: Option<&Path>) -> Result<CuratedRegistry> {
     Ok(reg)
 }
 
-
-
 pub fn load_community_registry(home: Option<&Path>) -> Result<Vec<RegistryEntry>> {
     let path = match home {
         Some(h) => h.join(".zen").join("registry.json"),
@@ -148,9 +116,6 @@ pub fn load_community_registry(home: Option<&Path>) -> Result<Vec<RegistryEntry>
         serde_json::from_str(&raw).with_context(|| format!("parsing {}", path.display()))?;
     Ok(entries)
 }
-
-
-
 
 pub fn validate_curated_entry(entry: &CuratedEntry) -> Vec<String> {
     let mut problems = Vec::new();
@@ -200,7 +165,6 @@ pub fn validate_curated_entry(entry: &CuratedEntry) -> Vec<String> {
     problems
 }
 
-
 fn valid_date(s: &str) -> bool {
     let parts: Vec<&str> = s.split('-').collect();
     if parts.len() != 3 {
@@ -231,7 +195,6 @@ fn valid_date(s: &str) -> bool {
     d <= max_d
 }
 
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct SearchHit {
     pub name: String,
@@ -241,9 +204,6 @@ pub struct SearchHit {
     pub tier: String,
     pub review_summary: Option<String>,
 }
-
-
-
 
 pub fn search_entries(
     query: &str,
@@ -298,7 +258,6 @@ pub fn search_entries(
     hits
 }
 
-
 pub fn format_hits(hits: &[SearchHit], curated_only: bool) -> String {
     if hits.is_empty() {
         return if curated_only {
@@ -323,7 +282,6 @@ pub fn format_hits(hits: &[SearchHit], curated_only: bool) -> String {
     out
 }
 
-
 pub fn run_skill_search(query: &str, curated_only: bool, home: Option<&Path>) -> Result<i32> {
     let curated = load_curated_registry(home)?;
 
@@ -337,7 +295,6 @@ pub fn run_skill_search(query: &str, curated_only: bool, home: Option<&Path>) ->
             ));
         }
     }
-
 
     let community = if curated_only {
         Vec::new()

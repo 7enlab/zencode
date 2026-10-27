@@ -1,16 +1,7 @@
-
-
-
-
-
-
-
 mod common;
 
 use common::*;
 use std::time::Duration;
-
-
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn json_output_result_shape_and_session_id() {
@@ -72,7 +63,6 @@ async fn json_output_result_shape_and_session_id() {
     assert_eq!(v["stop_reason"], "end_turn");
 }
 
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn text_output_is_just_the_answer() {
     let home = TempDir::new("text_home");
@@ -92,8 +82,6 @@ async fn text_output_is_just_the_answer() {
     assert_eq!(code, 0, "stderr: {}", stderr);
     assert_eq!(stdout.trim(), "plain text answer", "unexpected stdout: {:?}", stdout);
 }
-
-
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn stream_json_line_shapes_and_order() {
@@ -123,7 +111,6 @@ async fn stream_json_line_shapes_and_order() {
     let lines = ndjson(&stdout);
     assert!(lines.len() >= 3, "expected init + assistant + result:\n{}", stdout);
 
-
     let init = &lines[0];
     assert_eq!(init["type"], "system");
     assert_eq!(init["subtype"], "init");
@@ -152,7 +139,6 @@ async fn stream_json_line_shapes_and_order() {
         "init",
     );
 
-
     let asst = find_line(&lines, "assistant", None).expect("assistant line");
     assert_eq!(asst["session_id"], "00000000-0000-4000-8000-000000000001");
     assert_eq!(asst["message"]["role"], "assistant");
@@ -173,18 +159,15 @@ async fn stream_json_line_shapes_and_order() {
 
     assert!(!asst["uuid"].as_str().unwrap_or("").is_empty(), "assistant uuid: {}", asst);
 
-
     let last = lines.last().unwrap();
     assert_eq!(last["type"], "result");
     assert_eq!(last["result"], "streamed answer");
     assert_eq!(last["session_id"], "00000000-0000-4000-8000-000000000001");
 
-
     for l in &lines {
         assert_eq!(l["session_id"], "00000000-0000-4000-8000-000000000001", "line lost session id: {}", l);
     }
 }
-
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn model_error_yields_error_result_and_nonzero_exit() {
@@ -215,7 +198,6 @@ async fn model_error_yields_error_result_and_nonzero_exit() {
     let _ = stderr;
 }
 
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn invalid_flag_is_rejected_with_stderr() {
     let home = TempDir::new("badflag_home");
@@ -238,7 +220,6 @@ async fn invalid_flag_is_rejected_with_stderr() {
     assert!(stdout.trim().is_empty(), "nothing should go to stdout: {}", stdout);
 }
 
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn invalid_output_format_is_rejected() {
     let home = TempDir::new("badfmt_home");
@@ -255,7 +236,6 @@ async fn invalid_output_format_is_rejected() {
     assert_ne!(code, 0);
     assert!(stderr.contains("yaml") || stderr.contains("invalid"), "stderr: {}", stderr);
 }
-
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn empty_prompt_reports_error() {
@@ -278,7 +258,6 @@ async fn empty_prompt_reports_error() {
         stderr
     );
 }
-
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn stdin_is_prepended_to_prompt() {
@@ -309,8 +288,6 @@ async fn stdin_is_prepended_to_prompt() {
     assert!(si < ai, "stdin must be prepended before the arg prompt");
 }
 
-
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn harness_timeout_guard_exists() {
     let home = TempDir::new("timeout_home");
@@ -327,9 +304,6 @@ async fn harness_timeout_guard_exists() {
     .expect("harness should complete well within 30s");
     assert_eq!(code, 0);
 }
-
-
-
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn json_result_total_cost_matches_cost_ledger_for_paid_model() {
@@ -366,7 +340,6 @@ async fn json_result_total_cost_matches_cost_ledger_for_paid_model() {
         expected
     );
 
-
     let ledger_path = home.path().join(".zen").join("cost").join(format!("{}.json", session_id));
     let ledger: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&ledger_path).expect("ledger written"))
@@ -384,8 +357,6 @@ async fn json_result_total_cost_matches_cost_ledger_for_paid_model() {
         ledger_total
     );
 }
-
-
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn json_result_total_cost_is_genuine_zero_for_free_model() {

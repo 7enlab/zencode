@@ -1,30 +1,8 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-
-
 
 pub fn user_agent() -> String {
     format!(
@@ -33,11 +11,9 @@ pub fn user_agent() -> String {
     )
 }
 
-
 pub const SAFETY_DISCLAIMER: &str = "No tool can guarantee your account won't be flagged - \
     providers use automated systems with false positives. ZenCode minimizes the risk factors \
     within its control and warns you about the rest.";
-
 
 pub const MAX_RETRY_ATTEMPTS: u32 = 5;
 
@@ -52,7 +28,6 @@ pub const DEFAULT_CONCURRENCY_CAP: usize = 2;
 pub const PROACTIVE_THROTTLE_FRACTION: f64 = 0.8;
 
 pub const PARALLEL_SESSION_WARN_THRESHOLD: usize = 2;
-
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ErrorClass {
@@ -77,11 +52,6 @@ impl ErrorClass {
         )
     }
 }
-
-
-
-
-
 
 pub fn classify_error(status: Option<u16>, body: &str) -> ErrorClass {
 
@@ -111,10 +81,6 @@ pub fn classify_error(status: Option<u16>, body: &str) -> ErrorClass {
     }
 }
 
-
-
-
-
 pub fn backoff_with_jitter(attempt: u32, base_ms: u64, cap_ms: u64, jitter_seed: u64) -> u64 {
     let exp = attempt.saturating_sub(1).min(10);
     let backoff = base_ms.saturating_mul(1u64 << exp).min(cap_ms);
@@ -128,10 +94,6 @@ pub fn backoff_with_jitter(attempt: u32, base_ms: u64, cap_ms: u64, jitter_seed:
     (jittered.max(0.0) as u64).min(cap_ms).max(1)
 }
 
-
-
-
-
 pub fn jitter_now_nanos() -> u64 {
     if let Ok(seed) = std::env::var("ZEN_JITTER_SEED") {
         if let Ok(n) = seed.parse::<u64>() {
@@ -144,9 +106,6 @@ pub fn jitter_now_nanos() -> u64 {
         .unwrap_or(0x1234_5678)
 }
 
-
-
-
 pub fn default_rpm_ceiling(provider: &str) -> Option<u64> {
     match provider.to_ascii_lowercase().as_str() {
         p if p.contains("openai") => Some(400),
@@ -158,11 +117,6 @@ pub fn default_rpm_ceiling(provider: &str) -> Option<u64> {
         _ => Some(60),
     }
 }
-
-
-
-
-
 
 pub struct RateLimiter {
 
@@ -192,18 +146,13 @@ impl RateLimiter {
         }
     }
 
-
-
     pub fn for_provider(provider: &str) -> Option<Self> {
         default_rpm_ceiling(provider).map(Self::new)
     }
 
-
-
     pub fn acquire(&mut self) -> Duration {
         self.refill();
         let mut wait = Duration::ZERO;
-
 
         if let Some(last) = self.last_request {
             let floor = Duration::from_millis(MIN_INTER_REQUEST_MS);
@@ -213,14 +162,12 @@ impl RateLimiter {
             }
         }
 
-
         if self.tokens < 1.0 {
             let per_token = Duration::from_secs_f64(60.0 / self.rpm_ceiling.max(1.0));
             wait = wait.max(per_token);
         } else {
             self.tokens -= 1.0;
         }
-
 
         if self.window_count as f64 >= self.rpm_ceiling * PROACTIVE_THROTTLE_FRACTION {
             wait = wait.max(Duration::from_millis(500));
@@ -230,7 +177,6 @@ impl RateLimiter {
         self.window_count += 1;
         wait
     }
-
 
     pub fn update_ceiling(&mut self, rpm: u64) {
         self.rpm_ceiling = rpm as f64;
@@ -250,11 +196,6 @@ impl RateLimiter {
     }
 }
 
-
-
-
-
-
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct SessionRegistry {
 
@@ -272,8 +213,6 @@ impl SessionRegistry {
         serde_json::from_slice(&data).unwrap_or_default()
     }
 
-
-
     pub fn register(&mut self, provider: &str, key_fingerprint: &str, session_id: &str) -> usize {
         self.prune_stale();
         let now = now_unix();
@@ -289,7 +228,6 @@ impl SessionRegistry {
         others
     }
 
-
     pub fn unregister(&mut self, provider: &str, key_fingerprint: &str, session_id: &str) {
         if let Some(key_map) = self.entries.get_mut(provider) {
             if let Some(sessions) = key_map.get_mut(key_fingerprint) {
@@ -298,7 +236,6 @@ impl SessionRegistry {
         }
         self.save();
     }
-
 
     fn prune_stale(&mut self) {
         let cutoff = now_unix().saturating_sub(24 * 3600);
@@ -320,8 +257,6 @@ impl SessionRegistry {
     }
 }
 
-
-
 pub fn key_fingerprint(api_key: &str) -> String {
     let tail: String = api_key.chars().rev().take(4).collect::<String>().chars().rev().collect();
     let prefix: String = api_key.chars().take(3).collect();
@@ -341,8 +276,6 @@ fn registry_path() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."));
     base.join(".zen").join("session-registry.json")
 }
-
-
 
 pub fn log_risk_acknowledgement(session_dir: &std::path::Path, reason: &str) {
     let entry = serde_json::json!({
@@ -365,9 +298,6 @@ pub fn log_risk_acknowledgement(session_dir: &std::path::Path, reason: &str) {
     }
 }
 
-
-
-
 pub fn auth_login_warning(provider: &str) -> String {
     format!(
         "API key saved for {provider}.\n\
@@ -381,7 +311,6 @@ pub fn auth_login_warning(provider: &str) -> String {
     )
 }
 
-
 pub fn parallel_sessions_warning(count: usize, provider: &str) -> String {
     format!(
         "Warning: {count} concurrent ZenCode sessions are using the same {provider} API key.\n\
@@ -389,7 +318,6 @@ pub fn parallel_sessions_warning(count: usize, provider: &str) -> String {
         Consider: separate API keys per session, or run fewer sessions. (Silence with --i-understand-the-risks.)"
     )
 }
-
 
 pub fn concurrency_cap_warning(requested: usize, cap: usize, provider: &str) -> String {
     format!(
@@ -399,14 +327,12 @@ pub fn concurrency_cap_warning(requested: usize, cap: usize, provider: &str) -> 
     )
 }
 
-
 pub fn repeated_429_warning(hits: u32, provider: &str) -> String {
     format!(
         "Warning: rate limits hit {hits} times in the last 5 minutes ({provider}).\n\
         ZenCode is backing off automatically. If this persists: reduce parallel sessions, switch to a higher tier, or use a different provider to spread load. Pushing through rate limits is the fastest way to get flagged."
     )
 }
-
 
 pub fn quota_exhausted_error(provider: &str, detail: &str) -> String {
     format!(
@@ -415,7 +341,6 @@ pub fn quota_exhausted_error(provider: &str, detail: &str) -> String {
         Check your billing dashboard, then re-run. Your work is saved; nothing was lost."
     )
 }
-
 
 pub fn first_429_notice(provider: &str) -> String {
     format!(
@@ -537,7 +462,6 @@ mod tests {
     fn rate_limiter_update_ceiling_from_headers() {
         let mut rl = RateLimiter::new(40);
         rl.update_ceiling(1000);
-
 
         let _ = rl.acquire();
     }

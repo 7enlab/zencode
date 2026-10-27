@@ -1,4 +1,3 @@
-
 """Terminal-Bench runner for ZenCode.
 
 Runs a subset of Terminal-Bench 2.0 tasks against the `zen` CLI binary
@@ -29,7 +28,6 @@ try:
 except ImportError:
     import tomli as tomllib
 
-
 @dataclasses.dataclass
 class Task:
     name: str
@@ -40,7 +38,6 @@ class Task:
     difficulty: str
     category: str
 
-
 @dataclasses.dataclass
 class TaskResult:
     name: str
@@ -48,7 +45,6 @@ class TaskResult:
     duration_sec: float
     agent_exit_code: int | None
     error: str | None
-
 
 def discover_tasks(repo_dir: Path) -> dict[str, Task]:
     """Parse all tasks from a terminal-bench-2 checkout."""
@@ -71,10 +67,8 @@ def discover_tasks(repo_dir: Path) -> dict[str, Task]:
         )
     return tasks
 
-
 def sh(cmd: list[str], timeout: float | None = None) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-
 
 def run_task(task: Task, zen_bin: Path, model: str, base_url: str,
              logs_dir: Path, agent_timeout: float | None = None) -> TaskResult:
@@ -91,7 +85,6 @@ def run_task(task: Task, zen_bin: Path, model: str, base_url: str,
             res.error = f"docker pull failed: {r.stderr[:300]}"
             return res
 
-
         r = sh(["docker", "run", "-d", "--rm",
                 "--add-host=host.docker.internal:host-gateway",
                 "--name", cname, task.image, "sleep", "infinity"], timeout=120)
@@ -99,13 +92,11 @@ def run_task(task: Task, zen_bin: Path, model: str, base_url: str,
             res.error = f"docker run failed: {r.stderr[:300]}"
             return res
 
-
         r = sh(["docker", "cp", str(zen_bin), f"{cname}:/usr/local/bin/zen"], timeout=120)
         if r.returncode != 0:
             res.error = f"docker cp zen failed: {r.stderr[:300]}"
             return res
         sh(["docker", "exec", cname, "chmod", "+x", "/usr/local/bin/zen"], timeout=30)
-
 
         with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False) as f:
             f.write(task.instruction)
@@ -118,7 +109,6 @@ def run_task(task: Task, zen_bin: Path, model: str, base_url: str,
         finally:
             os.unlink(instr_host)
 
-
         wrapper = (
             "cd /app 2>/dev/null || cd /workspace 2>/dev/null || true\n"
             f"timeout {int(timeout)} /usr/local/bin/zen "
@@ -130,7 +120,6 @@ def run_task(task: Task, zen_bin: Path, model: str, base_url: str,
         (logs_dir / f"{task.name}-agent.log").write_text(
             f"=== STDOUT (tail) ===\n{r.stdout[-20000:]}\n=== STDERR (tail) ===\n{r.stderr[-5000:]}\n")
 
-
         r = sh(["docker", "cp", str(task.task_dir / "tests"), f"{cname}:/tests"], timeout=60)
         if r.returncode != 0:
             res.error = f"docker cp tests failed: {r.stderr[:300]}"
@@ -140,7 +129,6 @@ def run_task(task: Task, zen_bin: Path, model: str, base_url: str,
                timeout=900)
         (logs_dir / f"{task.name}-verify.log").write_text(
             f"exit={r.returncode}\n--- stdout ---\n{r.stdout[-15000:]}\n--- stderr ---\n{r.stderr[-5000:]}\n")
-
 
         r = sh(["docker", "exec", cname, "cat", "/logs/verifier/reward.txt"], timeout=30)
         if r.returncode != 0:
@@ -158,7 +146,6 @@ def run_task(task: Task, zen_bin: Path, model: str, base_url: str,
     finally:
         sh(["docker", "rm", "-f", cname], timeout=60)
         res.duration_sec = time.time() - t0
-
 
 def write_report(path: Path, results: list[TaskResult], model: str,
                  base_url: str, zen_version: str) -> None:
@@ -201,7 +188,6 @@ def write_report(path: Path, results: list[TaskResult], model: str,
         "- Single run per task; no retries.",
     ]
     path.write_text("\n".join(lines) + "\n")
-
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Run Terminal-Bench subset with zen")
@@ -255,7 +241,6 @@ def main() -> int:
     errored = sum(1 for r in results if r.passed is None)
     print(f"\nDone: {passed}/{len(results)} passed, {errored} infra errors")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

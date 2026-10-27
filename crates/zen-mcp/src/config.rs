@@ -1,5 +1,3 @@
-
-
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -30,9 +28,6 @@ impl McpServerConfig {
         self.kind.as_deref().map(|k| k.eq_ignore_ascii_case("http")).unwrap_or(false)
             || (self.command.is_none() && self.url.is_some())
     }
-
-
-
 
     pub fn expand_with_missing(&self, missing: &mut Vec<String>) -> Option<McpServerConfig> {
         let expand_value = |value: &str, missing: &mut Vec<String>| -> Option<String> {
@@ -118,15 +113,11 @@ impl McpServerConfig {
         Some(cfg)
     }
 
-
-
-
     pub fn expand_env(&self) -> Option<McpServerConfig> {
         let mut missing = Vec::new();
         self.expand_with_missing(&mut missing)
     }
 }
-
 
 fn parse_servers(text: &str) -> anyhow::Result<BTreeMap<String, McpServerConfig>> {
     let value: Value = serde_json::from_str(text)?;
@@ -188,7 +179,6 @@ fn home_dir(home: Option<&Path>) -> Option<PathBuf> {
     }
 }
 
-
 pub fn load_mcp_config_file(path: &Path) -> anyhow::Result<BTreeMap<String, McpServerConfig>> {
     if !path.exists() {
         return Ok(BTreeMap::new());
@@ -196,7 +186,6 @@ pub fn load_mcp_config_file(path: &Path) -> anyhow::Result<BTreeMap<String, McpS
     let text = std::fs::read_to_string(path)?;
     parse_servers(&text)
 }
-
 
 pub fn save_mcp_config_file(path: &Path, configs: &BTreeMap<String, McpServerConfig>) -> anyhow::Result<()> {
 
@@ -216,14 +205,12 @@ pub fn save_mcp_config_file(path: &Path, configs: &BTreeMap<String, McpServerCon
     Ok(())
 }
 
-
 pub fn mcp_add(scope_path: &Path, name: &str, cfg: McpServerConfig) -> anyhow::Result<()> {
     let mut configs = load_mcp_config_file(scope_path)?;
     configs.insert(name.to_string(), cfg);
     save_mcp_config_file(scope_path, &configs)?;
     Ok(())
 }
-
 
 pub fn mcp_remove(scope_path: &Path, name: &str) -> anyhow::Result<()> {
     let mut configs = load_mcp_config_file(scope_path)?;
@@ -232,7 +219,6 @@ pub fn mcp_remove(scope_path: &Path, name: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-
 pub fn mcp_get(scope_path: &Path, name: &str) -> Option<McpServerConfig> {
     match load_mcp_config_file(scope_path) {
         Ok(configs) => configs.get(name).cloned(),
@@ -240,14 +226,12 @@ pub fn mcp_get(scope_path: &Path, name: &str) -> Option<McpServerConfig> {
     }
 }
 
-
 pub fn mcp_list(scope_path: &Path) -> Vec<(String, McpServerConfig)> {
     match load_mcp_config_file(scope_path) {
         Ok(configs) => configs.into_iter().collect(),
         Err(_) => Vec::new(),
     }
 }
-
 
 fn merge_file_with_skips(
     into: &mut BTreeMap<String, McpServerConfig>,
@@ -265,7 +249,6 @@ fn merge_file_with_skips(
     }
     Ok(())
 }
-
 
 fn load_cli_entry_with_skips(
     into: &mut BTreeMap<String, McpServerConfig>,
@@ -288,12 +271,6 @@ fn load_cli_entry_with_skips(
     Ok(())
 }
 
-
-
-
-
-
-
 pub fn scope_path(scope: &str, cwd: &Path, home: Option<&Path>) -> anyhow::Result<PathBuf> {
     match scope {
         "local" => Ok(cwd.join(".zen").join("mcp.json")),
@@ -304,8 +281,6 @@ pub fn scope_path(scope: &str, cwd: &Path, home: Option<&Path>) -> anyhow::Resul
         _ => Err(anyhow::anyhow!("unknown scope '{}' (expected local, project or user)", scope)),
     }
 }
-
-
 
 fn config_files(cwd: &Path, home: Option<&Path>) -> Vec<PathBuf> {
     let mut files = Vec::new();
@@ -318,7 +293,6 @@ fn config_files(cwd: &Path, home: Option<&Path>) -> Vec<PathBuf> {
     files
 }
 
-
 pub fn parse_env_kv(entries: &[String]) -> BTreeMap<String, String> {
     let mut map = BTreeMap::new();
     for entry in entries {
@@ -330,7 +304,6 @@ pub fn parse_env_kv(entries: &[String]) -> BTreeMap<String, String> {
     }
     map
 }
-
 
 pub fn parse_headers(entries: &[String]) -> Vec<(String, String)> {
     let mut headers = Vec::new();
@@ -346,8 +319,6 @@ pub fn parse_headers(entries: &[String]) -> Vec<(String, String)> {
     headers
 }
 
-
-
 pub fn mcp_add_json(path: &Path, name: &str, json_str: &str) -> anyhow::Result<()> {
     let mut configs = load_mcp_config_file(path)?;
     let cfg: McpServerConfig = serde_json::from_str(json_str)
@@ -356,13 +327,6 @@ pub fn mcp_add_json(path: &Path, name: &str, json_str: &str) -> anyhow::Result<(
     save_mcp_config_file(path, &configs)?;
     Ok(())
 }
-
-
-
-
-
-
-
 
 pub fn load_mcp_configs_ex(
     cwd: &Path,
@@ -380,11 +344,9 @@ pub fn load_mcp_configs_ex(
         }
     }
 
-
     for entry in cli_configs {
         let _ = load_cli_entry_with_skips(&mut out, entry);
     }
-
 
     let mut final_skipped = Vec::new();
     let mut validated = BTreeMap::new();
@@ -426,10 +388,6 @@ pub fn load_mcp_configs_ex(
     (validated, final_skipped)
 }
 
-
-
-
-
 pub fn load_mcp_configs(
     cwd: &Path,
     home: Option<&Path>,
@@ -438,9 +396,6 @@ pub fn load_mcp_configs(
 ) -> anyhow::Result<BTreeMap<String, McpServerConfig>> {
     load_mcp_configs_scoped(cwd, home, cli_configs, strict, true)
 }
-
-
-
 
 pub fn load_mcp_configs_scoped(
     cwd: &Path,

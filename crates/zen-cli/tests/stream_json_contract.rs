@@ -1,11 +1,3 @@
-
-
-
-
-
-
-
-
 #![cfg(unix)]
 
 mod common;
@@ -24,7 +16,6 @@ fn doc_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../docs/stream-json-v1.md")
 }
 
-
 fn cut(mut reply: Reply) -> Reply {
     reply.body = reply
         .body
@@ -39,7 +30,6 @@ fn tool_call(id: &str, name: &str, args: Value) -> Reply {
         Some(json!([{"id": id, "type": "function", "function": {"name": name, "arguments": args.to_string()}}])),
     )
 }
-
 
 fn normalise(stdout: &str, subs: &[(String, &str)]) -> String {
     let mut out = String::new();
@@ -64,11 +54,9 @@ fn normalise(stdout: &str, subs: &[(String, &str)]) -> String {
     out
 }
 
-
 async fn check(name: &str, replies: Vec<Reply>, extra_args: &[&str], setup: impl FnOnce(&TempDir)) {
     check_with_prompt(name, replies, extra_args, setup, "hello").await;
 }
-
 
 async fn check_with_prompt(
     name: &str,
@@ -189,8 +177,6 @@ async fn fixture_permission_denied() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn fixture_compact_boundary() {
 
-
-
     let mut args = BARE.to_vec();
     args.extend(["--autocompact", "1"]);
     check_with_prompt(
@@ -205,7 +191,6 @@ async fn fixture_compact_boundary() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn fixture_hook_message() {
-
 
     check(
         "hook_message",
@@ -238,13 +223,11 @@ async fn fixture_truncation_note() {
     .await;
 }
 
-
 fn finished(content: &str, reason: &str) -> Reply {
     let mut r = Reply::text(content);
     r.body = r.body.replace(r#""finish_reason":"stop""#, &format!(r#""finish_reason":"{reason}""#));
     r
 }
-
 
 fn mid_response_error(code: u16, error_type: &str, message: &str) -> Reply {
     let mut r = Reply::text("");
@@ -292,7 +275,6 @@ async fn fixture_mid_response_error() {
     )
     .await;
 }
-
 
 #[test]
 fn doc_names_every_field_in_the_fixtures() {

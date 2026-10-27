@@ -1,14 +1,6 @@
-
-
-
-
-
-
 mod common;
 
 use common::*;
-
-
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn default_headless_denies_write_tool() {
@@ -46,7 +38,6 @@ async fn default_headless_denies_write_tool() {
     let denied_tool = denials[0]["tool_name"].as_str().expect("tool_name string");
     assert_eq!(denied_tool, "Write", "expected Write tool denied, got: {}", denied_tool);
 }
-
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn bypass_permissions_allows_write() {
@@ -86,13 +77,11 @@ async fn bypass_permissions_allows_write() {
     assert!(denials.is_empty(), "expected no denials with bypassPermissions, got: {:?}", denials);
 }
 
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn accept_edits_allows_write_but_not_bash() {
     let home = TempDir::new("accept_home");
     let cwd = TempDir::new("accept_cwd");
     cwd.write("test.txt", "existing");
-
 
     let server = MockServer::start(vec![
         Reply::with_tool_calls(
@@ -125,7 +114,6 @@ async fn accept_edits_allows_write_but_not_bash() {
     let denials = v["permission_denials"].as_array().expect("permission_denials array");
     assert!(denials.is_empty(), "Write should be allowed in acceptEdits, got denials: {:?}", denials);
 }
-
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn plan_mode_denies_write() {
@@ -161,7 +149,6 @@ async fn plan_mode_denies_write() {
     let v = last_result(&stdout);
     assert_eq!(v["result"], "plan mode denied");
 
-
     let requests = server.requests().await;
     assert_eq!(requests.len(), 2);
     let tools = request_tool_names(&requests[0]);
@@ -171,7 +158,6 @@ async fn plan_mode_denies_write() {
     assert!(second.contains("not available in plan mode"), "tool error missing: {}", second);
     assert!(!cwd.path().join("test.txt").exists(), "plan mode must not write files");
 }
-
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn allowed_tools_write_permits_write_in_default_mode() {
@@ -211,7 +197,6 @@ async fn allowed_tools_write_permits_write_in_default_mode() {
     assert!(denials.is_empty(), "Write should be allowed via --allowedTools, got denials: {:?}", denials);
 }
 
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn disallowed_tools_removes_tool_from_request() {
     let home = TempDir::new("disallowed_home");
@@ -242,14 +227,11 @@ async fn disallowed_tools_removes_tool_from_request() {
     assert!(!tools.contains(&"Read".to_string()), "Read should be removed from tools list: {:?}", tools);
 }
 
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn settings_deny_beats_cli_allow() {
     let home = TempDir::new("settings_deny_home");
     let cwd = TempDir::new("settings_deny_cwd");
     cwd.write("test.txt", "existing");
-
-
 
     write_settings(cwd.path(), "settings.json", r#"{"permissions":{"deny":["Write(test.txt)"]}}"#);
 
@@ -285,7 +267,6 @@ async fn settings_deny_beats_cli_allow() {
     let denied_tool = denials[0]["tool_name"].as_str().expect("tool_name string");
     assert_eq!(denied_tool, "Write");
 }
-
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn read_only_tools_allowed_by_default() {
@@ -332,8 +313,6 @@ fn write_call(id: &str) -> Reply {
     )
 }
 
-
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn c2_2_settings_bare_deny_removes_tool_scoped_deny_keeps_it() {
     let home = TempDir::new("c22_home");
@@ -361,8 +340,6 @@ async fn c2_2_settings_bare_deny_removes_tool_scoped_deny_keeps_it() {
     assert!(tools.contains(&"Read".to_string()), "{:?}", tools);
 }
 
-
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn c2_13_hook_allow_does_not_override_ask_rule() {
     let hook = r#""hooks":{"PreToolUse":[{"matcher":"Write","hooks":[{"type":"command","command":"echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"allow\"}}'"}]}]}"#;
@@ -389,7 +366,6 @@ async fn c2_13_hook_allow_does_not_override_ask_rule() {
         assert_eq!(denials.is_empty(), expect_written, "ask_rule={} {}", ask_rule, v);
     }
 }
-
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn c2_4_compound_bash_needs_every_part_allowed() {

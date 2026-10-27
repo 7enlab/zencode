@@ -1,4 +1,3 @@
-
 """Unit tests for tb_runner.py (no Docker needed)."""
 
 import dataclasses
@@ -10,7 +9,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 from tb_runner import Task, TaskResult, discover_tasks, write_report
-
 
 def make_repo(tasks: dict) -> Path:
     """Build a fake terminal-bench-2 checkout."""
@@ -26,7 +24,6 @@ def make_repo(tasks: dict) -> Path:
         )
         (td / "instruction.md").write_text(f"Do {name}.")
     return d
-
 
 class TestDiscover(unittest.TestCase):
     def test_discovers_tasks(self):
@@ -46,7 +43,6 @@ class TestDiscover(unittest.TestCase):
 
     def test_empty_repo(self):
         self.assertEqual(discover_tasks(Path(tempfile.mkdtemp())), {})
-
 
 class TestReport(unittest.TestCase):
     def test_report_table(self):
@@ -72,7 +68,6 @@ class TestReport(unittest.TestCase):
         data = json.loads(json.dumps([dataclasses.asdict(r) for r in results]))
         self.assertEqual(data[0]["passed"], True)
         self.assertEqual(data[0]["name"], "a")
-
 
 if __name__ == "__main__":
     unittest.main()

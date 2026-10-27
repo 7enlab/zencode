@@ -1,12 +1,3 @@
-
-
-
-
-
-
-
-
-
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::Arc;
@@ -21,10 +12,6 @@ use zen_core::{
 };
 
 use crate::cli::{Cli, OutputFormat, ReviewArgs};
-
-
-
-
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -69,7 +56,6 @@ impl Severity {
         })
     }
 
-
     pub fn ordered() -> [Severity; 5] {
         [
             Severity::Critical,
@@ -86,9 +72,6 @@ impl std::fmt::Display for Severity {
         write!(f, "{}", self.as_str())
     }
 }
-
-
-
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Finding {
@@ -109,7 +92,6 @@ pub struct Finding {
 fn default_category() -> String {
     "bugs".to_string()
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReviewReport {
@@ -165,7 +147,6 @@ impl ReviewReport {
         }
     }
 
-
     pub fn at_or_above(&self, threshold: Severity) -> Vec<&Finding> {
         self.findings
             .iter()
@@ -173,9 +154,6 @@ impl ReviewReport {
             .collect()
     }
 }
-
-
-
 
 #[derive(Debug, Clone)]
 pub enum ReviewScope {
@@ -220,10 +198,7 @@ pub struct CollectedDiff {
     pub truncated: bool,
 }
 
-
-
 const REVIEW_GIT_TIMEOUT: Duration = Duration::from_secs(15);
-
 
 const UNTRACKED_FILE_CAP: usize = 20_000;
 
@@ -260,7 +235,6 @@ fn run_git(cwd: &Path, args: &[&str]) -> Result<String> {
     }
 }
 
-
 fn changed_files_from_diff(diff: &str) -> Vec<String> {
     let mut files = Vec::new();
     for line in diff.lines() {
@@ -278,7 +252,6 @@ fn changed_files_from_diff(diff: &str) -> Vec<String> {
     files
 }
 
-
 pub fn collect_diff(cwd: &Path, scope: &ReviewScope, max_bytes: usize) -> Result<CollectedDiff> {
 
     run_git(cwd, &["rev-parse", "--git-dir"]).context("not a git repository")?;
@@ -292,7 +265,6 @@ pub fn collect_diff(cwd: &Path, scope: &ReviewScope, max_bytes: usize) -> Result
             let diff = run_git(cwd, &["diff", "HEAD", "--"])?;
             files.extend(changed_files_from_diff(&diff));
             text.push_str(&diff);
-
 
             let status = run_git(cwd, &["status", "--porcelain", "--"])?;
             for line in status.lines() {
@@ -353,10 +325,6 @@ pub fn collect_diff(cwd: &Path, scope: &ReviewScope, max_bytes: usize) -> Result
     })
 }
 
-
-
-
-
 pub fn review_system_prompt() -> String {
     "You are a senior code reviewer. Review the provided diff carefully and report \
      concrete, actionable findings. You have read-only tools (Read, Glob, Grep) to \
@@ -402,10 +370,6 @@ pub fn build_review_prompt(diff: &CollectedDiff) -> String {
     p.push_str("\n```\n\nNow output your findings as the JSON array described in your instructions.");
     p
 }
-
-
-
-
 
 pub fn extract_findings(text: &str) -> Result<Vec<Finding>> {
 
@@ -454,13 +418,7 @@ pub fn extract_findings(text: &str) -> Result<Vec<Finding>> {
     )
 }
 
-
-
-
-
 pub const REVIEW_TOOLS: &[&str] = &["Read", "Glob", "Grep"];
-
-
 
 pub fn read_only_registry() -> Result<ToolRegistry> {
     let mut registry = ToolRegistry::new();
@@ -483,8 +441,6 @@ pub fn read_only_registry() -> Result<ToolRegistry> {
     Ok(registry)
 }
 
-
-
 struct ReviewPermissions;
 
 impl PermissionChecker for ReviewPermissions {
@@ -504,8 +460,6 @@ impl PermissionChecker for ReviewPermissions {
         }
     }
 }
-
-
 
 fn render_text(report: &ReviewReport, threshold: Severity) -> String {
     let mut out = String::new();
@@ -555,8 +509,6 @@ fn render_json_value(report: &ReviewReport) -> serde_json::Value {
     serde_json::to_value(report).unwrap_or(serde_json::Value::Null)
 }
 
-
-
 fn print_stream_json(report: &ReviewReport, threshold: Severity, exit_code: i32) {
     let failed = !report.at_or_above(threshold).is_empty();
     println!(
@@ -590,11 +542,6 @@ fn print_stream_json(report: &ReviewReport, threshold: Severity, exit_code: i32)
     );
 }
 
-
-
-
-
-
 pub async fn run_review(
     cli: &Cli,
     cwd: &Path,
@@ -615,7 +562,6 @@ pub async fn run_review(
     };
 
     let cfg = crate::settings::resolve_config_with_home(cli, cwd, home)?;
-
 
     let diff = match collect_diff(cwd, &scope, args.max_diff_bytes) {
         Ok(d) => d,
@@ -650,7 +596,6 @@ pub async fn run_review(
         );
         return Ok(2);
     }
-
 
     let registry = match read_only_registry() {
         Ok(r) => r,
@@ -691,7 +636,6 @@ pub async fn run_review(
         return Ok(2);
     }
 
-
     let findings = match extract_findings(&result.result) {
         Ok(f) => f,
         Err(e) => {
@@ -725,8 +669,6 @@ pub async fn run_review(
     }
     Ok(exit_code)
 }
-
-
 
 #[cfg(test)]
 mod tests {
@@ -793,8 +735,6 @@ mod tests {
         assert!(out.status.success(), "git {args:?} failed");
     }
 
-
-
     #[test]
     fn severity_parse_all_forms() {
         assert_eq!(Severity::parse("critical"), Some(Severity::Critical));
@@ -836,8 +776,6 @@ mod tests {
         assert_eq!(report.summary.critical, 1);
         assert_eq!(report.summary.max_severity, Some(Severity::Critical));
     }
-
-
 
     #[test]
     fn parse_review_defaults() {
@@ -885,8 +823,6 @@ mod tests {
             ReviewScope::Uncommitted
         ));
     }
-
-
 
     #[test]
     fn collect_uncommitted_diff() {
@@ -970,8 +906,6 @@ mod tests {
         .is_err());
     }
 
-
-
     #[test]
     fn registry_contains_only_read_tools() {
         let r = read_only_registry().unwrap();
@@ -1012,8 +946,6 @@ mod tests {
         ));
     }
 
-
-
     #[test]
     fn extract_from_json_fence() {
         let text = "Here you go:\n```json\n[{\"severity\":\"high\",\"category\":\"bugs\",\"file\":\"a.rs\",\"line\":3,\"title\":\"oops\",\"detail\":\"d\",\"suggestion\":\"s\"}]\n```\n";
@@ -1045,8 +977,6 @@ mod tests {
         assert!(extract_findings("looks fine to me, ship it").is_err());
         assert!(extract_findings("```json\nnot json\n```").is_err());
     }
-
-
 
     #[test]
     fn json_shape_has_summary_and_findings() {
@@ -1090,8 +1020,6 @@ mod tests {
         assert!(crit_pos < low_pos, "critical group must come first");
         assert!(text.contains("[fails --fail-on]"));
     }
-
-
 
     #[test]
     fn system_prompt_demands_json_only() {

@@ -1,32 +1,19 @@
-
-
-
-
-
-
-
-
-
 use std::path::Path;
 use std::process::Command;
-
 
 pub const MAX_CHARS: usize = 4000;
 const MAX_TREE_LINES: usize = 40;
 const MAX_CHILDREN: usize = 8;
 
-
 const SKIP_DIRS: &[&str] = &[
     "node_modules", "target", "dist", "build", "out", "__pycache__", "venv", "vendor", "coverage",
 ];
-
 
 struct Kind {
     label: &'static str,
     commands: Vec<String>,
     probes: &'static [&'static [&'static str]],
 }
-
 
 pub fn project_snapshot(cwd: &Path) -> Option<String> {
     let tree = tree_lines(cwd);
@@ -72,7 +59,6 @@ pub fn project_snapshot(cwd: &Path) -> Option<String> {
     }
     Some(s.trim_end().to_string())
 }
-
 
 fn ignored_names(cwd: &Path) -> Vec<String> {
     std::fs::read_to_string(cwd.join(".gitignore"))
@@ -206,7 +192,6 @@ fn node_kind(cwd: &Path) -> Kind {
     Kind { label: "JavaScript/TypeScript (package.json)", commands, probes: &[&["node", "--version"]] }
 }
 
-
 fn make_targets(cwd: &Path) -> Vec<String> {
     let text = std::fs::read_to_string(cwd.join("Makefile"))
         .or_else(|_| std::fs::read_to_string(cwd.join("makefile")))
@@ -229,9 +214,6 @@ fn make_targets(cwd: &Path) -> Vec<String> {
     }
     out
 }
-
-
-
 
 const TOOL_VERSION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 
@@ -281,7 +263,6 @@ fn tool_version(cmd: &[&str]) -> Option<String> {
     let line = String::from_utf8_lossy(&text).lines().next()?.trim().to_string();
     (!line.is_empty()).then(|| line.chars().take(80).collect())
 }
-
 
 fn test_locations(cwd: &Path) -> Vec<String> {
     const NAMES: &[&str] = &["tests", "test", "__tests__", "spec"];

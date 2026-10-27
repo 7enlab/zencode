@@ -1,5 +1,3 @@
-
-
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -8,7 +6,6 @@ use serde_json::{json, Value};
 use zen_core::*;
 
 use crate::testutil::*;
-
 
 struct SlowTool {
     name: &'static str,
@@ -228,10 +225,6 @@ async fn p0_1_denied_call_inside_a_batch_keeps_its_slot() {
     assert_eq!(res[2].1, "Read b");
 }
 
-
-
-
-
 async fn status_server(replies: Vec<(u16, &'static str)>) -> (String, Arc<AtomicUsize>) {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -340,7 +333,6 @@ async fn p0_4_total_wait_is_capped() {
     );
     assert!(took < Duration::from_millis(1500), "took {:?}", took);
 
-
     assert_eq!(served.load(Ordering::SeqCst), 4);
     let total: u64 = sink
         .events
@@ -369,8 +361,6 @@ async fn p0_4_other_5xx_stop_after_five_retries() {
 
     assert_eq!(served.load(Ordering::SeqCst), 6);
 }
-
-
 
 #[cfg(unix)]
 fn verify_cfg(cmd: &str, timeout_secs: u64) -> crate::AgentConfig {

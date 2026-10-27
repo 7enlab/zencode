@@ -1,10 +1,3 @@
-
-
-
-
-
-
-
 #![cfg(unix)]
 
 mod common;
@@ -18,9 +11,7 @@ use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 
-
 const LINE_WAIT: Duration = Duration::from_secs(20);
-
 
 async fn gated_server(replies: Vec<Reply>, gates: Vec<oneshot::Receiver<()>>) -> String {
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
@@ -42,7 +33,6 @@ async fn gated_server(replies: Vec<Reply>, gates: Vec<oneshot::Receiver<()>>) ->
     });
     format!("http://{addr}/v1")
 }
-
 
 fn next_record(rx: &mpsc::Receiver<String>, what: &str) -> Value {
     let line = rx
@@ -82,12 +72,9 @@ async fn stream_json_lines_are_flushed_incrementally() {
         }
     });
 
-
     let init = next_record(&rx, "init");
     assert_eq!((init["type"].as_str(), init["subtype"].as_str()), (Some("system"), Some("init")));
     assert!(rx.try_recv().is_err(), "nothing but init can exist before the first reply");
-
-
 
     open1.send(()).unwrap();
     let assistant = next_record(&rx, "assistant tool call");
@@ -95,7 +82,6 @@ async fn stream_json_lines_are_flushed_incrementally() {
     let tool_result = next_record(&rx, "tool result");
     assert_eq!(tool_result["type"], "user", "{tool_result}");
     assert_eq!(tool_result["message"]["content"][0]["tool_use_id"], "call_read_1");
-
 
     open2.send(()).unwrap();
     let mut rest = Vec::new();

@@ -1,7 +1,3 @@
-
-
-
-
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -39,9 +35,6 @@ fn write_file(path: &Path, content: &str) {
     }
     std::fs::write(path, content).unwrap();
 }
-
-
-
 
 const MOCK_SERVER: &str = r##"#!/usr/bin/env python3
 import sys, json
@@ -101,8 +94,6 @@ while True:
     # notifications (initialized / didOpen / didChange) and unknown methods: no reply
 "##;
 
-
-
 struct MockSetup {
     manager: LspManager,
     _tmp: PathBuf,
@@ -153,8 +144,6 @@ fn count(methods: &[String], name: &str) -> usize {
     methods.iter().filter(|m| m.as_str() == name).count()
 }
 
-
-
 #[tokio::test]
 async fn frame_roundtrip_over_duplex() {
     let (mut a, mut b) = tokio::io::duplex(65536);
@@ -162,7 +151,6 @@ async fn frame_roundtrip_over_duplex() {
     let second = json!({"jsonrpc": "2.0", "id": 8, "method": "pong", "params": {"é": "😀"}});
     write_frame(&mut a, &first).await.unwrap();
     write_frame(&mut a, &second).await.unwrap();
-
 
     let mut reader = BufReader::new(&mut b);
     let got1 = read_frame(&mut reader).await.unwrap();
@@ -195,8 +183,6 @@ async fn read_frame_errors_without_content_length() {
     assert!(err.to_string().contains("Content-Length"), "got: {err}");
 }
 
-
-
 #[tokio::test]
 async fn mock_server_full_roundtrip() {
     let Some(setup) = mock_setup() else {
@@ -223,7 +209,6 @@ async fn mock_server_full_roundtrip() {
     );
     assert_eq!(count(&methods, "textDocument/didOpen"), 1);
     assert_eq!(count(&methods, "textDocument/definition"), 1);
-
 
     let _ = setup.manager.goto_definition(&setup.main_rs, 2, 9).await.unwrap();
     let methods = logged_methods(&setup.log);
@@ -306,8 +291,6 @@ async fn request_timeout_is_surfaced_not_hung() {
     assert!(err.to_string().contains("timed out"), "got: {err}");
 }
 
-
-
 fn loc_result(uri: &str, sl: u64, sc: u64, el: u64, ec: u64) -> Value {
     json!({"uri": uri,
            "range": {"start": {"line": sl, "character": sc},
@@ -375,8 +358,6 @@ fn parse_definition_converts_utf16_columns_via_target_file() {
     assert_eq!(locs[0].end_col, 13);
 }
 
-
-
 #[test]
 fn utf16_conversions() {
 
@@ -389,7 +370,6 @@ fn utf16_conversions() {
     assert_eq!(col_to_utf16("a\u{e9}\u{1f600}b", 3), 2);
     assert_eq!(col_to_utf16("a\u{e9}\u{1f600}b", 4), 4);
 
-
     assert_eq!(utf16_to_col("abc", 0), 1);
     assert_eq!(utf16_to_col("abc", 3), 4);
     assert_eq!(utf16_to_col("", 0), 1);
@@ -398,8 +378,6 @@ fn utf16_conversions() {
 
     assert_eq!(utf16_to_col("a\u{e9}\u{1f600}b", 3), 4);
 }
-
-
 
 #[test]
 fn hover_renders_all_content_shapes() {
@@ -432,8 +410,6 @@ fn hover_renders_all_content_shapes() {
     assert_eq!(render_hover(&json!({})), "");
 }
 
-
-
 #[test]
 fn uri_roundtrip_with_special_chars() {
     let p = PathBuf::from("/tmp/some dir/caf\u{e9}/x.rs");
@@ -442,8 +418,6 @@ fn uri_roundtrip_with_special_chars() {
     assert_eq!(uri_to_path(&uri).unwrap(), p);
     assert_eq!(uri_to_path("untitled:Untitled-1"), None);
 }
-
-
 
 #[test]
 fn language_detection_matrix() {
@@ -498,7 +472,6 @@ fn project_root_uses_markers() {
         tmp.join("proj-ts")
     );
 
-
     let mixed = tmp.join("mixed").join("x.rs");
     write_file(&tmp.join("mixed").join("setup.py"), "");
     write_file(&mixed, "fn f() {}\n");
@@ -506,7 +479,6 @@ fn project_root_uses_markers() {
         find_project_root(&mixed, LspLanguage::Rust),
         tmp.join("mixed")
     );
-
 
     let plain = tmp.join("plain").join("a").join("b").join("c.rs");
     write_file(&plain, "fn f() {}\n");
@@ -534,8 +506,6 @@ fn server_specs_match_requirements() {
     assert!(ts.install_hint.contains("npm install -g typescript-language-server"));
 }
 
-
-
 #[tokio::test]
 async fn unknown_extension_is_a_clear_error() {
     let tmp = unique_tmpdir("unknown-ext");
@@ -549,7 +519,6 @@ async fn unknown_extension_is_a_clear_error() {
 
 #[tokio::test]
 #[allow(clippy::await_holding_lock)]
-
 
 async fn missing_binary_names_the_install_command() {
     let _guard = PATH_LOCK.lock().unwrap();
@@ -583,8 +552,6 @@ async fn missing_binary_names_the_install_command() {
     drop(_guard);
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
-
-
 
 fn test_ctx(dir: &Path) -> ToolContext {
     ToolContext::new(dir.to_path_buf(), "lsp-test-session".to_string())

@@ -1,5 +1,3 @@
-
-
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -10,9 +8,7 @@ use zen_core::{Tool, ToolContext, ToolOutput};
 use crate::config::McpServerConfig;
 use crate::transport::{handshake, RemoteTool, Transport};
 
-
 pub const MCP_MAX_CHARS: usize = zen_tools::builtin::BASH_MAX_CHARS;
-
 
 pub(crate) struct McpTool {
     #[allow(dead_code)]
@@ -57,8 +53,6 @@ impl Tool for McpTool {
     }
 }
 
-
-
 pub(crate) fn render_result(result: Value, ctx: &ToolContext) -> ToolOutput {
     let is_error = result
         .get("isError")
@@ -93,13 +87,11 @@ pub(crate) fn render_result(result: Value, ctx: &ToolContext) -> ToolOutput {
     }
 }
 
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SkipReason {
     pub server_name: String,
     pub reason: String,
 }
-
 
 pub struct McpManager {
     statuses: Vec<(String, String)>,
@@ -111,13 +103,11 @@ pub struct McpManager {
 
 impl McpManager {
 
-
     pub async fn start(configs: BTreeMap<String, McpServerConfig>, timeout_ms: u64) -> Self {
         let timeout_ms = if timeout_ms == 0 { 30_000 } else { timeout_ms };
 
         let mut join = Vec::new();
         let mut skipped = Vec::new();
-
 
         let mut valid_configs = BTreeMap::new();
         for (name, cfg) in configs {
@@ -132,8 +122,6 @@ impl McpManager {
                     continue;
                 }
             };
-
-
 
             if let Some(reason) = validate(&expanded_cfg) {
                 skipped.push(SkipReason { server_name: name.clone(), reason: reason.to_string() });
@@ -185,21 +173,17 @@ impl McpManager {
         Self { statuses, tools, transports, skipped, failed }
     }
 
-
     pub fn tools(&self) -> Vec<Arc<dyn Tool>> {
         self.tools.clone()
     }
-
 
     pub fn status(&self) -> Vec<(String, String)> {
         self.statuses.clone()
     }
 
-
     pub fn errors(&self) -> Vec<SkipReason> {
         self.skipped.clone()
     }
-
 
     pub fn failures(&self) -> Vec<(String, String)> {
         self.failed.clone()
@@ -211,7 +195,6 @@ impl McpManager {
         }
     }
 }
-
 
 pub(crate) fn validate(cfg: &McpServerConfig) -> Option<&'static str> {
     match cfg.kind.as_deref() {

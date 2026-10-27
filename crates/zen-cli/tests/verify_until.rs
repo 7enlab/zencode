@@ -1,4 +1,3 @@
-
 #![cfg(unix)]
 
 mod common;
@@ -95,8 +94,6 @@ async fn until_failure_output_feeds_back_into_retry() {
 async fn until_retry_succeeds_when_command_passes() {
     let home = TempDir::new("until_home");
     let cwd = TempDir::new("until_cwd");
-
-
 
     cwd.write("counter", "0");
     let server = MockServer::start(vec![Reply::text("first"), Reply::text("fixed")]).await;
