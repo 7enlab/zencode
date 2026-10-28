@@ -45,4 +45,4 @@
 
 - Badge numbers may lag ~15 minutes (shields.io cache) - acceptable, set a sensible `cacheSeconds`.
 - VS Code publishes user numbers via blog posts, not a live page - our live page + blog announcements at milestones is the stronger play.
-- Implementation lands with the website build (post-v1.0.0 stable); the `/stats` API ships earlier with the counter backend (Việc 7).
+- Implementation lands with the website build (post-v1.0.0 stable); the `/stats` API ships earlier with the counter backend (work item 7).
