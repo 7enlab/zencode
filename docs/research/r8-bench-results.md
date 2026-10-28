@@ -1,10 +1,9 @@
-# R8 benchmark results / Kết quả benchmark r8 (2026-10-16)
+# R8 benchmark results (2026-10-16)
 
-## Nghiên cứu / Research
-- VI: zen-C7, 24 bài r8-hard (py/rs/go/ts/js/sh), 2 lượt mỗi model, chỉ model free (gpt-oss-20b, nemotron-3-super). Timeout 420s/bài. Sandbox reset 2 lần (~11:09, ~11:56 UTC) làm mất đuôi kết quả nemo; 12 bài chạy lại qua 4 lane (lanes3) rồi gộp bằng merge.sh. Trace oss mất một phần nên thống kê lỗi theo loại chỉ dựa trên trace còn lại; tổng tool call/lỗi lấy từ bench-json (đầy đủ).
-- EN: zen-C7, 24 r8-hard tasks, 2 runs per model, free models only. 420s timeout. Two sandbox resets lost nemo tail results; 12 tasks re-run in 4 lanes and merged. Per-type error breakdown uses surviving traces only; totals come from bench-json lines.
+## Research
+- zen-C7, 24 r8-hard tasks, 2 runs per model, free models only. 420s timeout. Two sandbox resets lost nemo tail results; 12 tasks re-run in 4 lanes and merged. Per-type error breakdown uses surviving traces only; totals come from bench-json lines.
 
-## Kết quả / Results
+## Results
 | task | H0-oss-r1 | H0b-oss | H0r1-nemo | H0r2-nemo |
 |---|---|---|---|---|
 | py_kwarg_rename | M | ✓ | T | T |
@@ -39,14 +38,13 @@
 | H0r1-nemo | 18/24 | 11 | 1 | 1 | 14.7 | 179 | 11 | 6.1% | 0 |
 | H0r2-nemo | 13/24 | 11 | 3 | 2 | 13.2 | 160 | 9 | 5.6% | 0 |
 
-Ký hiệu / Legend: ✓ pass, ✗ fail, T timeout (exit 124, may still pass grader), I infra (gateway 504), M max-turns.
+Legend: ✓ pass, ✗ fail, T timeout (exit 124, may still pass grader), I infra (gateway 504), M max-turns.
 
-- VI: Tốt nhất: nemotron lượt 1 18/24, oss lượt 1 17/24. oss lỗi tool ~21% (Bash exit≠0 chủ yếu do test fail; rò token `<|channel|>` vào tên tool + JSON args hỏng; Grep regex sai). nemo chỉ ~6% lỗi tool nhưng 11 timeout/lượt + 504. oss trượt chủ yếu do chạm max-turns. Bộ khó hơn r7 (10/10) nên đây là baseline mới, không so trực tiếp.
-- EN: Best: nemo run1 18/24, oss run1 17/24. oss ~21% tool-error rate (Bash non-zero, leaked `<|channel|>` token in tool names with broken JSON, bad Grep regex). nemo ~6% but ~11 timeouts per run plus 504s. oss fails mostly on max-turns. New baseline; not comparable to r7.
+- Best: nemo run1 18/24, oss run1 17/24. oss ~21% tool-error rate (Bash non-zero, leaked `<|channel|>` token in tool names with broken JSON, bad Grep regex). nemo ~6% but ~11 timeouts per run plus 504s. oss fails mostly on max-turns. New baseline; not comparable to r7.
 
-## Ý tưởng / Ideas (P0 cho harness)
-1. Sanitize tên tool: cắt hậu tố `<|channel|>...` và sửa JSON args gần đúng (đóng ngoặc) trước khi báo lỗi / strip channel suffix, repair near-valid JSON.
-2. Grep: regex lỗi thì tự fallback tìm literal (`rg -F`) / literal fallback on invalid regex.
-3. Retry có giới hạn cho 504/5xx + trần tổng thời gian chờ 429 / bounded 5xx retry and total 429 wait cap.
-4. Ngân sách thời gian: cảnh báo model khi còn ~20% thời gian/lượt, khuyến khích chốt sớm / time-budget nudge near the limit.
-5. Max-turns động: gia hạn vài lượt nếu lượt gần nhất có tiến bộ (test pass tăng) / adaptive max-turns on progress.
+## Ideas (P0 for harness)
+1. Sanitize tool names: strip the `<|channel|>...` suffix and repair near-valid JSON args (close brackets) before reporting an error.
+2. Grep: fall back to literal search (`rg -F`) on invalid regex.
+3. Bounded retries for 504/5xx plus a cap on total 429 wait time.
+4. Time budget: warn the model when ~20% of time/turns remain, encourage an early finish.
+5. Adaptive max-turns: extend a few turns if the latest turn made progress (more tests passing).
