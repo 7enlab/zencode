@@ -35,10 +35,10 @@ jobs:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           github_action_config.pr_actions: '["opened", "reopened", "ready_for_review"]'
-          # Root-cause fix for run 1: repo settings are read from the default
-          # branch unless a config branch is given, so the pilot branch config
-          # was ignored and defaults ran. Point the reader at this branch.
-          PR_AGENT_CONFIG_BRANCH: pilot/pr-agent-free-review
+          # No config branch here on purpose: on main, repo settings are read
+          # from the default branch, which is main itself. (The pilot branch
+          # needed PR_AGENT_CONFIG_BRANCH only because its config was not on
+          # main yet; that variable was removed before merge.)
           # Only the review tool runs: describe would rewrite the PR body and
           # code suggestions would add more comments. One PR, one review comment.
           github_action_config.auto_describe: "false"
