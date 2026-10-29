@@ -451,3 +451,24 @@ non-goal.)
     `blocked_needs` also be allowed?
 13. Owner of Muc 4 page: Muc 4 still shows the old Vietnamese state names;
     Muc 18 is newer. Align Muc 4 (ZC Leader page).
+
+## 11. Quyết định Leader 30/10 (tin 545)
+
+ZC Leader verified and ACCEPTED MVP-0 at `cba8586` (Telegram 7EN Labs,
+tin 545, 2026-10-30 01:58 +07). Decisions, closing the matching items in
+section 10:
+
+| # | Decision | MVP-0 (this code) | Moved to | Closes (section 10) |
+|---|----------|-------------------|----------|---------------------|
+| 1 | Release counts toward dead-letter after 3 re-queues | Keep code as is (2.17) | none | 8 |
+| 2 | L3/L4: record the level and validate its value only | Keep code as is (2.18) | MVP-1: leader approval gate before claim | 9 |
+| 3 | CI job `python-tests` for `tools/ztask/` | No workflow file now | Phase 6 merge PR adds the job | 6 |
+| 4 | Notification transport Telegram | Outbox + listeners only (2.10) | MVP-1: Telegram transport | 4 |
+| 5 | State model | 7 states per Muc 18 (2.14), final | none | 3 |
+
+Moved to MVP-1: the L3/L4 approval gate before claim, and the Telegram
+transport. Moved to the Phase 6 merge PR: the `python-tests` CI job.
+Process note from the Leader: unrelated `ci.yml` changes go in a separate
+change next time.
+
+No code behaviour changes in this commit (docs only).
