@@ -199,7 +199,7 @@ async fn run_subcommand(
             Ok(0)
         }
         Commands::Update(args) => {
-            return update::run_update(args.check, home);
+            update::run_update(args.check, home)
         }
         Commands::CiFix { json } => {
             let status = github::fetch_ci_status(cwd)?;

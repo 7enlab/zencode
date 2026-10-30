@@ -222,7 +222,7 @@ pub fn run_update(check: bool, home: Option<&Path>) -> Result<i32> {
     }
     if target.exists() {
         std::fs::rename(&target, &backup).with_context(|| {
-            format!("could not move the running binary aside; close other zen processes and retry")
+            "could not move the running binary aside; close other zen processes and retry"
         })?;
     }
     if let Err(e) = std::fs::copy(&built, &target) {
