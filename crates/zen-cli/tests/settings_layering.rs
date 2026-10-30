@@ -16,8 +16,12 @@ async fn cli_model_flag_overrides_settings() {
     let (_, stderr, code) = tokio::time::timeout(TEST_TIMEOUT, async {
         ZenRun::new("cli_model", &home, &cwd)
             .args([
-                "-p", "--output-format", "json", "--bare",
-                "--setting-sources", "user,project",
+                "-p",
+                "--output-format",
+                "json",
+                "--bare",
+                "--setting-sources",
+                "user,project",
             ])
             .mock("cli-model", &server)
             .arg("hi")
@@ -46,9 +50,14 @@ async fn inline_settings_overrides_file_settings() {
     let (_, stderr, code) = tokio::time::timeout(TEST_TIMEOUT, async {
         ZenRun::new("inline", &home, &cwd)
             .args([
-                "-p", "--output-format", "json", "--bare",
-                "--setting-sources", "project",
-                "--settings", r#"{"model":"inline-model"}"#
+                "-p",
+                "--output-format",
+                "json",
+                "--bare",
+                "--setting-sources",
+                "project",
+                "--settings",
+                r#"{"model":"inline-model"}"#,
             ])
             .mock("inline-model", &server)
             .arg("hi")
@@ -62,7 +71,10 @@ async fn inline_settings_overrides_file_settings() {
     assert_eq!(requests.len(), 1);
     let req_json_0 = request_json(&requests[0]);
     let req_model = req_json_0["model"].as_str().unwrap();
-    assert_eq!(req_model, "inline-model", "--settings JSON should win over project file");
+    assert_eq!(
+        req_model, "inline-model",
+        "--settings JSON should win over project file"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -78,8 +90,11 @@ async fn project_overrides_user() {
     let (_, stderr, code) = tokio::time::timeout(TEST_TIMEOUT, async {
         ZenRun::new("project_user", &home, &cwd)
             .args([
-                "-p", "--output-format", "json",
-                "--setting-sources", "user,project"
+                "-p",
+                "--output-format",
+                "json",
+                "--setting-sources",
+                "user,project",
             ])
             .mock("project-model", &server)
             .arg("hi")
@@ -109,8 +124,11 @@ async fn local_overrides_project() {
     let (_, stderr, code) = tokio::time::timeout(TEST_TIMEOUT, async {
         ZenRun::new("local", &home, &cwd)
             .args([
-                "-p", "--output-format", "json",
-                "--setting-sources", "project,local"
+                "-p",
+                "--output-format",
+                "json",
+                "--setting-sources",
+                "project,local",
             ])
             .mock("local-model", &server)
             .arg("hi")
@@ -140,8 +158,12 @@ async fn empty_setting_sources_loads_no_files() {
     let (_, stderr, code) = tokio::time::timeout(TEST_TIMEOUT, async {
         ZenRun::new("empty_sources", &home, &cwd)
             .args([
-                "-p", "--output-format", "json", "--bare",
-                "--setting-sources", ""
+                "-p",
+                "--output-format",
+                "json",
+                "--bare",
+                "--setting-sources",
+                "",
             ])
             .mock("mock-model", &server)
             .arg("hi")
@@ -156,8 +178,11 @@ async fn empty_setting_sources_loads_no_files() {
     let req_json_0 = request_json(&requests[0]);
     let req_model = req_json_0["model"].as_str().unwrap();
 
-    assert!(req_model.contains("gemini") || req_model == "mock-model",
-        "empty setting-sources should use default model, got: {}", req_model);
+    assert!(
+        req_model.contains("gemini") || req_model == "mock-model",
+        "empty setting-sources should use default model, got: {}",
+        req_model
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -175,9 +200,14 @@ async fn base_url_from_settings() {
     let (stdout, stderr, code) = tokio::time::timeout(TEST_TIMEOUT, async {
         ZenRun::new("baseurl", &home, &cwd)
             .args([
-                "-p", "--output-format", "json", "--bare",
-                "--setting-sources", "project",
-                "--model", "test-model",
+                "-p",
+                "--output-format",
+                "json",
+                "--bare",
+                "--setting-sources",
+                "project",
+                "--model",
+                "test-model",
             ])
             .arg("hi")
             .run_output()
@@ -198,7 +228,10 @@ async fn permissions_allow_merge_across_layers() {
     let cwd = TempDir::new("perm_merge_cwd");
     cwd.write("test.txt", "existing");
 
-    cwd.write(".zen/settings.json", r#"{"permissions":{"allow":["Read"]}}"#);
+    cwd.write(
+        ".zen/settings.json",
+        r#"{"permissions":{"allow":["Read"]}}"#,
+    );
 
     let server = MockServer::start(vec![
         Reply::with_tool_calls(
@@ -215,9 +248,14 @@ async fn permissions_allow_merge_across_layers() {
     let (stdout, stderr, code) = tokio::time::timeout(TEST_TIMEOUT, async {
         ZenRun::new("perm_merge", &home, &cwd)
             .args([
-                "-p", "--output-format", "json", "--bare",
-                "--setting-sources", "project",
-                "--allowedTools", "Write"
+                "-p",
+                "--output-format",
+                "json",
+                "--bare",
+                "--setting-sources",
+                "project",
+                "--allowedTools",
+                "Write",
             ])
             .mock("mock-model", &server)
             .arg("write a file")
@@ -229,6 +267,11 @@ async fn permissions_allow_merge_across_layers() {
     assert_eq!(code, 0, "stderr: {}", stderr);
     let v = last_result(&stdout);
     assert_eq!(v["result"], "write ok via CLI allow");
-    let denials = v["permission_denials"].as_array().expect("permission_denials array");
-    assert!(denials.is_empty(), "CLI --allowedTools should add to project allow");
+    let denials = v["permission_denials"]
+        .as_array()
+        .expect("permission_denials array");
+    assert!(
+        denials.is_empty(),
+        "CLI --allowedTools should add to project allow"
+    );
 }

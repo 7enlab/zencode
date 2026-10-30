@@ -47,14 +47,22 @@ struct RpcNotification {
 
 impl RpcResponse {
     fn ok(id: Value, result: Value) -> Self {
-        Self { jsonrpc: "2.0", id, result: Some(result), error: None }
+        Self {
+            jsonrpc: "2.0",
+            id,
+            result: Some(result),
+            error: None,
+        }
     }
     fn err(id: Value, code: i64, message: impl Into<String>) -> Self {
         Self {
             jsonrpc: "2.0",
             id,
             result: None,
-            error: Some(RpcError { code, message: message.into() }),
+            error: Some(RpcError {
+                code,
+                message: message.into(),
+            }),
         }
     }
 }
@@ -71,11 +79,16 @@ struct SessionUpdateParams {
 #[derive(Debug, Serialize)]
 #[serde(tag = "sessionUpdate", rename_all = "snake_case")]
 enum SessionUpdate {
-    AgentMessageChunk { content: ContentBlock },
+    AgentMessageChunk {
+        content: ContentBlock,
+    },
     ToolCall(ToolCallUpdate),
     ToolCallUpdate(ToolCallResult),
     #[serde(rename_all = "camelCase")]
-    UsageUpdate { used: u64, size: u64 },
+    UsageUpdate {
+        used: u64,
+        size: u64,
+    },
 }
 
 #[derive(Debug, Serialize)]
@@ -112,7 +125,10 @@ struct AcpSink {
 
 impl AcpSink {
     fn notify(&self, update: SessionUpdate) {
-        let params = SessionUpdateParams { session_id: self.session_id.clone(), update };
+        let params = SessionUpdateParams {
+            session_id: self.session_id.clone(),
+            update,
+        };
         let notif = RpcNotification {
             jsonrpc: "2.0",
             method: "session/update",
@@ -137,7 +153,12 @@ impl EventSink for AcpSink {
             AgentEvent::Assistant { message, .. } => {
                 emit_assistant(self, &message);
             }
-            AgentEvent::ToolResult { tool_use_id, content, is_error, .. } => {
+            AgentEvent::ToolResult {
+                tool_use_id,
+                content,
+                is_error,
+                ..
+            } => {
                 let status = if is_error { "failed" } else { "completed" };
                 self.notify(SessionUpdate::ToolCallUpdate(ToolCallResult {
                     tool_call_id: tool_use_id,
@@ -146,7 +167,6 @@ impl EventSink for AcpSink {
                 }));
             }
             AgentEvent::SystemMessage { text, .. } => {
-
                 self.notify(SessionUpdate::AgentMessageChunk {
                     content: ContentBlock::Text { text },
                 });
@@ -163,7 +183,9 @@ impl EventSink for AcpSink {
 fn emit_assistant(sink: &AcpSink, message: &ChatMessage) {
     if let Some(text) = message.content.as_deref().filter(|t| !t.is_empty()) {
         sink.notify(SessionUpdate::AgentMessageChunk {
-            content: ContentBlock::Text { text: text.to_string() },
+            content: ContentBlock::Text {
+                text: text.to_string(),
+            },
         });
     }
     if let Some(calls) = message.tool_calls.as_deref() {
@@ -201,13 +223,19 @@ pub async fn run_acp_server(cli: &Cli) -> Result<i32> {
         let req: RpcRequest = match serde_json::from_str(&line) {
             Ok(r) => r,
             Err(e) => {
-                write_response(&out, &RpcResponse::err(Value::Null, -32700, format!("parse error: {e}")))?;
+                write_response(
+                    &out,
+                    &RpcResponse::err(Value::Null, -32700, format!("parse error: {e}")),
+                )?;
                 continue;
             }
         };
         if req.jsonrpc != "2.0" {
             if let Some(id) = req.id.clone() {
-                write_response(&out, &RpcResponse::err(id, -32600, "invalid JSON-RPC version"))?;
+                write_response(
+                    &out,
+                    &RpcResponse::err(id, -32600, "invalid JSON-RPC version"),
+                )?;
             }
             continue;
         }
@@ -224,12 +252,18 @@ pub async fn run_acp_server(cli: &Cli) -> Result<i32> {
                 if !initialized {
                     Some(RpcResponse::err(id, -32002, "server not initialized"))
                 } else {
-                    match handle_session_new(cli, &default_cwd, home.as_deref(), &req.params, &out).await {
+                    match handle_session_new(cli, &default_cwd, home.as_deref(), &req.params, &out)
+                        .await
+                    {
                         Ok((session_id, session)) => {
                             sessions.insert(session_id.clone(), session);
                             Some(RpcResponse::ok(id, json!({ "sessionId": session_id })))
                         }
-                        Err(e) => Some(RpcResponse::err(id, -32603, format!("session/new failed: {e:#}"))),
+                        Err(e) => Some(RpcResponse::err(
+                            id,
+                            -32603,
+                            format!("session/new failed: {e:#}"),
+                        )),
                     }
                 }
             }
@@ -238,13 +272,18 @@ pub async fn run_acp_server(cli: &Cli) -> Result<i32> {
                     Some(RpcResponse::err(id, -32002, "server not initialized"))
                 } else {
                     match handle_prompt(&mut sessions, &req.params).await {
-                        Ok(stop_reason) => Some(RpcResponse::ok(id, json!({ "stopReason": stop_reason }))),
-                        Err(e) => Some(RpcResponse::err(id, -32603, format!("session/prompt failed: {e:#}"))),
+                        Ok(stop_reason) => {
+                            Some(RpcResponse::ok(id, json!({ "stopReason": stop_reason })))
+                        }
+                        Err(e) => Some(RpcResponse::err(
+                            id,
+                            -32603,
+                            format!("session/prompt failed: {e:#}"),
+                        )),
                     }
                 }
             }
             "session/cancel" => {
-
                 handle_cancel(&sessions, &req.params);
                 if is_notification {
                     None
@@ -262,7 +301,11 @@ pub async fn run_acp_server(cli: &Cli) -> Result<i32> {
                 if is_notification {
                     None
                 } else {
-                    Some(RpcResponse::err(id, -32601, format!("method not found: {}", req.method)))
+                    Some(RpcResponse::err(
+                        id,
+                        -32601,
+                        format!("method not found: {}", req.method),
+                    ))
                 }
             }
         };
@@ -282,7 +325,10 @@ fn write_response(out: &Arc<Mutex<std::io::Stdout>>, resp: &RpcResponse) -> Resu
 }
 
 fn handle_initialize(id: Value, params: &Value) -> RpcResponse {
-    let _client_version = params.get("protocolVersion").and_then(Value::as_u64).unwrap_or(0);
+    let _client_version = params
+        .get("protocolVersion")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
 
     let version = PROTOCOL_VERSION;
     RpcResponse::ok(
@@ -389,7 +435,9 @@ async fn handle_prompt(
         .and_then(Value::as_str)
         .context("missing sessionId")?;
     let session = sessions.get_mut(session_id).context("unknown sessionId")?;
-    session.cancelled.store(false, std::sync::atomic::Ordering::SeqCst);
+    session
+        .cancelled
+        .store(false, std::sync::atomic::Ordering::SeqCst);
 
     let text = prompt_text(params);
     let result = session.agent.run_turn(&text).await;
@@ -425,7 +473,8 @@ mod tests {
 
     #[test]
     fn rpc_initialize_roundtrip() {
-        let line = r#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1}}"#;
+        let line =
+            r#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1}}"#;
         let req: RpcRequest = serde_json::from_str(line).unwrap();
         assert_eq!(req.method, "initialize");
         assert_eq!(req.id, Some(json!(0)));
@@ -437,7 +486,6 @@ mod tests {
 
     #[test]
     fn rpc_unknown_method_is_notification_safe() {
-
         let line = r#"{"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"x"}}"#;
         let req: RpcRequest = serde_json::from_str(line).unwrap();
         assert!(req.id.is_none());

@@ -6,12 +6,12 @@ use std::time::Duration;
 use tokio::io::{AsyncWriteExt, BufReader};
 use zen_core::{Tool, ToolContext};
 
+use crate::lsp::LspClient;
 use crate::lsp::{
     col_to_utf16, detect_language, find_binary, find_project_root, parse_locations, path_to_uri,
     render_hover, server_spec, uri_to_path, utf16_to_col, LspLanguage, LspManager,
 };
 use crate::lsp::{read_frame, write_frame};
-use crate::lsp::LspClient;
 use crate::lsp_tools::{FindReferencesTool, GotoDefinitionTool, HoverTool};
 
 static TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -106,7 +106,10 @@ fn mock_setup() -> Option<MockSetup> {
     let py = find_binary("python3")?;
     let tmp = unique_tmpdir("mock");
     let main_rs = tmp.join("main.rs");
-    write_file(&main_rs, "fn main() {\n    let x = 1;\n    println!(\"{x}\");\n}\n");
+    write_file(
+        &main_rs,
+        "fn main() {\n    let x = 1;\n    println!(\"{x}\");\n}\n",
+    );
     let target_rs = tmp.join("target.rs");
     let mut target_src = String::new();
     for i in 1..=9 {
@@ -129,7 +132,13 @@ fn mock_setup() -> Option<MockSetup> {
             path_to_uri(&target_rs),
         ],
     );
-    Some(MockSetup { manager, _tmp: tmp, main_rs, target_rs, log })
+    Some(MockSetup {
+        manager,
+        _tmp: tmp,
+        main_rs,
+        target_rs,
+        log,
+    })
 }
 
 fn logged_methods(log: &Path) -> Vec<String> {
@@ -202,7 +211,11 @@ async fn mock_server_full_roundtrip() {
     assert_eq!(loc.end_col, 13);
 
     let methods = logged_methods(&setup.log);
-    assert_eq!(count(&methods, "initialize"), 1, "handshake must run once: {methods:?}");
+    assert_eq!(
+        count(&methods, "initialize"),
+        1,
+        "handshake must run once: {methods:?}"
+    );
     assert!(
         methods.contains(&"initialized".to_string()),
         "initialized notification missing: {methods:?}"
@@ -210,9 +223,17 @@ async fn mock_server_full_roundtrip() {
     assert_eq!(count(&methods, "textDocument/didOpen"), 1);
     assert_eq!(count(&methods, "textDocument/definition"), 1);
 
-    let _ = setup.manager.goto_definition(&setup.main_rs, 2, 9).await.unwrap();
+    let _ = setup
+        .manager
+        .goto_definition(&setup.main_rs, 2, 9)
+        .await
+        .unwrap();
     let methods = logged_methods(&setup.log);
-    assert_eq!(count(&methods, "initialize"), 1, "server must stay alive: {methods:?}");
+    assert_eq!(
+        count(&methods, "initialize"),
+        1,
+        "server must stay alive: {methods:?}"
+    );
     assert_eq!(count(&methods, "textDocument/didOpen"), 1);
     assert_eq!(count(&methods, "textDocument/definition"), 2);
 }
@@ -223,18 +244,32 @@ async fn mock_server_sends_did_change_when_mtime_moves() {
         eprintln!("SKIP: python3 not found");
         return;
     };
-    let _ = setup.manager.goto_definition(&setup.main_rs, 1, 5).await.unwrap();
-    let old_mtime = std::fs::metadata(&setup.main_rs).unwrap().modified().unwrap();
+    let _ = setup
+        .manager
+        .goto_definition(&setup.main_rs, 1, 5)
+        .await
+        .unwrap();
+    let old_mtime = std::fs::metadata(&setup.main_rs)
+        .unwrap()
+        .modified()
+        .unwrap();
 
     for _ in 0..50 {
         write_file(&setup.main_rs, "fn main() {\n    let y = 2;\n}\n");
-        let new_mtime = std::fs::metadata(&setup.main_rs).unwrap().modified().unwrap();
+        let new_mtime = std::fs::metadata(&setup.main_rs)
+            .unwrap()
+            .modified()
+            .unwrap();
         if new_mtime != old_mtime {
             break;
         }
         std::thread::sleep(Duration::from_millis(5));
     }
-    let _ = setup.manager.goto_definition(&setup.main_rs, 1, 5).await.unwrap();
+    let _ = setup
+        .manager
+        .goto_definition(&setup.main_rs, 1, 5)
+        .await
+        .unwrap();
     let methods = logged_methods(&setup.log);
     assert_eq!(
         count(&methods, "textDocument/didChange"),
@@ -346,21 +381,26 @@ fn parse_definition_null_and_empty() {
 
 #[test]
 fn parse_definition_converts_utf16_columns_via_target_file() {
-
     let tmp = unique_tmpdir("utf16-target");
     let target = tmp.join("u.rs");
-    write_file(&target, "fn x() {}\nlet caf\u{e9}_\u{2615}_\u{1f600} = 1;\n");
+    write_file(
+        &target,
+        "fn x() {}\nlet caf\u{e9}_\u{2615}_\u{1f600} = 1;\n",
+    );
     let uri = path_to_uri(&target);
     let locs = parse_locations(&loc_result(&uri, 1, 11, 1, 13));
     assert_eq!(locs.len(), 1);
-    assert_eq!(locs[0].col, 12, "emoji counts as one character, got {:?}", locs[0]);
+    assert_eq!(
+        locs[0].col, 12,
+        "emoji counts as one character, got {:?}",
+        locs[0]
+    );
 
     assert_eq!(locs[0].end_col, 13);
 }
 
 #[test]
 fn utf16_conversions() {
-
     assert_eq!(col_to_utf16("abc", 1), 0);
     assert_eq!(col_to_utf16("abc", 2), 1);
     assert_eq!(col_to_utf16("abc", 4), 3);
@@ -493,7 +533,9 @@ fn server_specs_match_requirements() {
     let rust = server_spec(LspLanguage::Rust);
     assert_eq!(rust.command, "rust-analyzer");
     assert!(rust.args.is_empty());
-    assert!(rust.install_hint.contains("rustup component add rust-analyzer"));
+    assert!(rust
+        .install_hint
+        .contains("rustup component add rust-analyzer"));
 
     let py = server_spec(LspLanguage::Python);
     assert_eq!(py.command, "pyright-langserver");
@@ -503,7 +545,9 @@ fn server_specs_match_requirements() {
     let ts = server_spec(LspLanguage::TypeScript);
     assert_eq!(ts.command, "typescript-language-server");
     assert_eq!(ts.args, vec!["--stdio".to_string()]);
-    assert!(ts.install_hint.contains("npm install -g typescript-language-server"));
+    assert!(ts
+        .install_hint
+        .contains("npm install -g typescript-language-server"));
 }
 
 #[tokio::test]
@@ -595,12 +639,20 @@ async fn tool_rejects_bad_arguments() {
     let def = GotoDefinitionTool::new(mgr);
 
     let out = def.call(json!({}), &ctx).await;
-    assert!(out.is_error && out.content.contains("'file'"), "got: {}", out.content);
+    assert!(
+        out.is_error && out.content.contains("'file'"),
+        "got: {}",
+        out.content
+    );
 
     let out = def
         .call(json!({"file": "x.rs", "line": 0, "col": 1}), &ctx)
         .await;
-    assert!(out.is_error && out.content.contains(">= 1"), "got: {}", out.content);
+    assert!(
+        out.is_error && out.content.contains(">= 1"),
+        "got: {}",
+        out.content
+    );
 }
 
 #[tokio::test]
@@ -613,7 +665,11 @@ async fn tool_reports_unsupported_extension() {
         .call(json!({"file": "data.xyz", "line": 1, "col": 1}), &ctx)
         .await;
     assert!(out.is_error, "expected error, got: {}", out.content);
-    assert!(out.content.contains("unsupported file type"), "got: {}", out.content);
+    assert!(
+        out.content.contains("unsupported file type"),
+        "got: {}",
+        out.content
+    );
 }
 
 #[tokio::test]
@@ -629,8 +685,16 @@ async fn tool_output_has_human_lines_and_json_block() {
         .call(json!({"file": "main.rs", "line": 1, "col": 5}), &ctx)
         .await;
     assert!(!out.is_error, "got error: {}", out.content);
-    assert!(out.content.contains("goto_definition"), "got: {}", out.content);
-    assert!(out.content.contains("target.rs:10:5"), "got: {}", out.content);
+    assert!(
+        out.content.contains("goto_definition"),
+        "got: {}",
+        out.content
+    );
+    assert!(
+        out.content.contains("target.rs:10:5"),
+        "got: {}",
+        out.content
+    );
     assert!(out.content.contains("```json"), "got: {}", out.content);
     assert!(out.content.contains("\"line\": 10"), "got: {}", out.content);
 
@@ -638,6 +702,14 @@ async fn tool_output_has_human_lines_and_json_block() {
         .call(json!({"file": "main.rs", "line": 1, "col": 5}), &ctx)
         .await;
     assert!(!hover_out.is_error, "got error: {}", hover_out.content);
-    assert!(hover_out.content.contains("**mock** hover"), "got: {}", hover_out.content);
-    assert!(hover_out.content.contains("```json"), "got: {}", hover_out.content);
+    assert!(
+        hover_out.content.contains("**mock** hover"),
+        "got: {}",
+        hover_out.content
+    );
+    assert!(
+        hover_out.content.contains("```json"),
+        "got: {}",
+        hover_out.content
+    );
 }

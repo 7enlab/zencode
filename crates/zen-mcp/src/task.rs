@@ -76,7 +76,11 @@ impl Tool for TaskTool {
                 return ToolOutput::err(format!(
                     "Error: unknown subagent_type '{}'. Valid types: {}",
                     subagent_type,
-                    if names.is_empty() { "(none)".to_string() } else { names.join(", ") }
+                    if names.is_empty() {
+                        "(none)".to_string()
+                    } else {
+                        names.join(", ")
+                    }
                 ));
             }
         };

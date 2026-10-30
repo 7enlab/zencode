@@ -1,10 +1,10 @@
+use crate::safety::{self, ErrorClass, RateLimiter};
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::Value;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use zen_core::*;
-use crate::safety::{self, ErrorClass, RateLimiter};
 
 const MAX_ATTEMPTS: u32 = 6;
 
@@ -22,7 +22,6 @@ pub const CONNECT_TIMEOUT_SECS: u64 = 10;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HttpTimeouts {
-
     pub request: Option<Duration>,
 
     pub idle: Option<Duration>,
@@ -31,13 +30,13 @@ pub struct HttpTimeouts {
 }
 
 impl HttpTimeouts {
-
     pub fn for_url(base_url: &str) -> Self {
         Self::from_secs(base_url, None, None)
     }
 
     pub fn from_secs(base_url: &str, request_secs: Option<u64>, idle_secs: Option<u64>) -> Self {
-        let default = if is_local_url(base_url) || base_url.to_ascii_lowercase().contains("ollama") {
+        let default = if is_local_url(base_url) || base_url.to_ascii_lowercase().contains("ollama")
+        {
             LOCAL_REQUEST_TIMEOUT_SECS
         } else {
             DEFAULT_REQUEST_TIMEOUT_SECS
@@ -64,9 +63,15 @@ impl HttpTimeouts {
     fn describe(&self, elapsed: Duration) -> String {
         match (self.request, self.idle) {
             (Some(r), _) if elapsed + Duration::from_millis(50) >= r => {
-                format!("request timed out after {} (settings api.timeoutSecs)", fmt_secs(r))
+                format!(
+                    "request timed out after {} (settings api.timeoutSecs)",
+                    fmt_secs(r)
+                )
             }
-            (_, Some(i)) => format!("no data from the server for {} (settings api.idleTimeoutSecs)", fmt_secs(i)),
+            (_, Some(i)) => format!(
+                "no data from the server for {} (settings api.idleTimeoutSecs)",
+                fmt_secs(i)
+            ),
             _ => format!("request timed out after {}", fmt_secs(elapsed)),
         }
     }
@@ -80,8 +85,13 @@ fn fmt_secs(d: Duration) -> String {
     }
 }
 
-const REQUEST_ID_HEADERS: [&str; 5] =
-    ["x-request-id", "request-id", "x-amzn-requestid", "x-amz-request-id", "x-correlation-id"];
+const REQUEST_ID_HEADERS: [&str; 5] = [
+    "x-request-id",
+    "request-id",
+    "x-amzn-requestid",
+    "x-amz-request-id",
+    "x-correlation-id",
+];
 
 const REQUEST_ID_MARK: &str = "[request id: ";
 
@@ -89,20 +99,29 @@ fn clean_request_id(s: &str) -> Option<String> {
     let s = s.trim();
     (!s.is_empty()
         && s.len() <= 128
-        && s.chars().all(|c| c.is_ascii_graphic() && c != '[' && c != ']'))
+        && s.chars()
+            .all(|c| c.is_ascii_graphic() && c != '[' && c != ']'))
     .then(|| s.to_string())
 }
 
 pub(crate) fn request_id(headers: &reqwest::header::HeaderMap, body: &str) -> Option<String> {
     for h in REQUEST_ID_HEADERS {
-        if let Some(v) = headers.get(h).and_then(|v| v.to_str().ok()).and_then(clean_request_id) {
+        if let Some(v) = headers
+            .get(h)
+            .and_then(|v| v.to_str().ok())
+            .and_then(clean_request_id)
+        {
             return Some(v);
         }
     }
     let v: Value = serde_json::from_str(body).ok()?;
     ["/request_id", "/error/request_id", "/id"]
         .iter()
-        .find_map(|p| v.pointer(p).and_then(|x| x.as_str()).and_then(clean_request_id))
+        .find_map(|p| {
+            v.pointer(p)
+                .and_then(|x| x.as_str())
+                .and_then(clean_request_id)
+        })
 }
 
 fn with_request_id(msg: String, id: Option<&str>) -> String {
@@ -118,7 +137,11 @@ pub fn request_id_from_error(msg: &str) -> Option<String> {
     clean_request_id(&msg[start..end])
 }
 
-pub(crate) fn build_http(base_url: &str, timeouts: &HttpTimeouts, user_agent: bool) -> reqwest::Client {
+pub(crate) fn build_http(
+    base_url: &str,
+    timeouts: &HttpTimeouts,
+    user_agent: bool,
+) -> reqwest::Client {
     let mut builder = timeouts.apply(with_extra_roots(reqwest::Client::builder()));
     if user_agent {
         builder = builder.user_agent(safety::user_agent());
@@ -130,7 +153,6 @@ pub(crate) fn build_http(base_url: &str, timeouts: &HttpTimeouts, user_agent: bo
 }
 
 pub struct OpenAiClient {
-
     pub base_url: String,
     api_key: Option<String>,
 
@@ -188,8 +210,11 @@ fn provider_name_for_url(url: &str) -> String {
 }
 
 impl OpenAiClient {
-
-    pub fn new(base_url: impl Into<String>, api_key: Option<String>, sink: Arc<dyn EventSink>) -> Self {
+    pub fn new(
+        base_url: impl Into<String>,
+        api_key: Option<String>,
+        sink: Arc<dyn EventSink>,
+    ) -> Self {
         let base_url = base_url.into();
         let timeouts = HttpTimeouts::for_url(&base_url);
         let http = build_http(&base_url, &timeouts, true);
@@ -327,7 +352,10 @@ fn server_retry_hint_ms(header: Option<&str>, body: &str) -> Option<u64> {
     let secs = v
         .pointer("/error/retry_after_seconds")
         .or_else(|| v.get("retry_after_seconds"))
-        .and_then(|s| s.as_f64().or_else(|| s.as_str().and_then(|t| t.parse().ok())))?;
+        .and_then(|s| {
+            s.as_f64()
+                .or_else(|| s.as_str().and_then(|t| t.parse().ok()))
+        })?;
     Some((secs.max(0.0) * 1000.0) as u64)
 }
 
@@ -355,7 +383,6 @@ fn now_unix_ms() -> u64 {
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct MidResponseError {
-
     pub code: Option<u16>,
 
     pub error_type: Option<String>,
@@ -363,7 +390,6 @@ pub(crate) struct MidResponseError {
 }
 
 impl MidResponseError {
-
     pub fn class(&self) -> ErrorClass {
         let ty = self.error_type.as_deref().unwrap_or("");
         match (self.code, ty) {
@@ -377,20 +403,33 @@ impl MidResponseError {
 
     pub fn describe(&self) -> String {
         let code = self.code.map(|c| format!(" HTTP {c}")).unwrap_or_default();
-        let ty = self.error_type.as_deref().map(|t| format!(" ({t})")).unwrap_or_default();
-        let policy = matches!(self.error_type.as_deref(), Some("content_policy_violation" | "refusal"));
+        let ty = self
+            .error_type
+            .as_deref()
+            .map(|t| format!(" ({t})"))
+            .unwrap_or_default();
+        let policy = matches!(
+            self.error_type.as_deref(),
+            Some("content_policy_violation" | "refusal")
+        );
         let lead = if policy {
             "blocked by the provider's content filter mid-response:"
         } else {
             "provider error mid-response:"
         };
-        format!("{lead}{code}{ty}: {}", first_chars(&self.message, ERROR_BODY_CHARS))
+        format!(
+            "{lead}{code}{ty}: {}",
+            first_chars(&self.message, ERROR_BODY_CHARS)
+        )
     }
 }
 
 pub(crate) fn mid_response_error(body: &str) -> Option<MidResponseError> {
     let v: Value = serde_json::from_str(body).ok()?;
-    let choice = v.get("choices").and_then(Value::as_array).and_then(|c| c.first());
+    let choice = v
+        .get("choices")
+        .and_then(Value::as_array)
+        .and_then(|c| c.first());
     let finish_error = choice
         .and_then(|c| c.get("finish_reason"))
         .and_then(Value::as_str)
@@ -399,20 +438,29 @@ pub(crate) fn mid_response_error(body: &str) -> Option<MidResponseError> {
         .and_then(|c| c.get("error"))
         .filter(|e| e.is_object())
         .or_else(|| v.get("error").filter(|e| e.is_object()));
-    let typed = err.and_then(|e| e.pointer("/metadata/error_type")).and_then(Value::as_str);
+    let typed = err
+        .and_then(|e| e.pointer("/metadata/error_type"))
+        .and_then(Value::as_str);
     if !finish_error && typed.is_none() {
         return None;
     }
     let code = err
         .and_then(|e| e.get("code"))
-        .and_then(|c| c.as_u64().or_else(|| c.as_str().and_then(|s| s.parse().ok())))
+        .and_then(|c| {
+            c.as_u64()
+                .or_else(|| c.as_str().and_then(|s| s.parse().ok()))
+        })
         .and_then(|c| u16::try_from(c).ok());
     let message = err
         .and_then(|e| e.get("message"))
         .and_then(Value::as_str)
         .unwrap_or("the provider ended the response with finish_reason \"error\"")
         .to_string();
-    Some(MidResponseError { code, error_type: typed.map(str::to_string), message })
+    Some(MidResponseError {
+        code,
+        error_type: typed.map(str::to_string),
+        message,
+    })
 }
 
 pub fn is_content_filtered(finish_reason: Option<&str>) -> bool {
@@ -425,7 +473,11 @@ pub fn is_content_filtered(finish_reason: Option<&str>) -> bool {
 pub(crate) fn payment_required_reason(body: &str) -> Option<String> {
     let v: Value = serde_json::from_str(body).ok()?;
     let meta = v.pointer("/error/metadata")?;
-    let get = |k: &str| meta.get(k).and_then(Value::as_str).filter(|s| !s.is_empty());
+    let get = |k: &str| {
+        meta.get(k)
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+    };
     let what = match (get("reason"), get("limit_source")) {
         (Some("weight_exceeds_budget"), _) => {
             "this single request's estimated cost is larger than the whole credit budget (weight_exceeds_budget); retrying will not help, lower max_tokens or the prompt size"
@@ -506,10 +558,12 @@ impl LlmBackend for OpenAiClient {
                     let headers = resp.headers().clone();
                     if resp.status().is_success() {
                         match resp.text().await {
-
-                            Err(e) => Outcome::Classified(ErrorClass::Transient, Some(code), timeout_text(&e)),
+                            Err(e) => Outcome::Classified(
+                                ErrorClass::Transient,
+                                Some(code),
+                                timeout_text(&e),
+                            ),
                             Ok(body) => {
-
                                 if let Some(mid) = mid_response_error(&body) {
                                     let class = mid.class();
                                     if class == ErrorClass::RateLimit {
@@ -522,18 +576,23 @@ impl LlmBackend for OpenAiClient {
                                     Outcome::Classified(
                                         class,
                                         mid.code.or(Some(code)),
-                                        with_request_id(mid.describe(), request_id(&headers, &body).as_deref()),
+                                        with_request_id(
+                                            mid.describe(),
+                                            request_id(&headers, &body).as_deref(),
+                                        ),
                                     )
                                 } else {
-
-                                match transient_completion(&body) {
-                                    Some(why) if attempt < MAX_ATTEMPTS => Outcome::Classified(
-                                        ErrorClass::Transient,
-                                        Some(code),
-                                        with_request_id(why, request_id(&headers, &body).as_deref()),
-                                    ),
-                                    _ => Outcome::Parsed(parse_completion(&body)),
-                                }
+                                    match transient_completion(&body) {
+                                        Some(why) if attempt < MAX_ATTEMPTS => Outcome::Classified(
+                                            ErrorClass::Transient,
+                                            Some(code),
+                                            with_request_id(
+                                                why,
+                                                request_id(&headers, &body).as_deref(),
+                                            ),
+                                        ),
+                                        _ => Outcome::Parsed(parse_completion(&body)),
+                                    }
                                 }
                             }
                         }
@@ -549,8 +608,8 @@ impl LlmBackend for OpenAiClient {
                         let body = resp.text().await.unwrap_or_default();
                         server_hint_ms = server_retry_hint_ms(header.as_deref(), &body);
                         if code == 429 && server_hint_ms.is_none() {
-
-                            server_hint_ms = ratelimit_reset_hint_ms(reset.as_deref(), now_unix_ms());
+                            server_hint_ms =
+                                ratelimit_reset_hint_ms(reset.as_deref(), now_unix_ms());
                         }
                         let mut class = safety::classify_error(Some(code), &body);
 
@@ -560,7 +619,8 @@ impl LlmBackend for OpenAiClient {
                         if code == 429 {
                             self.note_429();
                         }
-                        let mut text = format!("HTTP {}: {}", code, first_chars(&body, ERROR_BODY_CHARS));
+                        let mut text =
+                            format!("HTTP {}: {}", code, first_chars(&body, ERROR_BODY_CHARS));
                         if code == 402 {
                             if let Some(why) = payment_required_reason(&body) {
                                 text = format!("HTTP 402: {why}");
@@ -631,7 +691,10 @@ impl LlmBackend for OpenAiClient {
 
             let recent = self.recent_429_count();
             if recent > 3 {
-                eprintln!("{}", safety::repeated_429_warning(recent as u32, &self.provider_name));
+                eprintln!(
+                    "{}",
+                    safety::repeated_429_warning(recent as u32, &self.provider_name)
+                );
             }
 
             let jittered = safety::backoff_with_jitter(
@@ -652,7 +715,11 @@ impl LlmBackend for OpenAiClient {
             }
             self.sink.emit(AgentEvent::ApiRetry {
                 attempt,
-                max_retries: if mid_transient { MID_RESPONSE_MAX_RETRIES } else { MAX_ATTEMPTS - 1 },
+                max_retries: if mid_transient {
+                    MID_RESPONSE_MAX_RETRIES
+                } else {
+                    MAX_ATTEMPTS - 1
+                },
                 retry_delay_ms: delay_ms,
                 error_status: status,
                 error: err_for_event,
@@ -661,16 +728,26 @@ impl LlmBackend for OpenAiClient {
             waited_ms = waited_ms.saturating_add(delay_ms);
         }
     }
-
 }
 
 pub(crate) fn transient_completion(body: &str) -> Option<String> {
     let v: Value = serde_json::from_str(body).ok()?;
     if let Some(err) = v.get("error").filter(|e| !e.is_null()) {
-        let msg = err.get("message").and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| err.to_string());
-        return Some(format!("gateway error in 200 response: {}", first_chars(&msg, ERROR_BODY_CHARS)));
+        let msg = err
+            .get("message")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .unwrap_or_else(|| err.to_string());
+        return Some(format!(
+            "gateway error in 200 response: {}",
+            first_chars(&msg, ERROR_BODY_CHARS)
+        ));
     }
-    let first = match v.get("choices").and_then(Value::as_array).and_then(|c| c.first()) {
+    let first = match v
+        .get("choices")
+        .and_then(Value::as_array)
+        .and_then(|c| c.first())
+    {
         Some(c) => c,
         None => return Some("model returned no choices".into()),
     };
@@ -679,8 +756,14 @@ pub(crate) fn transient_completion(body: &str) -> Option<String> {
         return None;
     }
     let msg = first.get("message")?;
-    let has_text = msg.get("content").and_then(Value::as_str).is_some_and(|t| !t.trim().is_empty());
-    let has_calls = msg.get("tool_calls").and_then(Value::as_array).is_some_and(|c| !c.is_empty());
+    let has_text = msg
+        .get("content")
+        .and_then(Value::as_str)
+        .is_some_and(|t| !t.trim().is_empty());
+    let has_calls = msg
+        .get("tool_calls")
+        .and_then(Value::as_array)
+        .is_some_and(|c| !c.is_empty());
     (!has_text && !has_calls).then(|| "model returned an empty message".into())
 }
 
@@ -692,13 +775,12 @@ pub(crate) fn parse_completion(body: &str) -> anyhow::Result<ChatResponse> {
             first_chars(body, ERROR_BODY_CHARS)
         )
     })?;
-    let choice = parsed
-        .choices
-        .into_iter()
-        .next()
-        .ok_or_else(|| {
-            anyhow::anyhow!("model returned no choices (body: {})", first_chars(body, ERROR_BODY_CHARS))
-        })?;
+    let choice = parsed.choices.into_iter().next().ok_or_else(|| {
+        anyhow::anyhow!(
+            "model returned no choices (body: {})",
+            first_chars(body, ERROR_BODY_CHARS)
+        )
+    })?;
     let tool_calls = choice.message.tool_calls.map(|calls| {
         calls
             .into_iter()
@@ -713,13 +795,16 @@ pub(crate) fn parse_completion(body: &str) -> anyhow::Result<ChatResponse> {
             .collect::<Vec<_>>()
     });
     let content = match choice.message.content {
-
         Some(s) if s.is_empty() && tool_calls.is_some() => None,
         other => other,
     };
 
     let content = match (content, choice.message.refusal) {
-        (c, Some(r)) if c.as_deref().is_none_or(|t| t.trim().is_empty()) && !r.trim().is_empty() => Some(r),
+        (c, Some(r))
+            if c.as_deref().is_none_or(|t| t.trim().is_empty()) && !r.trim().is_empty() =>
+        {
+            Some(r)
+        }
         (c, _) => c,
     };
     let mut usage = parsed.usage;
@@ -812,7 +897,6 @@ mod tests {
 
     #[test]
     fn parse_completion_reads_openai_cached_tokens() {
-
         let body = json!({
             "choices": [{"message": {"content": "hi"}, "finish_reason": "stop"}],
             "usage": {
@@ -826,7 +910,12 @@ mod tests {
         let r = parse_completion(&body).unwrap();
         assert_eq!(r.usage.prompt_tokens, 2000);
         assert_eq!(r.usage.cache_read_input_tokens, 1500);
-        assert!((zen_core::cache_hit_rate(r.usage.cache_read_input_tokens, r.usage.prompt_tokens) - 0.75).abs() < 1e-9);
+        assert!(
+            (zen_core::cache_hit_rate(r.usage.cache_read_input_tokens, r.usage.prompt_tokens)
+                - 0.75)
+                .abs()
+                < 1e-9
+        );
     }
 
     #[test]
@@ -845,7 +934,9 @@ mod tests {
         let e = parse_completion("not json").unwrap_err().to_string();
         assert!(e.contains("invalid completion response"));
         assert!(e.contains("not json"));
-        let e = parse_completion(r#"{"choices":[]}"#).unwrap_err().to_string();
+        let e = parse_completion(r#"{"choices":[]}"#)
+            .unwrap_err()
+            .to_string();
         assert!(e.contains("no choices"));
     }
 
@@ -869,8 +960,7 @@ mod tests {
                 })
             }
         }
-        let backend: Arc<dyn LlmBackend> =
-            Arc::new(Backend(Mutex::new(vec!["fallback"])));
+        let backend: Arc<dyn LlmBackend> = Arc::new(Backend(Mutex::new(vec!["fallback"])));
 
         struct FailOnce(Mutex<bool>, Arc<dyn LlmBackend>);
         #[async_trait]
@@ -906,10 +996,20 @@ mod tests {
     fn server_retry_hint_is_honoured_and_capped() {
         let body = r#"{"error":{"message":"slow down","retry_after_seconds":23}}"#;
         assert_eq!(server_retry_hint_ms(None, body), Some(23_000));
-        assert_eq!(server_retry_hint_ms(Some("5"), body), Some(5_000), "header wins");
-        assert_eq!(server_retry_hint_ms(None, r#"{"retry_after_seconds":"2"}"#), Some(2_000));
+        assert_eq!(
+            server_retry_hint_ms(Some("5"), body),
+            Some(5_000),
+            "header wins"
+        );
+        assert_eq!(
+            server_retry_hint_ms(None, r#"{"retry_after_seconds":"2"}"#),
+            Some(2_000)
+        );
         assert_eq!(server_retry_hint_ms(None, "not json"), None);
-        assert_eq!(server_retry_hint_ms(Some("Wed, 21 Oct 2026 07:28:00 GMT"), "{}"), None);
+        assert_eq!(
+            server_retry_hint_ms(Some("Wed, 21 Oct 2026 07:28:00 GMT"), "{}"),
+            None
+        );
 
         use crate::safety::backoff_with_jitter;
         let b1 = backoff_with_jitter(1, 1000, 60_000, 42);
@@ -931,17 +1031,26 @@ mod tests {
     #[test]
     fn c3_transient_completion_classifies_200_bodies() {
         let harmony = r#"{"error":{"message":"unexpected tokens remaining in message header: Some(\"to=functions.Read\")","code":400},"object":"chat.completion"}"#;
-        assert!(transient_completion(harmony).unwrap().contains("unexpected tokens remaining"));
-        assert!(transient_completion(r#"{"choices":[]}"#).unwrap().contains("no choices"));
+        assert!(transient_completion(harmony)
+            .unwrap()
+            .contains("unexpected tokens remaining"));
+        assert!(transient_completion(r#"{"choices":[]}"#)
+            .unwrap()
+            .contains("no choices"));
         let empty = r#"{"choices":[{"message":{"role":"assistant","content":null,"tool_calls":[]},"finish_reason":"stop"}]}"#;
-        assert!(transient_completion(empty).unwrap().contains("empty message"));
+        assert!(transient_completion(empty)
+            .unwrap()
+            .contains("empty message"));
         let blank = r#"{"choices":[{"message":{"content":"  \n"},"finish_reason":"stop"}]}"#;
         assert!(transient_completion(blank).is_some());
         let text = r#"{"choices":[{"message":{"content":"done"},"finish_reason":"stop"}]}"#;
         assert!(transient_completion(text).is_none());
         let call = r#"{"choices":[{"message":{"content":null,"tool_calls":[{"id":"a","function":{"name":"Read","arguments":"{}"}}]}}]}"#;
         assert!(transient_completion(call).is_none());
-        assert!(transient_completion("not json").is_none(), "malformed JSON stays a hard error");
+        assert!(
+            transient_completion("not json").is_none(),
+            "malformed JSON stays a hard error"
+        );
     }
 
     #[tokio::test]
@@ -964,10 +1073,21 @@ mod tests {
                     got.extend_from_slice(&buf[..n]);
                     let txt = String::from_utf8_lossy(&got);
                     if let Some(h) = txt.find("\r\n\r\n") {
-                        let len = txt[..h].lines().find_map(|l| l.to_ascii_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse::<usize>().unwrap())).unwrap_or(0);
-                        if got.len() >= h + 4 + len { break; }
+                        let len = txt[..h]
+                            .lines()
+                            .find_map(|l| {
+                                l.to_ascii_lowercase()
+                                    .strip_prefix("content-length:")
+                                    .map(|v| v.trim().parse::<usize>().unwrap())
+                            })
+                            .unwrap_or(0);
+                        if got.len() >= h + 4 + len {
+                            break;
+                        }
                     }
-                    if n == 0 { break; }
+                    if n == 0 {
+                        break;
+                    }
                 }
                 let resp = format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", b.len(), b);
                 sock.write_all(resp.as_bytes()).await.unwrap();
@@ -976,10 +1096,21 @@ mod tests {
         let sink = Arc::new(crate::testutil::CollectSink::default());
         let mut c = OpenAiClient::new(format!("http://{addr}/v1"), None, sink.clone());
         c.base_retry_delay_ms = 1;
-        let req = ChatRequest { model: "m".into(), messages: vec![ChatMessage::user("hi")], tools: vec![], max_tokens: None };
+        let req = ChatRequest {
+            model: "m".into(),
+            messages: vec![ChatMessage::user("hi")],
+            tools: vec![],
+            max_tokens: None,
+        };
         let r = c.chat(req).await.unwrap();
         assert_eq!(r.message.content.as_deref(), Some("fixed"));
-        let retries = sink.events.lock().unwrap().iter().filter(|e| matches!(e, AgentEvent::ApiRetry { .. })).count();
+        let retries = sink
+            .events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|e| matches!(e, AgentEvent::ApiRetry { .. }))
+            .count();
         assert_eq!(retries, 2);
     }
 }
@@ -1000,7 +1131,6 @@ fn cache_control() -> Value {
 }
 
 pub struct AnthropicClient {
-
     pub base_url: String,
     api_key: Option<String>,
 
@@ -1016,8 +1146,11 @@ pub struct AnthropicClient {
 }
 
 impl AnthropicClient {
-
-    pub fn new(base_url: impl Into<String>, api_key: Option<String>, sink: Arc<dyn EventSink>) -> Self {
+    pub fn new(
+        base_url: impl Into<String>,
+        api_key: Option<String>,
+        sink: Arc<dyn EventSink>,
+    ) -> Self {
         let base_url = base_url.into();
         let timeouts = HttpTimeouts::for_url(&base_url);
         let http = build_http(&base_url, &timeouts, false);
@@ -1089,7 +1222,8 @@ pub(crate) fn anthropic_request_body(req: &ChatRequest) -> Value {
                     blocks.push(serde_json::json!({"type": "text", "text": c}));
                 }
                 for tc in m.tool_calls.iter().flatten() {
-                    let input: Value = serde_json::from_str(&tc.function.arguments).unwrap_or(Value::Null);
+                    let input: Value =
+                        serde_json::from_str(&tc.function.arguments).unwrap_or(Value::Null);
                     blocks.push(serde_json::json!({
                         "type": "tool_use",
                         "id": tc.id,
@@ -1100,7 +1234,6 @@ pub(crate) fn anthropic_request_body(req: &ChatRequest) -> Value {
                 messages.push(serde_json::json!({"role": "assistant", "content": blocks}));
             }
             _ => {
-
                 messages.push(serde_json::json!({
                     "role": "user",
                     "content": m.content.as_deref().unwrap_or(""),
@@ -1160,7 +1293,12 @@ pub(crate) fn parse_anthropic_response(body: &str) -> anyhow::Result<ChatRespons
     }
     let mut text_parts: Vec<String> = Vec::new();
     let mut tool_calls: Vec<ToolCall> = Vec::new();
-    for block in v.get("content").and_then(Value::as_array).into_iter().flatten() {
+    for block in v
+        .get("content")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
         match block.get("type").and_then(Value::as_str) {
             Some("text") => {
                 if let Some(t) = block.get("text").and_then(Value::as_str) {
@@ -1168,8 +1306,16 @@ pub(crate) fn parse_anthropic_response(body: &str) -> anyhow::Result<ChatRespons
                 }
             }
             Some("tool_use") => {
-                let id = block.get("id").and_then(Value::as_str).unwrap_or("").to_string();
-                let name = block.get("name").and_then(Value::as_str).unwrap_or("").to_string();
+                let id = block
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                let name = block
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
                 let input = block.get("input").cloned().unwrap_or(Value::Null);
                 tool_calls.push(ToolCall {
                     id,
@@ -1184,13 +1330,26 @@ pub(crate) fn parse_anthropic_response(body: &str) -> anyhow::Result<ChatRespons
         }
     }
     let text = text_parts.join("");
-    let content = if text.is_empty() && !tool_calls.is_empty() { None } else { Some(text) };
+    let content = if text.is_empty() && !tool_calls.is_empty() {
+        None
+    } else {
+        Some(text)
+    };
     let usage = v.get("usage");
-    let u = |k: &str| usage.and_then(|u| u.get(k)).and_then(Value::as_u64).unwrap_or(0);
+    let u = |k: &str| {
+        usage
+            .and_then(|u| u.get(k))
+            .and_then(Value::as_u64)
+            .unwrap_or(0)
+    };
     Ok(ChatResponse {
         message: ChatMessage::assistant(
             content,
-            if tool_calls.is_empty() { None } else { Some(tool_calls) },
+            if tool_calls.is_empty() {
+                None
+            } else {
+                Some(tool_calls)
+            },
         ),
         usage: Usage {
             prompt_tokens: u("input_tokens"),
@@ -1199,7 +1358,10 @@ pub(crate) fn parse_anthropic_response(body: &str) -> anyhow::Result<ChatRespons
             cache_read_input_tokens: u("cache_read_input_tokens"),
             cache_creation_input_tokens: u("cache_creation_input_tokens"),
         },
-        finish_reason: v.get("stop_reason").and_then(Value::as_str).map(str::to_string),
+        finish_reason: v
+            .get("stop_reason")
+            .and_then(Value::as_str)
+            .map(str::to_string),
     })
 }
 
@@ -1239,8 +1401,9 @@ impl LlmBackend for AnthropicClient {
                         Err(e) => break 'resp (true, false, Some(code), timeout_text(&e)),
                     };
                     let rid = request_id(&headers, &resp_body);
-                    if resp_body.contains("\"type\":\"error\"") || resp_body.contains("\"type\": \"error\"") {
-
+                    if resp_body.contains("\"type\":\"error\"")
+                        || resp_body.contains("\"type\": \"error\"")
+                    {
                         let msg = parse_anthropic_response(&resp_body)
                             .err()
                             .map(|e| e.to_string())
@@ -1269,7 +1432,11 @@ impl LlmBackend for AnthropicClient {
                             retryable,
                             Some(code),
                             with_request_id(
-                                format!("HTTP {}: {}", code, first_chars(&resp_body, ERROR_BODY_CHARS)),
+                                format!(
+                                    "HTTP {}: {}",
+                                    code,
+                                    first_chars(&resp_body, ERROR_BODY_CHARS)
+                                ),
                                 rid.as_deref(),
                             ),
                         )
@@ -1467,7 +1634,6 @@ mod anthropic_tests {
 
     #[test]
     fn request_body_is_deterministic_across_builds() {
-
         let mut r = req();
         r.messages.push(ChatMessage::system(format!(
             "role{}env",
@@ -1500,7 +1666,8 @@ mod anthropic_tests {
                 },
             }]),
         ));
-        r.messages.push(ChatMessage::tool("toolu_1", "file contents"));
+        r.messages
+            .push(ChatMessage::tool("toolu_1", "file contents"));
         r.tools = vec![ToolDefinition {
             tool_type: "function".to_string(),
             function: FunctionDefinition {
@@ -1570,7 +1737,14 @@ mod anthropic_tests {
         assert_eq!(resp.usage.cache_read_input_tokens, 9500);
         assert_eq!(resp.usage.cache_creation_input_tokens, 500);
 
-        assert!((zen_core::cache_hit_rate(resp.usage.cache_read_input_tokens, resp.usage.prompt_tokens) - 0.95).abs() < 1e-9);
+        assert!(
+            (zen_core::cache_hit_rate(
+                resp.usage.cache_read_input_tokens,
+                resp.usage.prompt_tokens
+            ) - 0.95)
+                .abs()
+                < 1e-9
+        );
     }
 
     #[test]
@@ -1587,7 +1761,8 @@ mod anthropic_tests {
 
     #[test]
     fn parse_response_error_object_fails() {
-        let body = r#"{"type": "error", "error": {"type": "authentication_error", "message": "bad key"}}"#;
+        let body =
+            r#"{"type": "error", "error": {"type": "authentication_error", "message": "bad key"}}"#;
         assert!(parse_anthropic_response(body).is_err());
     }
 
@@ -1663,7 +1838,10 @@ mod anthropic_tests {
 
         let req_text = server.await.unwrap();
 
-        assert!(req_text.contains("prompt-caching-2024-07-31"), "missing beta header");
+        assert!(
+            req_text.contains("prompt-caching-2024-07-31"),
+            "missing beta header"
+        );
 
         assert!(req_text.contains("POST /messages"));
 

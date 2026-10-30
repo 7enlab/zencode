@@ -4,25 +4,62 @@ use std::collections::HashMap;
 use std::path::Path;
 
 pub const BUILTIN_COMMANDS: &[&str] = &[
-    "/help", "/clear", "/compact", "/model", "/resume", "/cost", "/status",
-    "/permissions", "/config", "/memory", "/init", "/todos", "/agents", "/mcp", "/hooks",
-    "/skills", "/exit", "/context", "/add-dir", "/export", "/review", "/rename", "/quota",
-    "/diff", "/plan", "/memories", "/loop", "/goal", "/personality", "/vim", "/theme", "/btw",
-    "/terse", "/map", "/map-refresh", "/deep-research", "/pr_comments", "/ci-fix", "/done",
-    "/scope", "/worktree", "/commit",
+    "/help",
+    "/clear",
+    "/compact",
+    "/model",
+    "/resume",
+    "/cost",
+    "/status",
+    "/permissions",
+    "/config",
+    "/memory",
+    "/init",
+    "/todos",
+    "/agents",
+    "/mcp",
+    "/hooks",
+    "/skills",
+    "/exit",
+    "/context",
+    "/add-dir",
+    "/export",
+    "/review",
+    "/rename",
+    "/quota",
+    "/diff",
+    "/plan",
+    "/memories",
+    "/loop",
+    "/goal",
+    "/personality",
+    "/vim",
+    "/theme",
+    "/btw",
+    "/terse",
+    "/map",
+    "/map-refresh",
+    "/deep-research",
+    "/pr_comments",
+    "/ci-fix",
+    "/done",
+    "/scope",
+    "/worktree",
+    "/commit",
 ];
 
 pub const REPL_ONLY_COMMANDS: &[&str] = &["/undo"];
 
-pub const HEADLESS_BUILTINS: &[&str] =
-    &["compact", "model", "cost", "mcp", "context", "review", "init", "done"];
+pub const HEADLESS_BUILTINS: &[&str] = &[
+    "compact", "model", "cost", "mcp", "context", "review", "init", "done",
+];
 
 pub fn parse_builtin(prompt: &str) -> Option<(String, String)> {
     let rest = prompt.trim_start().strip_prefix('/')?;
     let mut it = rest.splitn(2, char::is_whitespace);
     let name = it.next().unwrap_or("");
-    let known = BUILTIN_COMMANDS.iter().any(|c| &c[1..] == name)
-        || matches!(name, "quit" | "continue");
+    let known =
+        BUILTIN_COMMANDS.iter().any(|c| &c[1..] == name) || matches!(name, "quit" | "continue");
     if name.is_empty() || !known {
         return None;
     }
@@ -75,10 +112,18 @@ pub fn context_report(
     last_prompt_tokens: u64,
 ) -> String {
     let sys = system_prompt.len() as u64 / 4;
-    let tool_tokens = serde_json::to_string(tools).map(|t| t.len() as u64 / 4).unwrap_or(0);
+    let tool_tokens = serde_json::to_string(tools)
+        .map(|t| t.len() as u64 / 4)
+        .unwrap_or(0);
     let msg = zen_core::estimate_tokens(messages);
     let total = sys + tool_tokens + msg;
-    let pct = |n: u64| if context_window == 0 { 0.0 } else { n as f64 * 100.0 / context_window as f64 };
+    let pct = |n: u64| {
+        if context_window == 0 {
+            0.0
+        } else {
+            n as f64 * 100.0 / context_window as f64
+        }
+    };
     let mut out = format!(
         "Context usage (estimated): {} / {} tokens ({:.1}%)\n\
          - system prompt: {} tokens\n\
@@ -96,7 +141,10 @@ pub fn context_report(
         context_window.saturating_sub(total)
     );
     if last_prompt_tokens > 0 {
-        out.push_str(&format!("\nLast request (reported by the API): {} prompt tokens", last_prompt_tokens));
+        out.push_str(&format!(
+            "\nLast request (reported by the API): {} prompt tokens",
+            last_prompt_tokens
+        ));
     }
 
     let costs = zen_agent::tool_bundles::per_tool_costs(tools);
@@ -131,7 +179,8 @@ pub fn tool_help(name: &str) -> String {
             let phase = zen_agent::tool_bundles::tool_phase(tool.name())
                 .map(|p| p.as_str())
                 .unwrap_or("unclassified");
-            let docs = zen_tools::tool_long_docs(tool.name()).unwrap_or("No extended documentation available.");
+            let docs = zen_tools::tool_long_docs(tool.name())
+                .unwrap_or("No extended documentation available.");
             format!(
                 "{} (phase: {}, ~{} schema tokens)\n\n{}\n\n---\n\n{}",
                 tool.name(),
@@ -185,7 +234,10 @@ pub fn transcript_markdown(session_id: &str, messages: &[zen_core::ChatMessage])
     let mut out = format!("# zen session {}\n", session_id);
     for m in messages {
         match m.role.as_str() {
-            "user" => out.push_str(&format!("\n## User\n\n{}\n", m.content.as_deref().unwrap_or(""))),
+            "user" => out.push_str(&format!(
+                "\n## User\n\n{}\n",
+                m.content.as_deref().unwrap_or("")
+            )),
             "assistant" => {
                 out.push_str("\n## Assistant\n\n");
                 if let Some(c) = m.content.as_deref().filter(|c| !c.is_empty()) {
@@ -239,11 +291,7 @@ impl CustomCommand {
         let mut body = self.body.clone();
 
         for i in 1..=9usize {
-            let slot = if i <= parts.len() {
-                parts[i - 1]
-            } else {
-                ""
-            };
+            let slot = if i <= parts.len() { parts[i - 1] } else { "" };
             body = body.replace(&format!("${}", i), slot);
         }
 
@@ -268,7 +316,6 @@ fn split_frontmatter(raw: &str) -> (HashMap<String, Value>, &str) {
 }
 
 fn find_closing_delim(s: &str) -> Option<usize> {
-
     let mut idx = 4;
     while idx < s.len() {
         let nl = s[idx..].find('\n')?;
@@ -300,7 +347,6 @@ fn parse_yaml_frontmatter(text: &str) -> HashMap<String, Value> {
 }
 
 fn expand_file_refs(body: &str, base: &Path) -> Result<String> {
-
     let mut out = String::new();
     for (i, line) in body.lines().enumerate() {
         if i > 0 {
@@ -335,7 +381,11 @@ fn expand_file_refs(body: &str, base: &Path) -> Result<String> {
 
 fn read_ref(path: &str, base: &Path) -> Option<String> {
     let p = base.join(path);
-    let p = if p.is_file() { p } else { Path::new(path).to_path_buf() };
+    let p = if p.is_file() {
+        p
+    } else {
+        Path::new(path).to_path_buf()
+    };
     if p.is_file() {
         std::fs::read_to_string(p).ok()
     } else {
@@ -380,7 +430,6 @@ pub fn load_custom_commands(cwd: &Path, home: Option<&Path>) -> Vec<CustomComman
 }
 
 fn dedup_keep_project_first(cmds: &mut Vec<CustomCommand>) {
-
     let mut seen = std::collections::HashSet::new();
     let mut i = 0;
     while i < cmds.len() {
@@ -432,7 +481,11 @@ fn read_mcp_file(path: &Path) -> Value {
     if !root.is_object() {
         root = Value::Object(Default::default());
     }
-    if !root.get("mcpServers").map(|v| v.is_object()).unwrap_or(false) {
+    if !root
+        .get("mcpServers")
+        .map(|v| v.is_object())
+        .unwrap_or(false)
+    {
         root.as_object_mut()
             .unwrap()
             .insert("mcpServers".to_string(), Value::Object(Default::default()));
@@ -527,9 +580,11 @@ pub async fn mcp_command(
             Ok(())
         }
         McpSubcommand::Get { scope, name } => {
-
-            let scopes: Vec<&str> =
-                if scope.is_empty() { vec!["local", "project", "user"] } else { vec![scope] };
+            let scopes: Vec<&str> = if scope.is_empty() {
+                vec!["local", "project", "user"]
+            } else {
+                vec![scope]
+            };
             for sc in scopes {
                 let path = mcp_scope_path(sc, cwd, home)?;
                 let root = read_mcp_file(&path);
@@ -616,7 +671,11 @@ pub async fn sessions_command(
         }
         SessionSubcommand::Archive { id } => {
             let dest = sm::archive_session(home, id)?;
-            println!("archived session {} -> {}", sm::short_id(id), dest.display());
+            println!(
+                "archived session {} -> {}",
+                sm::short_id(id),
+                dest.display()
+            );
             Ok(())
         }
         SessionSubcommand::Delete { id, yes } => {
@@ -630,7 +689,11 @@ pub async fn sessions_command(
         }
         SessionSubcommand::Restore { id } => {
             let dest = sm::restore_session(home, id)?;
-            println!("restored session {} -> {}", sm::short_id(id), dest.display());
+            println!(
+                "restored session {} -> {}",
+                sm::short_id(id),
+                dest.display()
+            );
             Ok(())
         }
     }
@@ -714,7 +777,11 @@ mod tests {
 
     #[test]
     fn custom_command_positional_expansion() {
-        let cmd = CustomCommand::parse("review", "Review the file $1 and fix issues in $2.\n$ARGUMENTS done.").unwrap();
+        let cmd = CustomCommand::parse(
+            "review",
+            "Review the file $1 and fix issues in $2.\n$ARGUMENTS done.",
+        )
+        .unwrap();
         let out = cmd.expand("src/main.rs").unwrap();
         assert!(out.contains("Review the file src/main.rs"));
         assert!(out.contains("$2.") || out.contains("."));
@@ -745,8 +812,14 @@ mod tests {
         let raw = "---\ndescription: Run tests\nmodel: gpt-4\n---\nTest the repo.";
         let cmd = CustomCommand::parse("test", raw).unwrap();
         assert_eq!(cmd.body, "Test the repo.");
-        assert_eq!(cmd.frontmatter.get("description"), Some(&Value::String("Run tests".to_string())));
-        assert_eq!(cmd.frontmatter.get("model"), Some(&Value::String("gpt-4".to_string())));
+        assert_eq!(
+            cmd.frontmatter.get("description"),
+            Some(&Value::String("Run tests".to_string()))
+        );
+        assert_eq!(
+            cmd.frontmatter.get("model"),
+            Some(&Value::String("gpt-4".to_string()))
+        );
     }
 
     #[test]
@@ -777,15 +850,26 @@ mod tests {
 
     #[test]
     fn cost_report_shows_cache_hit_rate_when_cached() {
-        let u = zen_core::UsageStats { input_tokens: 1000, output_tokens: 50, cache_read_input_tokens: 800 };
+        let u = zen_core::UsageStats {
+            input_tokens: 1000,
+            output_tokens: 50,
+            cache_read_input_tokens: 800,
+        };
         let r = cost_report(&u, "mock-model", "http://127.0.0.1:1");
-        assert!(r.contains("Prompt cache: 800 tokens served from cache (80% of input)"), "{}", r);
+        assert!(
+            r.contains("Prompt cache: 800 tokens served from cache (80% of input)"),
+            "{}",
+            r
+        );
     }
 
     #[test]
     fn cost_report_omits_cache_line_when_unsupported() {
-
-        let u = zen_core::UsageStats { input_tokens: 100, output_tokens: 5, cache_read_input_tokens: 0 };
+        let u = zen_core::UsageStats {
+            input_tokens: 100,
+            output_tokens: 5,
+            cache_read_input_tokens: 0,
+        };
         let r = cost_report(&u, "mock-model", "http://127.0.0.1:1");
         assert!(!r.contains("Prompt cache"), "{}", r);
     }

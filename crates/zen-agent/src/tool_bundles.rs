@@ -3,7 +3,9 @@ use std::str::FromStr;
 use zen_core::{FunctionDefinition, ToolDefinition, ToolRegistry};
 
 pub fn estimate_schema_tokens(def: &ToolDefinition) -> u64 {
-    serde_json::to_string(def).map(|s| s.len() as u64 / 4).unwrap_or(0)
+    serde_json::to_string(def)
+        .map(|s| s.len() as u64 / 4)
+        .unwrap_or(0)
 }
 
 pub fn total_schema_tokens(defs: &[ToolDefinition]) -> u64 {
@@ -21,7 +23,6 @@ pub fn per_tool_costs(defs: &[ToolDefinition]) -> Vec<(String, u64)> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ToolPhase {
-
     Core,
 
     Read,
@@ -54,7 +55,6 @@ pub fn tool_phase(name: &str) -> Option<ToolPhase> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ToolBundle {
-
     #[default]
     All,
 
@@ -126,10 +126,7 @@ pub fn deferred_stub(name: &str) -> ToolDefinition {
     }
 }
 
-pub fn definitions_for_bundle(
-    registry: &ToolRegistry,
-    bundle: ToolBundle,
-) -> Vec<ToolDefinition> {
+pub fn definitions_for_bundle(registry: &ToolRegistry, bundle: ToolBundle) -> Vec<ToolDefinition> {
     let mut defs: Vec<ToolDefinition> = registry
         .definitions()
         .into_iter()

@@ -6,7 +6,6 @@ use std::path::{Path, PathBuf};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum TrustTier {
-
     Verified,
 
     Community,
@@ -43,7 +42,6 @@ impl TrustTier {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SkillPermissions {
-
     #[serde(default)]
     pub allowed_tools: Vec<String>,
 
@@ -65,21 +63,15 @@ fn default_file_scope() -> String {
 }
 
 impl Default for SkillPermissions {
-
     fn default() -> Self {
         SkillPermissions::advisory()
     }
 }
 
 impl SkillPermissions {
-
     pub fn sandboxed() -> Self {
         SkillPermissions {
-            allowed_tools: vec![
-                "read".to_string(),
-                "glob".to_string(),
-                "grep".to_string(),
-            ],
+            allowed_tools: vec!["read".to_string(), "glob".to_string(), "grep".to_string()],
             network: false,
             file_write: false,
             exec: false,
@@ -142,7 +134,6 @@ fn default_skills_list() -> Vec<String> {
 }
 
 impl PluginManifest {
-
     pub fn validate(&self) -> Vec<String> {
         let mut problems = vec![];
         if self.name.trim().is_empty() {
@@ -152,10 +143,7 @@ impl PluginManifest {
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
         {
-            problems.push(format!(
-                "name {:?} must be [a-zA-Z0-9_-]+",
-                self.name
-            ));
+            problems.push(format!("name {:?} must be [a-zA-Z0-9_-]+", self.name));
         }
         if self.version.trim().is_empty() {
             problems.push("version is empty".to_string());
@@ -177,9 +165,8 @@ impl PluginManifest {
                 .iter()
                 .any(|t| t.eq_ignore_ascii_case("bash"))
         {
-            problems.push(
-                "permissions.exec is true but \"bash\" is not in allowed_tools".to_string(),
-            );
+            problems
+                .push("permissions.exec is true but \"bash\" is not in allowed_tools".to_string());
         }
         if self.permissions.file_write
             && !self.permissions.allowed_tools.iter().any(|t| {
@@ -190,7 +177,8 @@ impl PluginManifest {
             })
         {
             problems.push(
-                "permissions.file_write is true but no write-capable tool in allowed_tools".to_string(),
+                "permissions.file_write is true but no write-capable tool in allowed_tools"
+                    .to_string(),
             );
         }
         problems
@@ -224,10 +212,10 @@ impl PluginManifest {
 
 pub fn load_manifest(dir: &Path) -> Result<PluginManifest> {
     let path = dir.join("zen-plugin.json");
-    let text = std::fs::read_to_string(&path)
-        .with_context(|| format!("reading {}", path.display()))?;
-    let manifest: PluginManifest = serde_json::from_str(&text)
-        .with_context(|| format!("parsing {}", path.display()))?;
+    let text =
+        std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
+    let manifest: PluginManifest =
+        serde_json::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
     let problems = manifest.validate();
     if !problems.is_empty() {
         return Err(anyhow!(
@@ -281,7 +269,6 @@ pub fn verify_signature(message: &[u8], signature_hex: &str) -> bool {
 
 pub fn assign_tier(source: &InstallSource, manifest: Option<&PluginManifest>) -> TrustTier {
     match source {
-
         InstallSource::Builtin => TrustTier::Verified,
         InstallSource::Git(_) | InstallSource::Local(_) => match manifest {
             Some(m) => match &m.signature {
@@ -428,7 +415,9 @@ pub fn install_skill(home: &Path, source: &InstallSource, yes: bool) -> Result<R
         ));
     }
     if matches!(source, InstallSource::Builtin) {
-        return Err(anyhow!("internal: use install_builtin(name) for builtin sources"));
+        return Err(anyhow!(
+            "internal: use install_builtin(name) for builtin sources"
+        ));
     }
     let staging = std::env::temp_dir().join(format!("zen-skill-install-{}", std::process::id()));
     if staging.exists() {
@@ -441,8 +430,9 @@ pub fn install_skill(home: &Path, source: &InstallSource, yes: bool) -> Result<R
 
     match source {
         InstallSource::Builtin => {
-
-            return Err(anyhow!("internal: use install_builtin(name) for builtin sources"));
+            return Err(anyhow!(
+                "internal: use install_builtin(name) for builtin sources"
+            ));
         }
         InstallSource::Git(url) => {
             let (n, c) = clone_skill_repo(url, &staging)?;
@@ -478,10 +468,7 @@ pub fn install_skill(home: &Path, source: &InstallSource, yes: bool) -> Result<R
 
     let tier = assign_tier(source, manifest.as_ref());
     let mut registry = load_registry(home);
-    let old_manifest = registry
-        .skills
-        .get(&name)
-        .and_then(|_| manifest.clone());
+    let old_manifest = registry.skills.get(&name).and_then(|_| manifest.clone());
 
     if manifest.is_none() {
         eprintln!(
@@ -621,9 +608,15 @@ pub fn remove_skill(home: &Path, name: &str) -> Result<()> {
 }
 
 fn clone_skill_repo(url: &str, dest: &Path) -> Result<(String, Option<String>)> {
-
     let out = std::process::Command::new("git")
-        .args(["clone", "--depth", "1", "--quiet", url, &dest.to_string_lossy()])
+        .args([
+            "clone",
+            "--depth",
+            "1",
+            "--quiet",
+            url,
+            &dest.to_string_lossy(),
+        ])
         .output()
         .context("running git clone")?;
     if !out.status.success() {
@@ -701,7 +694,6 @@ fn copy_dir_all(src: &Path, dst: &Path) -> Result<()> {
         let ty = entry.file_type()?;
         let dst_path = dst.join(entry.file_name());
         if ty.is_dir() {
-
             if entry.file_name() == ".git" {
                 continue;
             }
@@ -809,7 +801,11 @@ fn parse_check_line(line: &str) -> Option<ParsedCheck> {
     let line = line.trim().strip_prefix("- CHECK")?.trim();
 
     let (target, op, value) = if let Some(i) = line.find("not contains") {
-        (&line[..i], CheckOp::NotContains, &line[i + "not contains".len()..])
+        (
+            &line[..i],
+            CheckOp::NotContains,
+            &line[i + "not contains".len()..],
+        )
     } else if let Some(i) = line.find("contains") {
         (&line[..i], CheckOp::Contains, &line[i + "contains".len()..])
     } else if let Some(i) = line.find("==") {
@@ -842,7 +838,6 @@ fn resolve_target(
     manifest: Option<&PluginManifest>,
     instructions: &str,
 ) -> Option<(String, bool)> {
-
     if let Some(rest) = target.strip_prefix("frontmatter.") {
         return frontmatter.get(rest).map(|v| (v.clone(), false));
     }
@@ -966,7 +961,12 @@ pub fn run_skill_tests(skill_dir: &Path) -> Result<Vec<CheckResult>> {
     let mut results = vec![];
     for line in test_md.lines() {
         if let Some(pc) = parse_check_line(line) {
-            results.push(eval_check(&pc, &frontmatter, manifest.as_ref(), &instructions));
+            results.push(eval_check(
+                &pc,
+                &frontmatter,
+                manifest.as_ref(),
+                &instructions,
+            ));
         }
     }
     if results.is_empty() {
@@ -1021,7 +1021,11 @@ pub fn create_skill(home: &Path, name: &str) -> Result<PathBuf> {
     }
     let dir = skills_root(home).join(name);
     if dir.exists() {
-        return Err(anyhow!("skill {:?} already exists at {}", name, dir.display()));
+        return Err(anyhow!(
+            "skill {:?} already exists at {}",
+            name,
+            dir.display()
+        ));
     }
     std::fs::create_dir_all(&dir)?;
     let title = {
@@ -1037,8 +1041,14 @@ pub fn create_skill(home: &Path, name: &str) -> Result<PathBuf> {
             .replace("{name}", name)
             .replace("{Name}", &title),
     )?;
-    std::fs::write(dir.join("zen-plugin.json"), SCAFFOLD_MANIFEST.replace("{name}", name))?;
-    std::fs::write(dir.join("test.md"), SCAFFOLD_TEST_MD.replace("{name}", name))?;
+    std::fs::write(
+        dir.join("zen-plugin.json"),
+        SCAFFOLD_MANIFEST.replace("{name}", name),
+    )?;
+    std::fs::write(
+        dir.join("test.md"),
+        SCAFFOLD_TEST_MD.replace("{name}", name),
+    )?;
 
     let mut registry = load_registry(home);
     registry.skills.insert(
@@ -1067,7 +1077,6 @@ pub struct LoadedSkill {
 }
 
 impl LoadedSkill {
-
     pub fn effective_permissions(&self) -> SkillPermissions {
         match self.tier {
             TrustTier::Unverified => SkillPermissions::sandboxed(),
@@ -1112,7 +1121,9 @@ pub fn skills_system_prompt(skills: &[LoadedSkill]) -> String {
     for s in skills {
         out.push_str(&format!(
             "- {} {}: {}\n",
-            s.name, s.tier.badge(), s.description
+            s.name,
+            s.tier.badge(),
+            s.description
         ));
     }
     out.trim_end().to_string()
@@ -1148,7 +1159,6 @@ fn canonical_tool_name(t: &str) -> String {
         "todowrite" | "todo_write" => "TodoWrite".to_string(),
         "skill" => "Skill".to_string(),
         other => {
-
             let mut c = other.chars();
             match c.next() {
                 Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
@@ -1208,7 +1218,10 @@ pub async fn skill_command(
         crate::cli::SkillSubcommand::Create { name } => {
             let dir = create_skill(&home, name)?;
             println!("created skill {:?} at {}", name, dir.display());
-            println!("next: edit SKILL.md, zen-plugin.json, test.md - then `zen skill test {}`", name);
+            println!(
+                "next: edit SKILL.md, zen-plugin.json, test.md - then `zen skill test {}`",
+                name
+            );
             Ok(0)
         }
     }
@@ -1239,13 +1252,10 @@ fn cmd_install(
     yes: bool,
     registry_override: Option<&str>,
 ) -> Result<()> {
-
     if let Some(name) = source.strip_prefix("registry:") {
         let reg = crate::skill_registry::load_community_registry(registry_override)?;
         let entry = crate::skill_registry::find_in_registry(&reg, name).ok_or_else(|| {
-            anyhow!(
-                "no skill {name:?} in the community registry (try `zen skill search {name}`)"
-            )
+            anyhow!("no skill {name:?} in the community registry (try `zen skill search {name}`)")
         })?;
         let resolved = match &entry.source {
             crate::skill_registry::RegistrySource::Builtin => format!("builtin:{}", entry.name),
@@ -1274,12 +1284,12 @@ fn cmd_install(
     }
     std::fs::create_dir_all(&staging)?;
     let preview_manifest: Option<PluginManifest> = match &src {
-        InstallSource::Git(url) => {
-            clone_skill_repo(url, &staging).ok().and_then(|_| load_manifest(&staging).ok())
-        }
-        InstallSource::Local(p) => {
-            copy_dir_all(p, &staging).ok().and_then(|_| load_manifest(&staging).ok())
-        }
+        InstallSource::Git(url) => clone_skill_repo(url, &staging)
+            .ok()
+            .and_then(|_| load_manifest(&staging).ok()),
+        InstallSource::Local(p) => copy_dir_all(p, &staging)
+            .ok()
+            .and_then(|_| load_manifest(&staging).ok()),
         InstallSource::Builtin => None,
     };
     std::fs::remove_dir_all(&staging).ok();
@@ -1288,7 +1298,11 @@ fn cmd_install(
         Some(m) => {
             println!("{}", permission_diff(None, m));
             let tier = assign_tier(&src, Some(m));
-            println!("trust tier after install: {} {}", tier.badge(), tier.as_str());
+            println!(
+                "trust tier after install: {} {}",
+                tier.badge(),
+                tier.as_str()
+            );
             if tier == TrustTier::Verified {
                 println!("signature: valid (signed by ZenCode)");
             }
@@ -1319,7 +1333,12 @@ fn cmd_test(home: &Path, name: &str) -> Result<i32> {
     }
     let results = run_skill_tests(&dir)?;
     let passed = results.iter().filter(|r| r.passed).count();
-    println!("skill {:?}: {}/{} checks passed", name, passed, results.len());
+    println!(
+        "skill {:?}: {}/{} checks passed",
+        name,
+        passed,
+        results.len()
+    );
     for r in &results {
         let mark = if r.passed { "PASS" } else { "FAIL" };
         println!("  [{}] {}", mark, r.check);
@@ -1364,10 +1383,7 @@ pub struct SkillPolicyChecker {
 }
 
 impl SkillPolicyChecker {
-    pub fn new(
-        inner: Arc<dyn zen_core::PermissionChecker>,
-        skill: &LoadedSkill,
-    ) -> Self {
+    pub fn new(inner: Arc<dyn zen_core::PermissionChecker>, skill: &LoadedSkill) -> Self {
         Self {
             inner,
             allowed: allowed_tool_names(skill),
@@ -1375,10 +1391,7 @@ impl SkillPolicyChecker {
         }
     }
 
-    pub fn union(
-        inner: Arc<dyn zen_core::PermissionChecker>,
-        skills: &[LoadedSkill],
-    ) -> Self {
+    pub fn union(inner: Arc<dyn zen_core::PermissionChecker>, skills: &[LoadedSkill]) -> Self {
         let mut names = vec![];
         for s in skills {
             match allowed_tool_names(s) {
@@ -1571,7 +1584,8 @@ mod tests {
     use zen_core::PermissionChecker;
 
     fn tmp_home(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("zen-skill-test-{}-{}", name, std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("zen-skill-test-{}-{}", name, std::process::id()));
         if dir.exists() {
             std::fs::remove_dir_all(&dir).ok();
         }
@@ -1599,7 +1613,6 @@ mod tests {
 
     #[test]
     fn sha256_test_vectors() {
-
         assert_eq!(
             sha256_hex(b""),
             "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
@@ -1647,7 +1660,6 @@ mod tests {
 
     #[test]
     fn signature_roundtrip_with_test_key() {
-
         assert!(!verify_signature(b"hello", "zz"));
         assert!(!verify_signature(b"hello", "00".repeat(64).as_str()));
         assert!(!verify_signature(b"hello", "ff".repeat(63).as_str()));
@@ -1655,12 +1667,14 @@ mod tests {
 
     #[test]
     fn signature_verifies_real_sig() {
-
         let m = sample_manifest();
         let msg = m.canonical_bytes();
 
         let sig = test_signature_for(&msg);
-        assert!(verify_signature(&msg, &sig), "baked-in pubkey must verify dev signatures");
+        assert!(
+            verify_signature(&msg, &sig),
+            "baked-in pubkey must verify dev signatures"
+        );
 
         let mut tampered = msg.clone();
         tampered.push(b'!');
@@ -1668,7 +1682,6 @@ mod tests {
     }
 
     fn test_signature_for(msg: &[u8]) -> String {
-
         let expected = sample_manifest().canonical_bytes();
         if msg == expected.as_slice() {
             "d5f6ccbbfc66ecbc9b3f1e77c30112427e91dd3675239466a8108a1795b17bccefd7d36efec68a6aa9c481057b178d9ac61cabcefacd4ef36821760fc1585e0c".to_string()
@@ -1739,12 +1752,20 @@ mod tests {
         assert!(parse_check_line("just a line").is_none());
     }
 
-    fn write_skill_dir(root: &Path, manifest: Option<&PluginManifest>, skill_md: &str, test_md: &str) {
+    fn write_skill_dir(
+        root: &Path,
+        manifest: Option<&PluginManifest>,
+        skill_md: &str,
+        test_md: &str,
+    ) {
         std::fs::create_dir_all(root).unwrap();
         std::fs::write(root.join("SKILL.md"), skill_md).unwrap();
         if let Some(m) = manifest {
-            std::fs::write(root.join("zen-plugin.json"), serde_json::to_string_pretty(m).unwrap())
-                .unwrap();
+            std::fs::write(
+                root.join("zen-plugin.json"),
+                serde_json::to_string_pretty(m).unwrap(),
+            )
+            .unwrap();
         }
         std::fs::write(root.join("test.md"), test_md).unwrap();
     }
@@ -1887,7 +1908,11 @@ mod tests {
             body: "b".to_string(),
             tier: TrustTier::Community,
             permissions: SkillPermissions {
-                allowed_tools: vec!["read".to_string(), "bash".to_string(), "webfetch".to_string()],
+                allowed_tools: vec![
+                    "read".to_string(),
+                    "bash".to_string(),
+                    "webfetch".to_string(),
+                ],
                 network: true,
                 file_write: false,
                 exec: true,
@@ -2019,8 +2044,7 @@ mod tests {
         let mut s2 = policy_skill();
         s2.name = "other".to_string();
         s2.permissions.allowed_tools = vec!["grep".to_string()];
-        let checker =
-            SkillPolicyChecker::union(std::sync::Arc::new(AllowAll), &[s1, s2]);
+        let checker = SkillPolicyChecker::union(std::sync::Arc::new(AllowAll), &[s1, s2]);
         let ctx = dummy_ctx();
         let v = serde_json::Value::Null;
         assert!(matches!(
@@ -2237,7 +2261,6 @@ mod tests {
 
     #[test]
     fn builtin_install_verifies_signature() {
-
         let home = tmp_home("builtin-sig");
         for name in builtin_skill_names() {
             let entry = install_builtin(&home, name).unwrap();

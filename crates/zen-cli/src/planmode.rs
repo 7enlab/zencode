@@ -56,7 +56,10 @@ mod tests {
     #[test]
     fn strip_markers_only_trailing() {
         assert_eq!(strip_plan_exit_markers("1. do X\nExitPlanMode"), "1. do X");
-        assert_eq!(strip_plan_exit_markers("1. do X\n`ExitPlanMode`"), "1. do X");
+        assert_eq!(
+            strip_plan_exit_markers("1. do X\n`ExitPlanMode`"),
+            "1. do X"
+        );
         assert_eq!(strip_plan_exit_markers("plan\n/exitplan\n"), "plan");
         assert_eq!(
             strip_plan_exit_markers("1. do X\nExitPlanMode\n/exitplan"),

@@ -6,7 +6,6 @@ use zen_core::*;
 use crate::agent::{Agent, AgentConfig};
 
 pub struct SubAgentExecutor {
-
     pub llm: Arc<dyn LlmBackend>,
 
     pub tools: ToolRegistry,
@@ -27,7 +26,6 @@ pub struct SubAgentExecutor {
 }
 
 impl SubAgentExecutor {
-
     pub fn new(
         llm: Arc<dyn LlmBackend>,
         tools: ToolRegistry,
@@ -37,7 +35,17 @@ impl SubAgentExecutor {
         ctx: ToolContext,
         base_config: AgentConfig,
     ) -> Self {
-        Self { llm, tools, permissions, hooks, sink, ctx, base_config, max_depth: 1, skills: Vec::new() }
+        Self {
+            llm,
+            tools,
+            permissions,
+            hooks,
+            sink,
+            ctx,
+            base_config,
+            max_depth: 1,
+            skills: Vec::new(),
+        }
     }
 
     pub fn set_max_depth(&mut self, depth: usize) {
@@ -49,7 +57,8 @@ impl SubAgentExecutor {
             Some(s) => (s.path.clone(), s.body.clone()),
             None => {
                 let cwd = self.ctx.cwd.lock().map(|c| c.clone()).ok()?;
-                let mut candidates = vec![cwd.join(".zen").join("skills").join(name).join("SKILL.md")];
+                let mut candidates =
+                    vec![cwd.join(".zen").join("skills").join(name).join("SKILL.md")];
                 if let Some(h) = dirs::home_dir() {
                     candidates.push(h.join(".zen").join("skills").join(name).join("SKILL.md"));
                 }
@@ -58,13 +67,18 @@ impl SubAgentExecutor {
                 (path, strip_frontmatter(&raw).to_string())
             }
         };
-        let dir = path.parent().map(|d| d.display().to_string()).unwrap_or_default();
+        let dir = path
+            .parent()
+            .map(|d| d.display().to_string())
+            .unwrap_or_default();
         Some(body.replace("${ZEN_SKILL_DIR}", &dir).trim().to_string())
     }
 }
 
 fn strip_frontmatter(raw: &str) -> &str {
-    let Some(rest) = raw.strip_prefix("---") else { return raw };
+    let Some(rest) = raw.strip_prefix("---") else {
+        return raw;
+    };
     let mut offset = 0;
     for line in rest.split_inclusive('\n').skip(1) {
         offset += line.len();
@@ -108,11 +122,8 @@ impl SubAgentRunner for SubAgentExecutor {
         }
 
         if depth >= self.max_depth {
-            let remaining: Vec<String> = tools
-                .names()
-                .into_iter()
-                .filter(|n| n != "Task")
-                .collect();
+            let remaining: Vec<String> =
+                tools.names().into_iter().filter(|n| n != "Task").collect();
             tools = tools.filtered(&remaining);
         }
 
@@ -135,7 +146,10 @@ impl SubAgentRunner for SubAgentExecutor {
                 }
                 None => self.sink.emit(AgentEvent::SystemMessage {
                     event: "SubagentStart".into(),
-                    text: format!("sub-agent '{}': skill '{}' not found, not preloaded", def.name, name),
+                    text: format!(
+                        "sub-agent '{}': skill '{}' not found, not preloaded",
+                        def.name, name
+                    ),
                 }),
             }
         }
@@ -197,7 +211,10 @@ impl SubAgentRunner for SubAgentExecutor {
             )
             .await;
         if let Some(text) = start.system_message {
-            self.sink.emit(AgentEvent::SystemMessage { event: "SubagentStart".into(), text });
+            self.sink.emit(AgentEvent::SystemMessage {
+                event: "SubagentStart".into(),
+                text,
+            });
         }
 
         let mut result = agent.run_turn(prompt).await;

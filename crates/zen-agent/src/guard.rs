@@ -23,7 +23,6 @@ pub struct TurnGuard {
 }
 
 impl TurnGuard {
-
     pub fn set_scope(&mut self, scope: Vec<String>) {
         self.scope = scope;
     }
@@ -35,7 +34,9 @@ impl TurnGuard {
     fn normalize(&self, file: &str) -> String {
         let p = Path::new(file);
         let rel = if p.is_absolute() && !self.cwd.as_os_str().is_empty() {
-            p.strip_prefix(&self.cwd).map(Path::to_path_buf).unwrap_or_else(|_| p.to_path_buf())
+            p.strip_prefix(&self.cwd)
+                .map(Path::to_path_buf)
+                .unwrap_or_else(|_| p.to_path_buf())
         } else {
             p.to_path_buf()
         };
@@ -129,9 +130,14 @@ mod tests {
         let notes: Vec<Option<String>> = (0..6).map(|_| g.observe("Edit", &a, &ok())).collect();
         assert!(notes[..3].iter().all(Option::is_none));
         assert!(notes[3].as_deref().unwrap().contains("a.rs 4 times"));
-        assert!(notes[4..].iter().all(Option::is_none), "only one nudge per file");
+        assert!(
+            notes[4..].iter().all(Option::is_none),
+            "only one nudge per file"
+        );
 
-        assert!(g.observe("MultiEdit", &json!({"file_path": "b.rs"}), &ok()).is_none());
+        assert!(g
+            .observe("MultiEdit", &json!({"file_path": "b.rs"}), &ok())
+            .is_none());
         for _ in 0..5 {
             assert!(g.observe("Read", &a, &ok()).is_none());
         }
@@ -143,9 +149,14 @@ mod tests {
         let cmd = json!({"command": "cargo test"});
         let fail = ToolOutput::err("exit 101");
         assert!(g.observe("Bash", &cmd, &fail).is_none());
-        assert!(g.observe("Bash", &cmd, &ToolOutput::err("exit 1")).is_none());
+        assert!(g
+            .observe("Bash", &cmd, &ToolOutput::err("exit 1"))
+            .is_none());
         assert!(g.observe("Bash", &cmd, &fail).is_none());
-        assert!(g.observe("Bash", &cmd, &fail).unwrap().contains("failed 3 times"));
+        assert!(g
+            .observe("Bash", &cmd, &fail)
+            .unwrap()
+            .contains("failed 3 times"));
         assert!(g.observe("Bash", &cmd, &fail).is_none());
     }
 
@@ -156,22 +167,43 @@ mod tests {
         g.set_scope(vec!["src/**".into(), "README.md".into()]);
         let in_scope = json!({"file_path": "src/main.rs"});
         let out_scope = json!({"file_path": "other/x.rs"});
-        assert!(g.observe("Edit", &in_scope, &ok()).is_none(), "in-scope edit is quiet");
-        let n = g.observe("Write", &out_scope, &ok()).expect("out-of-scope write nudges");
-        assert!(n.contains("outside your declared task scope") && n.contains("other/x.rs"), "{n}");
-        assert!(g.observe("Edit", &out_scope, &ok()).is_none(), "one nudge per file per turn");
+        assert!(
+            g.observe("Edit", &in_scope, &ok()).is_none(),
+            "in-scope edit is quiet"
+        );
+        let n = g
+            .observe("Write", &out_scope, &ok())
+            .expect("out-of-scope write nudges");
+        assert!(
+            n.contains("outside your declared task scope") && n.contains("other/x.rs"),
+            "{n}"
+        );
+        assert!(
+            g.observe("Edit", &out_scope, &ok()).is_none(),
+            "one nudge per file per turn"
+        );
 
         let abs_out = json!({"file_path": "/repo/other/y.rs"});
-        assert!(g.observe("Edit", &abs_out, &ok()).unwrap().contains("other/y.rs"));
+        assert!(g
+            .observe("Edit", &abs_out, &ok())
+            .unwrap()
+            .contains("other/y.rs"));
         let abs_in = json!({"file_path": "/repo/src/z.rs"});
-        assert!(g.observe("Edit", &abs_in, &ok()).is_none(), "absolute in-scope path is quiet");
+        assert!(
+            g.observe("Edit", &abs_in, &ok()).is_none(),
+            "absolute in-scope path is quiet"
+        );
     }
 
     #[test]
     fn no_scope_means_no_scope_nudge() {
         let mut g = TurnGuard::default();
-        assert!(g.observe("Edit", &json!({"file_path": "anywhere.rs"}), &ok()).is_none());
-        assert!(g.observe("Write", &json!({"file_path": "elsewhere.rs"}), &ok()).is_none());
+        assert!(g
+            .observe("Edit", &json!({"file_path": "anywhere.rs"}), &ok())
+            .is_none());
+        assert!(g
+            .observe("Write", &json!({"file_path": "elsewhere.rs"}), &ok())
+            .is_none());
     }
 
     #[test]
@@ -180,7 +212,10 @@ mod tests {
         g.set_cwd(PathBuf::from("/repo"));
         g.set_scope(vec!["src/**".into()]);
         let f = json!({"file_path": "other/x.rs"});
-        assert!(g.observe("Edit", &f, &ToolOutput::err("denied")).is_none(), "failed calls do not nudge");
+        assert!(
+            g.observe("Edit", &f, &ToolOutput::err("denied")).is_none(),
+            "failed calls do not nudge"
+        );
         assert!(g.observe("Read", &f, &ok()).is_none(), "reads never nudge");
     }
 
@@ -188,11 +223,27 @@ mod tests {
     fn todo_reminder_renders_status_and_skips_empty() {
         assert_eq!(todo_reminder(&[]), None);
         let items = vec![
-            TodoItem { content: "write test".into(), status: "completed".into(), active_form: None },
-            TodoItem { content: "fix bug".into(), status: "in_progress".into(), active_form: None },
-            TodoItem { content: "docs".into(), status: "pending".into(), active_form: None },
+            TodoItem {
+                content: "write test".into(),
+                status: "completed".into(),
+                active_form: None,
+            },
+            TodoItem {
+                content: "fix bug".into(),
+                status: "in_progress".into(),
+                active_form: None,
+            },
+            TodoItem {
+                content: "docs".into(),
+                status: "pending".into(),
+                active_form: None,
+            },
         ];
         let r = todo_reminder(&items).unwrap();
-        assert!(r.ends_with("[x] write test\n[~] fix bug\n[ ] docs"), "{}", r);
+        assert!(
+            r.ends_with("[x] write test\n[~] fix bug\n[ ] docs"),
+            "{}",
+            r
+        );
     }
 }

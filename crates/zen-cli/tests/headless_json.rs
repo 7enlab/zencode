@@ -41,7 +41,6 @@ async fn write_json(sock: &mut tokio::net::TcpStream, body: &str) {
 }
 
 fn zen_bin() -> std::path::PathBuf {
-
     if let Ok(dir) = std::env::var("CARGO_TARGET_DIR") {
         let p = std::path::PathBuf::from(dir).join("debug").join("zen");
         if p.exists() {
@@ -123,7 +122,12 @@ async fn headless_json_against_mock_server() {
     let line = stdout
         .lines()
         .find(|l| l.trim_start().starts_with('{'))
-        .unwrap_or_else(|| panic!("no JSON line in stdout: {:?} / stderr: {:?}", stdout, stderr));
+        .unwrap_or_else(|| {
+            panic!(
+                "no JSON line in stdout: {:?} / stderr: {:?}",
+                stdout, stderr
+            )
+        });
     let v: serde_json::Value = serde_json::from_str(line)
         .unwrap_or_else(|e| panic!("bad JSON {:?}: {} (stderr {})", line, e, stderr));
 
@@ -132,7 +136,10 @@ async fn headless_json_against_mock_server() {
     assert_eq!(v["is_error"], false);
     assert_eq!(v["result"], "hello from mock");
     assert_eq!(v["model"], "mock-model");
-    assert!(v["session_id"].as_str().map(|s| !s.is_empty()).unwrap_or(false));
+    assert!(v["session_id"]
+        .as_str()
+        .map(|s| !s.is_empty())
+        .unwrap_or(false));
     assert_eq!(v["total_cost_usd"], 0.0);
     assert!(v["permission_denials"].as_array().is_some());
     assert_eq!(v["usage"]["input_tokens"], 7);
@@ -194,7 +201,10 @@ async fn headless_stream_json_against_mock_server() {
     assert!(lines.len() >= 3, "expected >=3 lines, got {}", stdout);
     assert_eq!(lines[0]["type"], "system");
     assert_eq!(lines[0]["subtype"], "init");
-    assert_eq!(lines[0]["session_id"], "00000000-0000-4000-8000-000000000001");
+    assert_eq!(
+        lines[0]["session_id"],
+        "00000000-0000-4000-8000-000000000001"
+    );
     assert_eq!(lines[0]["model"], "mock-model");
     assert_eq!(lines[0]["permissionMode"], "default");
     assert!(lines[0]["tools"].as_array().is_some());
@@ -203,7 +213,11 @@ async fn headless_stream_json_against_mock_server() {
     let last = lines.last().unwrap();
     assert_eq!(last["type"], "result");
     assert_eq!(last["result"], "streamed answer");
-    assert!(lines.iter().any(|l| l["type"] == "assistant"), "no assistant line: {}", stdout);
+    assert!(
+        lines.iter().any(|l| l["type"] == "assistant"),
+        "no assistant line: {}",
+        stdout
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -410,12 +424,21 @@ async fn tool_call_round_trip_and_allowed_tools_filter() {
         .iter()
         .map(|t| t.as_str().unwrap().to_string())
         .collect();
-    assert_eq!(tools, vec!["Read".to_string()], "tools not filtered: {:?}", tools);
+    assert_eq!(
+        tools,
+        vec!["Read".to_string()],
+        "tools not filtered: {:?}",
+        tools
+    );
 
     let body = req2.split("\r\n\r\n").nth(1).unwrap_or("");
     let sent: serde_json::Value = serde_json::from_str(body).expect("body json");
     let joined = serde_json::to_string(&sent["messages"]).unwrap();
-    assert!(joined.contains("tool-content-42"), "tool result missing: {}", joined);
+    assert!(
+        joined.contains("tool-content-42"),
+        "tool result missing: {}",
+        joined
+    );
 
     let last = stdout.lines().rfind(|l| !l.trim().is_empty()).unwrap();
     let v: serde_json::Value = serde_json::from_str(last).unwrap();

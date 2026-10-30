@@ -19,7 +19,6 @@ pub const TRUNCATE_MARKER: &str = "[zen: truncated";
 
 #[derive(Debug, Clone)]
 pub struct PruneConfig {
-
     pub enabled: bool,
 
     pub prune_after: usize,
@@ -41,7 +40,6 @@ impl Default for PruneConfig {
 }
 
 impl PruneConfig {
-
     pub fn aggressive() -> Self {
         Self {
             enabled: true,
@@ -58,7 +56,6 @@ impl PruneConfig {
 
 #[derive(Debug, Clone, Default)]
 pub struct PruneStats {
-
     pub pruned: usize,
 
     pub pruned_tokens: u64,
@@ -69,7 +66,6 @@ pub struct PruneStats {
 }
 
 impl PruneStats {
-
     pub fn total_saved(&self) -> u64 {
         self.pruned_tokens + self.capped_tokens
     }
@@ -82,10 +78,18 @@ pub fn est_tokens(s: &str) -> u64 {
 pub fn extract_identifier(tool_name: &str, arguments: &str) -> Option<String> {
     let _ = tool_name;
     let args: Value = serde_json::from_str(arguments).unwrap_or(Value::Null);
-    ["path", "file", "file_path", "pattern", "command", "query", "url"]
-        .iter()
-        .find_map(|k| args.get(k).and_then(|v| v.as_str()))
-        .map(|s| s.to_string())
+    [
+        "path",
+        "file",
+        "file_path",
+        "pattern",
+        "command",
+        "query",
+        "url",
+    ]
+    .iter()
+    .find_map(|k| args.get(k).and_then(|v| v.as_str()))
+    .map(|s| s.to_string())
 }
 
 pub fn tool_call_label(tool_name: &str, arguments: &str) -> String {
@@ -160,7 +164,9 @@ fn tool_call_args(messages: &[ChatMessage]) -> HashMap<String, (String, String)>
 }
 
 pub(crate) fn turn_of(turn_starts: &[usize], index: usize) -> usize {
-    turn_starts.partition_point(|&s| s <= index).saturating_sub(1)
+    turn_starts
+        .partition_point(|&s| s <= index)
+        .saturating_sub(1)
 }
 
 fn should_prune(
@@ -191,7 +197,6 @@ fn should_prune(
             ))
         }
         None => {
-
             if tokens < cfg.min_prune_tokens * UNIDENTIFIED_MULTIPLIER {
                 return None;
             }
@@ -224,22 +229,15 @@ pub fn prune_messages(
         let content = m.content.as_deref().unwrap_or("");
         let tokens = est_tokens(content);
         let age = current_turn.saturating_sub(turn_of(turn_starts, i));
-        let (label, identifier) = match m
-            .tool_call_id
-            .as_deref()
-            .and_then(|id| args_by_id.get(id))
+        let (label, identifier) = match m.tool_call_id.as_deref().and_then(|id| args_by_id.get(id))
         {
-            Some((name, args)) => (
-                tool_call_label(name, args),
-                extract_identifier(name, args),
-            ),
+            Some((name, args)) => (tool_call_label(name, args), extract_identifier(name, args)),
             None => ("tool_result".to_string(), None),
         };
         candidates.push((i, label, identifier, tokens, age));
     }
 
     for (i, label, identifier, tokens, age) in candidates {
-
         let later_text: String = messages
             .iter()
             .skip(i + 1)
@@ -343,7 +341,6 @@ mod tests {
 
     #[test]
     fn should_prune_negative_protected_identifier() {
-
         let reason = should_prune(
             5000,
             6,
@@ -389,7 +386,10 @@ mod tests {
         assert!(capped.starts_with(TRUNCATE_MARKER));
         assert!(capped.contains("re-read with a narrower query"));
         assert!(saved > 0, "saved tokens must be positive");
-        assert!(est_tokens(&capped) <= 8_000 + 50, "capped content near the cap");
+        assert!(
+            est_tokens(&capped) <= 8_000 + 50,
+            "capped content near the cap"
+        );
     }
 
     #[test]
@@ -494,7 +494,6 @@ mod tests {
 
     #[test]
     fn turn_of_maps_indices_to_turns() {
-
         let ts = vec![0usize, 1, 3];
         assert_eq!(turn_of(&ts, 0), 0);
         assert_eq!(turn_of(&ts, 1), 1);

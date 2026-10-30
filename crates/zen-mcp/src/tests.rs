@@ -19,17 +19,32 @@ fn tmpdir(tag: &str) -> PathBuf {
 fn untrusted_folder_skips_project_mcp_files() {
     let cwd = tmpdir("trust_cwd");
     let home = tmpdir("trust_home");
-    std::fs::write(cwd.join(".mcp.json"), r#"{"mcpServers":{"proj":{"command":"echo"}}}"#).unwrap();
+    std::fs::write(
+        cwd.join(".mcp.json"),
+        r#"{"mcpServers":{"proj":{"command":"echo"}}}"#,
+    )
+    .unwrap();
     std::fs::create_dir_all(cwd.join(".zen")).unwrap();
-    std::fs::write(cwd.join(".zen/mcp.json"), r#"{"mcpServers":{"local":{"command":"echo"}}}"#).unwrap();
+    std::fs::write(
+        cwd.join(".zen/mcp.json"),
+        r#"{"mcpServers":{"local":{"command":"echo"}}}"#,
+    )
+    .unwrap();
     std::fs::create_dir_all(home.join(".zen")).unwrap();
-    std::fs::write(home.join(".zen/mcp.json"), r#"{"mcpServers":{"user":{"command":"cat"}}}"#).unwrap();
+    std::fs::write(
+        home.join(".zen/mcp.json"),
+        r#"{"mcpServers":{"user":{"command":"cat"}}}"#,
+    )
+    .unwrap();
     let cli = vec![r#"{"mcpServers":{"cli":{"command":"cat"}}}"#.to_string()];
 
     let un = crate::load_mcp_configs_scoped(&cwd, Some(&home), &cli, false, false).unwrap();
     assert_eq!(un.keys().cloned().collect::<Vec<_>>(), vec!["cli", "user"]);
     let tr = crate::load_mcp_configs_scoped(&cwd, Some(&home), &cli, false, true).unwrap();
-    assert_eq!(tr.keys().cloned().collect::<Vec<_>>(), vec!["cli", "local", "proj", "user"]);
+    assert_eq!(
+        tr.keys().cloned().collect::<Vec<_>>(),
+        vec!["cli", "local", "proj", "user"]
+    );
 
     let _ = std::fs::remove_dir_all(&cwd);
     let _ = std::fs::remove_dir_all(&home);
@@ -84,10 +99,42 @@ fn c7_scope_paths_match_spec_and_are_loaded() {
     assert_eq!(user, home.join(".zen").join("mcp.json"));
     assert!(scope_path("global", &cwd, Some(&home)).is_err());
 
-    mcp_add(&user, "s", McpServerConfig { command: Some("u".into()), ..empty_cfg() }).unwrap();
-    mcp_add(&user, "only_user", McpServerConfig { command: Some("u".into()), ..empty_cfg() }).unwrap();
-    mcp_add(&project, "s", McpServerConfig { command: Some("p".into()), ..empty_cfg() }).unwrap();
-    mcp_add(&local, "s", McpServerConfig { command: Some("l".into()), ..empty_cfg() }).unwrap();
+    mcp_add(
+        &user,
+        "s",
+        McpServerConfig {
+            command: Some("u".into()),
+            ..empty_cfg()
+        },
+    )
+    .unwrap();
+    mcp_add(
+        &user,
+        "only_user",
+        McpServerConfig {
+            command: Some("u".into()),
+            ..empty_cfg()
+        },
+    )
+    .unwrap();
+    mcp_add(
+        &project,
+        "s",
+        McpServerConfig {
+            command: Some("p".into()),
+            ..empty_cfg()
+        },
+    )
+    .unwrap();
+    mcp_add(
+        &local,
+        "s",
+        McpServerConfig {
+            command: Some("l".into()),
+            ..empty_cfg()
+        },
+    )
+    .unwrap();
     let cfg = load_mcp_configs(&cwd, Some(&home), &[], false).unwrap();
     assert_eq!(cfg["s"].command.as_deref(), Some("l"));
     assert_eq!(cfg["only_user"].command.as_deref(), Some("u"));
@@ -117,19 +164,29 @@ async fn c7_3_invalid_entries_are_skipped_with_reason() {
     let mut configs = BTreeMap::new();
     configs.insert(
         "nourltype".to_string(),
-        McpServerConfig { url: Some("http://127.0.0.1:9".into()), ..empty_cfg() },
+        McpServerConfig {
+            url: Some("http://127.0.0.1:9".into()),
+            ..empty_cfg()
+        },
     );
     configs.insert(
         "weird".to_string(),
-        McpServerConfig { kind: Some("ws".into()), url: Some("ws://x".into()), ..empty_cfg() },
+        McpServerConfig {
+            kind: Some("ws".into()),
+            url: Some("ws://x".into()),
+            ..empty_cfg()
+        },
     );
     let mgr = tokio::time::timeout(TEST_TIMEOUT, McpManager::start(configs, 2_000))
         .await
         .unwrap();
 
     assert!(mgr.status().is_empty(), "{:?}", mgr.status());
-    let mut errs: Vec<(String, String)> =
-        mgr.errors().into_iter().map(|e| (e.server_name, e.reason)).collect();
+    let mut errs: Vec<(String, String)> = mgr
+        .errors()
+        .into_iter()
+        .map(|e| (e.server_name, e.reason))
+        .collect();
     errs.sort();
     assert_eq!(
         errs,
@@ -145,7 +202,11 @@ fn load_configs_from_cli_file() {
     let cwd = tmpdir("cfg_file");
     let home = tmpdir("cfg_file_home");
     let file = cwd.join("extra.json");
-    std::fs::write(&file, r#"{"mcpServers":{"fromfile":{"command":"node","args":["s.js"]}}}"#).unwrap();
+    std::fs::write(
+        &file,
+        r#"{"mcpServers":{"fromfile":{"command":"node","args":["s.js"]}}}"#,
+    )
+    .unwrap();
 
     let cli = vec![file.to_string_lossy().to_string()];
     let cfg = load_mcp_configs(&cwd, Some(&home), &cli, true).unwrap();
@@ -173,7 +234,10 @@ fn load_configs_bare_map_and_bad_json() {
 
 #[test]
 fn tool_name_sanitization() {
-    assert_eq!(crate::manager::mcp_tool_name("my server", "do.thing"), "mcp__my_server__do_thing");
+    assert_eq!(
+        crate::manager::mcp_tool_name("my server", "do.thing"),
+        "mcp__my_server__do_thing"
+    );
     assert_eq!(crate::manager::mcp_tool_name("a/b", "c:d"), "mcp__a_b__c_d");
     assert_eq!(crate::manager::sanitize_component("ok-name_1"), "ok-name_1");
 }
@@ -281,7 +345,10 @@ async fn mcp_stdio_handshake_list_and_call() {
     let tools = mgr.tools();
     let mut names: Vec<String> = tools.iter().map(|t| t.name().to_string()).collect();
     names.sort();
-    assert_eq!(names, vec!["mcp__srv__boom".to_string(), "mcp__srv__echo".to_string()]);
+    assert_eq!(
+        names,
+        vec!["mcp__srv__boom".to_string(), "mcp__srv__echo".to_string()]
+    );
 
     let echo = tools.iter().find(|t| t.name() == "mcp__srv__echo").unwrap();
     assert_eq!(echo.description(), "echoes input");
@@ -290,12 +357,9 @@ async fn mcp_stdio_handshake_list_and_call() {
     assert_eq!(schema["properties"]["text"]["type"], "string");
 
     let ctx = ToolContext::new(dir.clone(), "sess");
-    let out = tokio::time::timeout(
-        TEST_TIMEOUT,
-        echo.call(json!({"text": "hi"}), &ctx),
-    )
-    .await
-    .unwrap();
+    let out = tokio::time::timeout(TEST_TIMEOUT, echo.call(json!({"text": "hi"}), &ctx))
+        .await
+        .unwrap();
     assert!(!out.is_error, "got {:?}", out);
     assert_eq!(out.content, "echo: hi\nsecond part");
 
@@ -306,7 +370,9 @@ async fn mcp_stdio_handshake_list_and_call() {
     assert!(out.is_error);
     assert_eq!(out.content, "boom happened");
 
-    tokio::time::timeout(TEST_TIMEOUT, mgr.shutdown()).await.unwrap();
+    tokio::time::timeout(TEST_TIMEOUT, mgr.shutdown())
+        .await
+        .unwrap();
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -328,8 +394,13 @@ async fn mcp_stdio_pagination() {
     assert_eq!(mgr.status()[0].1, "connected");
     let mut names: Vec<String> = mgr.tools().iter().map(|t| t.name().to_string()).collect();
     names.sort();
-    assert_eq!(names, vec!["mcp__p__alpha".to_string(), "mcp__p__beta".to_string()]);
-    tokio::time::timeout(TEST_TIMEOUT, mgr.shutdown()).await.unwrap();
+    assert_eq!(
+        names,
+        vec!["mcp__p__alpha".to_string(), "mcp__p__beta".to_string()]
+    );
+    tokio::time::timeout(TEST_TIMEOUT, mgr.shutdown())
+        .await
+        .unwrap();
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -351,7 +422,10 @@ async fn mcp_server_that_fails_to_start() {
     let mgr = tokio::time::timeout(TEST_TIMEOUT, McpManager::start(configs, 3_000))
         .await
         .unwrap();
-    assert_eq!(mgr.status(), vec![("bad".to_string(), "failed".to_string())]);
+    assert_eq!(
+        mgr.status(),
+        vec![("bad".to_string(), "failed".to_string())]
+    );
     assert!(mgr.tools().is_empty());
 
     let py = match python_exe() {
@@ -366,7 +440,10 @@ async fn mcp_server_that_fails_to_start() {
     let mgr = tokio::time::timeout(TEST_TIMEOUT, McpManager::start(configs, 2_000))
         .await
         .unwrap();
-    assert_eq!(mgr.status(), vec![("quit".to_string(), "failed".to_string())]);
+    assert_eq!(
+        mgr.status(),
+        vec![("quit".to_string(), "failed".to_string())]
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -414,7 +491,9 @@ async fn spawn_http_mock(sse: bool) -> (String, tokio::task::JoinHandle<()>) {
             let result = match method {
                 "initialize" => json!({"protocolVersion":"2025-06-18","capabilities":{}}),
                 "notifications/initialized" => Value::Null,
-                "tools/list" => json!({"tools":[{"name":"http_echo","description":"http echo","inputSchema":{"type":"object"}}]}),
+                "tools/list" => {
+                    json!({"tools":[{"name":"http_echo","description":"http echo","inputSchema":{"type":"object"}}]})
+                }
                 "tools/call" => json!({"content":[{"type":"text","text":"http-ok"}]}),
                 _ => Value::Null,
             };
@@ -467,7 +546,10 @@ async fn run_http_test(sse: bool) {
     let mgr = tokio::time::timeout(TEST_TIMEOUT, McpManager::start(configs, 10_000))
         .await
         .unwrap();
-    assert_eq!(mgr.status(), vec![("web".to_string(), "connected".to_string())]);
+    assert_eq!(
+        mgr.status(),
+        vec![("web".to_string(), "connected".to_string())]
+    );
     let tools = mgr.tools();
     assert_eq!(tools.len(), 1);
     assert_eq!(tools[0].name(), "mcp__web__http_echo");
@@ -480,7 +562,9 @@ async fn run_http_test(sse: bool) {
     assert!(!out.is_error, "got {:?}", out);
     assert_eq!(out.content, "http-ok");
 
-    tokio::time::timeout(TEST_TIMEOUT, mgr.shutdown()).await.unwrap();
+    tokio::time::timeout(TEST_TIMEOUT, mgr.shutdown())
+        .await
+        .unwrap();
     handle.abort();
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -527,7 +611,10 @@ fn load_agents_from_dirs_and_cli() {
     assert!(by_name.contains_key("general-purpose"));
     assert_eq!(by_name["proj"].description, "Project helper");
     assert_eq!(by_name["proj"].system_prompt, "Project body.");
-    assert_eq!(by_name["researcher"].system_prompt, "Project researcher body.");
+    assert_eq!(
+        by_name["researcher"].system_prompt,
+        "Project researcher body."
+    );
 
     assert!(agents.iter().any(|a| a.name == "proj"));
 
@@ -560,7 +647,13 @@ fn load_agents_cli_json_and_file() {
     assert!(agents.iter().any(|a| a.name == "fromfile"));
 
     let agents = load_agents(&cwd, Some(&home), None);
-    assert_eq!(agents.iter().filter(|a| a.name == "general-purpose").count(), 1);
+    assert_eq!(
+        agents
+            .iter()
+            .filter(|a| a.name == "general-purpose")
+            .count(),
+        1
+    );
     let gp = agents.iter().find(|a| a.name == "general-purpose").unwrap();
     assert!(gp.tools.is_none());
     assert!(!gp.system_prompt.is_empty());
@@ -668,7 +761,10 @@ async fn task_tool_unknown_type_and_errors() {
 
     let out = tokio::time::timeout(
         TEST_TIMEOUT,
-        tool.call(json!({"description": "d", "prompt": "p", "subagent_type": "nope"}), &ctx),
+        tool.call(
+            json!({"description": "d", "prompt": "p", "subagent_type": "nope"}),
+            &ctx,
+        ),
     )
     .await
     .unwrap();
@@ -682,7 +778,10 @@ async fn task_tool_unknown_type_and_errors() {
         .unwrap();
     assert!(out.is_error);
 
-    let failing = Arc::new(RecordingRunner { calls: Mutex::new(vec![]), fail: true });
+    let failing = Arc::new(RecordingRunner {
+        calls: Mutex::new(vec![]),
+        fail: true,
+    });
     let tool2 = TaskTool::new(test_agents(), failing);
     let out = tokio::time::timeout(
         TEST_TIMEOUT,
@@ -720,7 +819,10 @@ fn mcpcap_small_text_result_unchanged() {
     );
     assert!(!out.is_error);
     assert_eq!(out.content, "hello\nworld");
-    assert!(!c.session_dir.as_ref().unwrap().join("tool-output").exists(), "no spill file for small output");
+    assert!(
+        !c.session_dir.as_ref().unwrap().join("tool-output").exists(),
+        "no spill file for small output"
+    );
 }
 
 #[test]
@@ -730,14 +832,28 @@ fn mcpcap_huge_text_result_truncated_and_spilled_in_full() {
     assert!(text.chars().count() > crate::manager::MCP_MAX_CHARS);
     let out = crate::manager::render_result(json!({"content":[{"type":"text","text":text}]}), &c);
     assert!(!out.is_error);
-    assert!(out.content.chars().count() < crate::manager::MCP_MAX_CHARS + 400, "preview stays near the cap");
+    assert!(
+        out.content.chars().count() < crate::manager::MCP_MAX_CHARS + 400,
+        "preview stays near the cap"
+    );
     assert!(out.content.starts_with("row 1\nrow 2\n"), "head kept");
     assert!(out.content.ends_with("row 20000\n"), "tail kept");
-    assert!(!out.content.contains("row 10000\n"), "middle only in the file");
+    assert!(
+        !out.content.contains("row 10000\n"),
+        "middle only in the file"
+    );
     let path = mcpcap_spill_path(&out.content);
-    assert!(path.starts_with(c.session_dir.as_ref().unwrap().join("tool-output")), "{}", path.display());
+    assert!(
+        path.starts_with(c.session_dir.as_ref().unwrap().join("tool-output")),
+        "{}",
+        path.display()
+    );
     assert_eq!(path.file_name().unwrap(), "toolu_huge.txt");
-    assert_eq!(std::fs::read_to_string(&path).unwrap(), text, "spill file holds the full text");
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        text,
+        "spill file holds the full text"
+    );
 }
 
 #[test]
@@ -754,7 +870,13 @@ fn mcpcap_non_text_content_untouched_and_error_flag_kept() {
 
     let c2 = mcpcap_ctx("err");
     let big = "e".repeat(crate::manager::MCP_MAX_CHARS * 3);
-    let out = crate::manager::render_result(json!({"isError":true,"content":[{"type":"text","text":big}]}), &c2);
+    let out = crate::manager::render_result(
+        json!({"isError":true,"content":[{"type":"text","text":big}]}),
+        &c2,
+    );
     assert!(out.is_error);
-    assert_eq!(std::fs::read_to_string(mcpcap_spill_path(&out.content)).unwrap(), big);
+    assert_eq!(
+        std::fs::read_to_string(mcpcap_spill_path(&out.content)).unwrap(),
+        big
+    );
 }

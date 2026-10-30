@@ -2,14 +2,12 @@ use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ApiStandard {
-
     OpenAi,
 
     Anthropic,
 }
 
 impl ApiStandard {
-
     pub fn as_str(self) -> &'static str {
         match self {
             ApiStandard::OpenAi => "openai",
@@ -20,7 +18,6 @@ impl ApiStandard {
 
 #[derive(Debug, Clone)]
 pub struct ProviderInfo {
-
     pub key: &'static str,
 
     pub display_name: &'static str,
@@ -43,15 +40,13 @@ pub struct ProviderInfo {
 }
 
 impl ProviderInfo {
-
     pub fn endpoint(&self, anthropic_available: bool) -> Option<(ApiStandard, &'static str)> {
         if anthropic_available {
             if let Some(url) = self.anthropic_base_url {
                 return Some((ApiStandard::Anthropic, url));
             }
         }
-        self.openai_base_url
-            .map(|url| (ApiStandard::OpenAi, url))
+        self.openai_base_url.map(|url| (ApiStandard::OpenAi, url))
     }
 
     pub fn price_for(&self, model: &str) -> Option<(f64, f64)> {
@@ -61,10 +56,7 @@ impl ProviderInfo {
             .map(|(_, i, o)| (*i, *o))
     }
 
-    pub fn endpoint_resolved(
-        &self,
-        anthropic_available: bool,
-    ) -> Option<(ApiStandard, String)> {
+    pub fn endpoint_resolved(&self, anthropic_available: bool) -> Option<(ApiStandard, String)> {
         let (standard, url) = self.endpoint(anthropic_available)?;
         Some((standard, resolve_url_template(url)?))
     }
@@ -92,7 +84,8 @@ pub fn provider_registry() -> Vec<ProviderInfo> {
             model_ids: &[],
             pricing: &[],
             featured: &["qwen/qwen3-coder:free"],
-            rate_limit_notes: "Rate limits vary by model and tier; free models are heavily throttled.",
+            rate_limit_notes:
+                "Rate limits vary by model and tier; free models are heavily throttled.",
         },
         ProviderInfo {
             key: "groq",
@@ -116,7 +109,8 @@ pub fn provider_registry() -> Vec<ProviderInfo> {
             model_ids: &["claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5"],
             pricing: &[],
             featured: &[],
-            rate_limit_notes: "Tiered RPM/TPM; 429 = backoff, 529 = overloaded (retry with backoff).",
+            rate_limit_notes:
+                "Tiered RPM/TPM; 429 = backoff, 529 = overloaded (retry with backoff).",
         },
         ProviderInfo {
             key: "openai",
@@ -142,7 +136,6 @@ pub fn provider_registry() -> Vec<ProviderInfo> {
             featured: &["qwen3-coder", "qwen3-coder:30b"],
             rate_limit_notes: "Local - no rate limits, no pacing needed.",
         },
-
         ProviderInfo {
             key: "zai",
             display_name: "Z.ai (Zhipu)",
@@ -167,7 +160,8 @@ pub fn provider_registry() -> Vec<ProviderInfo> {
 
             pricing: &[("kimi-k2.7", 0.95, 4.00), ("kimi-k3", 3.00, 15.00)],
             featured: &["kimi-k2.7"],
-            rate_limit_notes: "Tiered limits; Kimi For Coding plan users route via the same endpoint.",
+            rate_limit_notes:
+                "Tiered limits; Kimi For Coding plan users route via the same endpoint.",
         },
         ProviderInfo {
             key: "deepseek",
@@ -183,7 +177,6 @@ pub fn provider_registry() -> Vec<ProviderInfo> {
             rate_limit_notes: "Aggressive rate limits on lower tiers; 429s are common - \
                 back off with jitter, never hammer (account-safety PR #47 applies).",
         },
-
         ProviderInfo {
             key: "cloudflare",
             display_name: "Cloudflare Workers AI",
@@ -194,16 +187,21 @@ pub fn provider_registry() -> Vec<ProviderInfo> {
             anthropic_base_url: None,
             api_key_env: Some("CLOUDFLARE_API_TOKEN"),
             docs_url: "https://developers.cloudflare.com/workers-ai/",
-            model_ids: &["@cf/meta/llama-3.1-8b-instruct", "@cf/cloudflare/clef-flash"],
+            model_ids: &[
+                "@cf/meta/llama-3.1-8b-instruct",
+                "@cf/cloudflare/clef-flash",
+            ],
 
             pricing: &[("@cf/cloudflare/clef-flash", 0.09, 0.0)],
 
-            featured: &["@cf/cloudflare/clef-flash", "@cf/meta/llama-3.1-8b-instruct"],
+            featured: &[
+                "@cf/cloudflare/clef-flash",
+                "@cf/meta/llama-3.1-8b-instruct",
+            ],
             rate_limit_notes: "Free tier: 10,000 Neurons/day (resets 00:00 UTC), \
                 then $0.011/1K Neurons. Best for small tasks (classification, \
                 routing, summarisation) - not a coding-model replacement.",
         },
-
         ProviderInfo {
             key: "together",
             display_name: "Together AI",
@@ -286,7 +284,6 @@ pub fn find_provider(key: &str) -> Option<ProviderInfo> {
 
 #[derive(Debug, Clone)]
 pub struct ModelSpec {
-
     pub provider: String,
 
     pub model: String,
@@ -299,7 +296,6 @@ pub struct ModelSpec {
 }
 
 impl ModelSpec {
-
     pub fn parse(spec: &str, default_base_url: &str, anthropic_available: bool) -> Self {
         let spec = spec.trim();
         match spec.split_once('/') {
@@ -315,7 +311,6 @@ impl ModelSpec {
                             api_key_env: info.api_key_env.map(str::to_string),
                         };
                     }
-
                 }
 
                 Self {
@@ -369,8 +364,19 @@ pub fn featured_models() -> Vec<(String, String)> {
 
 pub fn authable_providers() -> Vec<ProviderInfo> {
     let preferred_order = [
-        "deepseek", "zai", "moonshot", "cloudflare", "openrouter", "groq", "anthropic",
-        "openai", "google", "together", "mistral", "cerebras", "fireworks",
+        "deepseek",
+        "zai",
+        "moonshot",
+        "cloudflare",
+        "openrouter",
+        "groq",
+        "anthropic",
+        "openai",
+        "google",
+        "together",
+        "mistral",
+        "cerebras",
+        "fireworks",
     ];
     let reg: HashMap<&str, ProviderInfo> = provider_registry()
         .into_iter()
@@ -387,9 +393,13 @@ pub fn cheap_first_order() -> Vec<String> {
     let mut priced: Vec<(&str, f64)> = Vec::new();
     let mut unpriced: Vec<&str> = Vec::new();
     for info in provider_registry() {
-        let cheapest = info.pricing.iter().map(|(_, i, _)| *i).fold(None, |a: Option<f64>, b| {
-            Some(a.map_or(b, |x: f64| x.min(b)))
-        });
+        let cheapest = info
+            .pricing
+            .iter()
+            .map(|(_, i, _)| *i)
+            .fold(None, |a: Option<f64>, b| {
+                Some(a.map_or(b, |x: f64| x.min(b)))
+            });
         match cheapest {
             Some(p) => priced.push((info.key, p)),
             None => unpriced.push(info.key),
@@ -537,7 +547,6 @@ mod tests {
 
     #[test]
     fn pricing_math_for_chinese_models() {
-
         let p = model_pricing("deepseek", "deepseek-v4-flash").unwrap();
         assert_eq!(p, (0.14, 0.28));
         assert!((call_cost_usd(1_000_000, 1_000_000, p) - 0.42).abs() < 1e-9);
@@ -567,7 +576,10 @@ mod tests {
         assert!(f.contains(&("deepseek".to_string(), "deepseek-v4-flash".to_string())));
 
         assert!(f.contains(&("ollama".to_string(), "qwen3-coder".to_string())));
-        assert!(f.contains(&("openrouter".to_string(), "qwen/qwen3-coder:free".to_string())));
+        assert!(f.contains(&(
+            "openrouter".to_string(),
+            "qwen/qwen3-coder:free".to_string()
+        )));
     }
 
     #[test]
@@ -594,7 +606,10 @@ mod tests {
     fn api_key_prefers_provider_env_then_ambient() {
         let s = ModelSpec::parse("zai/glm-5.2", "http://default/v1", false);
 
-        assert_eq!(s.api_key(Some("ambient-key")), Some("ambient-key".to_string()));
+        assert_eq!(
+            s.api_key(Some("ambient-key")),
+            Some("ambient-key".to_string())
+        );
         assert_eq!(s.api_key(None), None);
     }
 
@@ -656,7 +671,6 @@ mod tests {
 
     #[test]
     fn cloudflare_without_account_id_falls_back_to_default() {
-
         with_account_id_env(None, || {
             let p = find_provider("cloudflare").unwrap();
             assert!(p.endpoint_resolved(false).is_none());
@@ -680,7 +694,6 @@ mod tests {
 
     #[test]
     fn cloudflare_clef_flash_pricing_is_verified() {
-
         let p = model_pricing("cloudflare", "@cf/cloudflare/clef-flash").unwrap();
         assert_eq!(p, (0.09, 0.0));
 

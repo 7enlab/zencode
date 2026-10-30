@@ -18,12 +18,17 @@ pub fn resolve_tool_name(name: &str, known: &[String]) -> Option<String> {
 
     let pieces = name_pieces(name);
     for p in &pieces {
-        if let Some(hit) = known.iter().find(|k| normalize_name(k) == normalize_name(p)) {
+        if let Some(hit) = known
+            .iter()
+            .find(|k| normalize_name(k) == normalize_name(p))
+        {
             return Some(hit.clone());
         }
     }
     for p in &pieces {
-        if let Some(hit) = alias_target(&normalize_name(p)).and_then(|t| known.iter().find(|k| k.as_str() == t)) {
+        if let Some(hit) =
+            alias_target(&normalize_name(p)).and_then(|t| known.iter().find(|k| k.as_str() == t))
+        {
             return Some(hit.clone());
         }
     }
@@ -43,20 +48,30 @@ fn name_pieces(name: &str) -> Vec<String> {
     }
     s.push_str(rest);
     s.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '.' || c == '-'))
-        .map(|p| p.trim_matches('.').trim_start_matches("functions.").trim_start_matches("tools."))
+        .map(|p| {
+            p.trim_matches('.')
+                .trim_start_matches("functions.")
+                .trim_start_matches("tools.")
+        })
         .filter(|p| !p.is_empty())
         .map(str::to_string)
         .collect()
 }
 
 pub fn strip_template_tokens(name: &str) -> String {
-    let s: String = name.chars().filter(|c| !matches!(c, '\u{200B}' | '\u{200C}' | '\u{200D}' | '\u{FEFF}')).collect();
+    let s: String = name
+        .chars()
+        .filter(|c| !matches!(c, '\u{200B}' | '\u{200C}' | '\u{200D}' | '\u{FEFF}'))
+        .collect();
     let s = match s.find("to=") {
         Some(i) => &s[i + 3..],
         None => s.as_str(),
     };
     let s = s.split("<|").next().unwrap_or("");
-    s.split(|c: char| c.is_whitespace() || c == '<').find(|p| !p.is_empty()).unwrap_or("").to_string()
+    s.split(|c: char| c.is_whitespace() || c == '<')
+        .find(|p| !p.is_empty())
+        .unwrap_or("")
+        .to_string()
 }
 
 pub fn has_template_tokens(name: &str) -> bool {
@@ -64,25 +79,75 @@ pub fn has_template_tokens(name: &str) -> bool {
 }
 
 fn normalize_name(s: &str) -> String {
-    s.chars().filter(|c| c.is_ascii_alphanumeric()).map(|c| c.to_ascii_lowercase()).collect()
+    s.chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .map(|c| c.to_ascii_lowercase())
+        .collect()
 }
 
 fn alias_target(key: &str) -> Option<&'static str> {
     const TABLE: &[(&str, &[&str])] = &[
-        ("Edit", &["strreplace", "strreplaceeditor", "replace", "editfile", "replaceinfile", "applyedit"]),
+        (
+            "Edit",
+            &[
+                "strreplace",
+                "strreplaceeditor",
+                "replace",
+                "editfile",
+                "replaceinfile",
+                "applyedit",
+            ],
+        ),
         ("MultiEdit", &["multireplace", "editmany", "batchedit"]),
         (
             "Bash",
-            &["shell", "sh", "run", "runcommand", "executecommand", "exec", "terminal", "runshellcommand", "command", "runterminalcmd"],
+            &[
+                "shell",
+                "sh",
+                "run",
+                "runcommand",
+                "executecommand",
+                "exec",
+                "terminal",
+                "runshellcommand",
+                "command",
+                "runterminalcmd",
+            ],
         ),
-        ("Read", &["readfile", "view", "viewfile", "cat", "openfile", "open"]),
-        ("Write", &["writefile", "createfile", "writetofile", "savefile"]),
-        ("Grep", &["search", "searchfiles", "grepsearch", "ripgrep", "rg", "findtext", "codesearch"]),
-        ("Glob", &["findfiles", "listfiles", "filesearch", "ls", "listdir"]),
-        ("TodoWrite", &["todo", "todos", "updatetodos", "writetodos", "todolist"]),
+        (
+            "Read",
+            &["readfile", "view", "viewfile", "cat", "openfile", "open"],
+        ),
+        (
+            "Write",
+            &["writefile", "createfile", "writetofile", "savefile"],
+        ),
+        (
+            "Grep",
+            &[
+                "search",
+                "searchfiles",
+                "grepsearch",
+                "ripgrep",
+                "rg",
+                "findtext",
+                "codesearch",
+            ],
+        ),
+        (
+            "Glob",
+            &["findfiles", "listfiles", "filesearch", "ls", "listdir"],
+        ),
+        (
+            "TodoWrite",
+            &["todo", "todos", "updatetodos", "writetodos", "todolist"],
+        ),
         ("WebFetch", &["fetch", "fetchurl", "httpget", "browse"]),
     ];
-    TABLE.iter().find(|(_, names)| names.contains(&key)).map(|(t, _)| *t)
+    TABLE
+        .iter()
+        .find(|(_, names)| names.contains(&key))
+        .map(|(t, _)| *t)
 }
 
 pub fn repair_args(raw: &str, schema: Option<&Value>) -> Result<(Value, Vec<String>), String> {
@@ -129,13 +194,18 @@ fn parse_object(
         }
     }
 
-    if let Some(v) = unfenced.find('{').and_then(|i| first_object(&unfenced[i..])) {
+    if let Some(v) = unfenced
+        .find('{')
+        .and_then(|i| first_object(&unfenced[i..]))
+    {
         notes.push("ignored trailing text after the JSON arguments".into());
         return into_object(v, notes, schema);
     }
     let body = extract_braced(unfenced).unwrap_or(unfenced);
     let fixed = normalize_json_text(body);
-    let parsed = serde_json::from_str::<Value>(&fixed).ok().or_else(|| first_object(&fixed));
+    let parsed = serde_json::from_str::<Value>(&fixed)
+        .ok()
+        .or_else(|| first_object(&fixed));
     match parsed {
         Some(v) => {
             notes.push("repaired malformed JSON".into());
@@ -312,8 +382,15 @@ fn schema_type(prop: &Value) -> Option<&str> {
     }
 }
 
-fn coerce_object(obj: &mut Map<String, Value>, schema: &Value, path: &str, notes: &mut Vec<String>) {
-    let Some(props) = schema.get("properties").and_then(|p| p.as_object()) else { return };
+fn coerce_object(
+    obj: &mut Map<String, Value>,
+    schema: &Value,
+    path: &str,
+    notes: &mut Vec<String>,
+) {
+    let Some(props) = schema.get("properties").and_then(|p| p.as_object()) else {
+        return;
+    };
     let closed = schema.get("additionalProperties") == Some(&Value::Bool(false));
 
     let keys: Vec<String> = obj.keys().cloned().collect();
@@ -333,7 +410,9 @@ fn coerce_object(obj: &mut Map<String, Value>, schema: &Value, path: &str, notes
 
     for (key, prop) in props {
         let Some(v) = obj.get_mut(key) else { continue };
-        let Some(ty) = schema_type(prop) else { continue };
+        let Some(ty) = schema_type(prop) else {
+            continue;
+        };
         if let Some(new) = coerce_value(v, ty) {
             notes.push(format!("converted '{}{}' to {}", path, key, ty));
             *v = new;
@@ -359,10 +438,17 @@ fn coerce_object(obj: &mut Map<String, Value>, schema: &Value, path: &str, notes
     }
 }
 
-fn near_miss_key(key: &str, props: &Map<String, Value>, obj: &Map<String, Value>) -> Option<String> {
+fn near_miss_key(
+    key: &str,
+    props: &Map<String, Value>,
+    obj: &Map<String, Value>,
+) -> Option<String> {
     let norm = normalize_name(key);
     let free = |name: &str| props.contains_key(name) && !obj.contains_key(name);
-    if let Some(hit) = props.keys().find(|p| normalize_name(p) == norm && !obj.contains_key(p.as_str())) {
+    if let Some(hit) = props
+        .keys()
+        .find(|p| normalize_name(p) == norm && !obj.contains_key(p.as_str()))
+    {
         return Some(hit.clone());
     }
     let target = match norm.as_str() {
@@ -380,7 +466,11 @@ fn coerce_value(v: &Value, ty: &str) -> Option<Value> {
             let f = n.as_f64()?;
             (f.fract() == 0.0).then(|| Value::from(f as i64))
         }
-        ("number", Value::String(s)) => s.trim().parse::<f64>().ok().and_then(|f| serde_json::Number::from_f64(f).map(Value::Number)),
+        ("number", Value::String(s)) => s
+            .trim()
+            .parse::<f64>()
+            .ok()
+            .and_then(|f| serde_json::Number::from_f64(f).map(Value::Number)),
         ("boolean", Value::String(s)) => match s.trim().to_ascii_lowercase().as_str() {
             "true" => Some(Value::Bool(true)),
             "false" => Some(Value::Bool(false)),
@@ -389,7 +479,9 @@ fn coerce_value(v: &Value, ty: &str) -> Option<Value> {
         ("string", Value::Number(n)) => Some(Value::String(n.to_string())),
         ("string", Value::Bool(b)) => Some(Value::String(b.to_string())),
 
-        ("string", Value::Object(_)) | ("string", Value::Array(_)) => serde_json::to_string_pretty(v).ok().map(Value::String),
+        ("string", Value::Object(_)) | ("string", Value::Array(_)) => {
+            serde_json::to_string_pretty(v).ok().map(Value::String)
+        }
         ("array", Value::String(s)) => match serde_json::from_str::<Value>(s.trim()) {
             Ok(a @ Value::Array(_)) => Some(a),
             _ => None,
@@ -405,21 +497,31 @@ fn coerce_value(v: &Value, ty: &str) -> Option<Value> {
 pub fn tool_call_in_text(text: &str, known: &[String]) -> Option<(String, String)> {
     let mut t = text.trim();
     if let Some(inner) = t.strip_prefix("<tool_call>") {
-        t = inner.trim().strip_suffix("</tool_call>").unwrap_or(inner).trim();
+        t = inner
+            .trim()
+            .strip_suffix("</tool_call>")
+            .unwrap_or(inner)
+            .trim();
     }
     let t = strip_fences(t);
     if !t.starts_with('{') || !t.ends_with('}') {
         return None;
     }
-    let v: Value = serde_json::from_str(t).or_else(|_| serde_json::from_str(&normalize_json_text(t))).ok()?;
+    let v: Value = serde_json::from_str(t)
+        .or_else(|_| serde_json::from_str(&normalize_json_text(t)))
+        .ok()?;
     let obj = v.as_object()?;
-    let raw_name = ["name", "tool", "function"].iter().find_map(|k| obj.get(*k)?.as_str())?;
+    let raw_name = ["name", "tool", "function"]
+        .iter()
+        .find_map(|k| obj.get(*k)?.as_str())?;
     let name = if known.iter().any(|k| k == raw_name) {
         raw_name.to_string()
     } else {
         resolve_tool_name(raw_name, known)?
     };
-    let args = ["arguments", "parameters", "input", "args"].iter().find_map(|k| obj.get(*k))?;
+    let args = ["arguments", "parameters", "input", "args"]
+        .iter()
+        .find_map(|k| obj.get(*k))?;
     let args = match args {
         Value::String(s) => s.clone(),
         Value::Object(_) => args.to_string(),
@@ -429,7 +531,9 @@ pub fn tool_call_in_text(text: &str, known: &[String]) -> Option<(String, String
 }
 
 pub fn schema_hint(schema: &Value) -> String {
-    let Some(props) = schema.get("properties").and_then(|p| p.as_object()) else { return String::new() };
+    let Some(props) = schema.get("properties").and_then(|p| p.as_object()) else {
+        return String::new();
+    };
     if props.is_empty() {
         return String::new();
     }
@@ -490,34 +594,67 @@ mod tests {
     #[test]
     fn malformed_arguments_repair_to_expected_objects() {
         let cases: Vec<(&str, Value)> = vec![
-            ("```json\n{\"file_path\": \"a.rs\"}\n```", json!({"file_path": "a.rs"})),
-            ("```json{\"file_path\":\"a.rs\"}```", json!({"file_path": "a.rs"})),
-            ("```\n{\"file_path\": \"a.rs\"}\n```", json!({"file_path": "a.rs"})),
-            ("json {\"file_path\": \"a.rs\"}", json!({"file_path": "a.rs"})),
+            (
+                "```json\n{\"file_path\": \"a.rs\"}\n```",
+                json!({"file_path": "a.rs"}),
+            ),
+            (
+                "```json{\"file_path\":\"a.rs\"}```",
+                json!({"file_path": "a.rs"}),
+            ),
+            (
+                "```\n{\"file_path\": \"a.rs\"}\n```",
+                json!({"file_path": "a.rs"}),
+            ),
+            (
+                "json {\"file_path\": \"a.rs\"}",
+                json!({"file_path": "a.rs"}),
+            ),
             ("{\"file_path\": \"a.rs\",}", json!({"file_path": "a.rs"})),
             ("{'file_path': 'a.rs'}", json!({"file_path": "a.rs"})),
-            ("{'file_path': 'say \"hi\".rs'}", json!({"file_path": "say \"hi\".rs"})),
-            ("\"{\\\"file_path\\\": \\\"a.rs\\\"}\"", json!({"file_path": "a.rs"})),
+            (
+                "{'file_path': 'say \"hi\".rs'}",
+                json!({"file_path": "say \"hi\".rs"}),
+            ),
+            (
+                "\"{\\\"file_path\\\": \\\"a.rs\\\"}\"",
+                json!({"file_path": "a.rs"}),
+            ),
             ("{\"file_path\": \"a.rs\"", json!({"file_path": "a.rs"})),
             ("{\"file_path\": \"a.rs", json!({"file_path": "a.rs"})),
-            ("Here you go: {\"file_path\": \"a.rs\"} hope that helps", json!({"file_path": "a.rs"})),
-            ("{\"file_path\": \"a\nb.rs\"}", json!({"file_path": "a\nb.rs"})),
-            ("{\"file_path\": \"a.rs\", \"limit\": \"20\", \"offset\": 3.0}", json!({"file_path": "a.rs", "limit": 20, "offset": 3})),
+            (
+                "Here you go: {\"file_path\": \"a.rs\"} hope that helps",
+                json!({"file_path": "a.rs"}),
+            ),
+            (
+                "{\"file_path\": \"a\nb.rs\"}",
+                json!({"file_path": "a\nb.rs"}),
+            ),
+            (
+                "{\"file_path\": \"a.rs\", \"limit\": \"20\", \"offset\": 3.0}",
+                json!({"file_path": "a.rs", "limit": 20, "offset": 3}),
+            ),
             ("{\"filePath\": \"a.rs\"}", json!({"file_path": "a.rs"})),
-            ("{\"path\": \"a.rs\", \"bogus\": 1}", json!({"file_path": "a.rs"})),
+            (
+                "{\"path\": \"a.rs\", \"bogus\": 1}",
+                json!({"file_path": "a.rs"}),
+            ),
             ("  ", json!({})),
         ];
         for (raw, want) in cases {
             let (got, notes) = repair_args(raw, Some(&read_schema()))
                 .unwrap_or_else(|e| panic!("{:?} should repair, got error {}", raw, e));
             assert_eq!(got, want, "input {:?}", raw);
-            assert!(!notes.is_empty(), "input {:?} was repaired but produced no note", raw);
+            assert!(
+                !notes.is_empty(),
+                "input {:?} was repaired but produced no note",
+                raw
+            );
         }
     }
 
     #[test]
     fn error_hints_are_consistent_across_repair_paths() {
-
         let schema = read_schema();
         for raw in ["not json at all {{{", "[1, 2, 3]", "\"just a string\""] {
             let err = repair_args(raw, Some(&schema)).unwrap_err();
@@ -535,7 +672,8 @@ mod tests {
 
     #[test]
     fn well_formed_call_is_untouched_and_silent() {
-        let (v, notes) = repair_args(r#"{"file_path":"a.rs","limit":5}"#, Some(&read_schema())).unwrap();
+        let (v, notes) =
+            repair_args(r#"{"file_path":"a.rs","limit":5}"#, Some(&read_schema())).unwrap();
         assert_eq!(v, json!({"file_path": "a.rs", "limit": 5}));
         assert!(notes.is_empty(), "{:?}", notes);
         let (v, notes) = repair_args("", None).unwrap();
@@ -545,12 +683,19 @@ mod tests {
 
     #[test]
     fn types_coerce_to_schema() {
-        let raw = r#"{"file_path": "a", "old_string": 1, "new_string": true, "replace_all": "TRUE"}"#;
+        let raw =
+            r#"{"file_path": "a", "old_string": 1, "new_string": true, "replace_all": "TRUE"}"#;
         let (v, _) = repair_args(raw, Some(&edit_schema())).unwrap();
-        assert_eq!(v, json!({"file_path": "a", "old_string": "1", "new_string": "true", "replace_all": true}));
+        assert_eq!(
+            v,
+            json!({"file_path": "a", "old_string": "1", "new_string": "true", "replace_all": true})
+        );
         let write = json!({"type":"object","properties":{"content":{"type":"string"}}});
         let (v, notes) = repair_args(r#"{"content": {"name": "x"}}"#, Some(&write)).unwrap();
-        assert_eq!(serde_json::from_str::<Value>(v["content"].as_str().unwrap()).unwrap(), json!({"name": "x"}));
+        assert_eq!(
+            serde_json::from_str::<Value>(v["content"].as_str().unwrap()).unwrap(),
+            json!({"name": "x"})
+        );
         assert_eq!(notes, vec!["converted 'content' to string".to_string()]);
     }
 
@@ -565,37 +710,67 @@ mod tests {
         });
         let raw = r#"{"file_path":"a","edits":"[{\"old_string\":\"x\",\"new_string\":2,\"replace_all\":\"false\"}]"}"#;
         let (v, _) = repair_args(raw, Some(&schema)).unwrap();
-        assert_eq!(v["edits"], json!([{"old_string": "x", "new_string": "2", "replace_all": false}]));
+        assert_eq!(
+            v["edits"],
+            json!([{"old_string": "x", "new_string": "2", "replace_all": false}])
+        );
     }
 
     #[test]
     fn unrepairable_arguments_error_lists_schema_fields() {
         for raw in ["{not json", "[1,2]", "42", "{\"a\": }"] {
             let err = repair_args(raw, Some(&read_schema())).unwrap_err();
-            assert!(err.contains("file_path (string, required)"), "{:?} -> {}", raw, err);
+            assert!(
+                err.contains("file_path (string, required)"),
+                "{:?} -> {}",
+                raw,
+                err
+            );
             assert!(err.contains("limit (integer)"), "{}", err);
         }
     }
 
     #[test]
     fn coercion_never_invents_values() {
-        let (v, _) = repair_args(r#"{"file_path":"a","limit":"lots"}"#, Some(&read_schema())).unwrap();
-        assert_eq!(v["limit"], json!("lots"), "an unconvertible value is left for the tool to reject");
+        let (v, _) =
+            repair_args(r#"{"file_path":"a","limit":"lots"}"#, Some(&read_schema())).unwrap();
+        assert_eq!(
+            v["limit"],
+            json!("lots"),
+            "an unconvertible value is left for the tool to reject"
+        );
     }
 
     #[test]
     fn tool_call_written_as_text_is_recognized() {
         let known: Vec<String> = ["Read", "Write"].iter().map(|s| s.to_string()).collect();
-        let (n, a) = tool_call_in_text(r#"{"name": "Write", "parameters": {"file_path": "a.py", "content": "x"}}"#, &known).unwrap();
+        let (n, a) = tool_call_in_text(
+            r#"{"name": "Write", "parameters": {"file_path": "a.py", "content": "x"}}"#,
+            &known,
+        )
+        .unwrap();
         assert_eq!(n, "Write");
-        assert_eq!(serde_json::from_str::<Value>(&a).unwrap(), json!({"file_path": "a.py", "content": "x"}));
-        let fenced = "```json\n{\"name\": \"read_file\", \"arguments\": {\"file_path\": \"b\"}}\n```";
+        assert_eq!(
+            serde_json::from_str::<Value>(&a).unwrap(),
+            json!({"file_path": "a.py", "content": "x"})
+        );
+        let fenced =
+            "```json\n{\"name\": \"read_file\", \"arguments\": {\"file_path\": \"b\"}}\n```";
         let (n, a) = tool_call_in_text(fenced, &known).unwrap();
         assert_eq!(n, "Read");
-        assert_eq!(serde_json::from_str::<Value>(&a).unwrap(), json!({"file_path": "b"}));
-        assert!(tool_call_in_text("<tool_call>{\"name\":\"Read\",\"arguments\":{\"file_path\":\"c\"}}</tool_call>", &known).is_some());
+        assert_eq!(
+            serde_json::from_str::<Value>(&a).unwrap(),
+            json!({"file_path": "b"})
+        );
+        assert!(tool_call_in_text(
+            "<tool_call>{\"name\":\"Read\",\"arguments\":{\"file_path\":\"c\"}}</tool_call>",
+            &known
+        )
+        .is_some());
 
-        assert!(tool_call_in_text(r#"Run this: {"name": "Read", "arguments": {}}"#, &known).is_none());
+        assert!(
+            tool_call_in_text(r#"Run this: {"name": "Read", "arguments": {}}"#, &known).is_none()
+        );
         assert!(tool_call_in_text(r#"{"name": "Deploy", "arguments": {}}"#, &known).is_none());
         assert!(tool_call_in_text(r#"{"name": "Read"}"#, &known).is_none());
         assert!(tool_call_in_text(r#"{"name": "Ann", "age": 3}"#, &known).is_none());
@@ -604,8 +779,19 @@ mod tests {
 
     #[test]
     fn tool_names_map_to_registry() {
-        let known: Vec<String> =
-            ["Read", "Write", "Edit", "Bash", "Glob", "Grep", "TodoWrite", "mcp__fs__list"].iter().map(|s| s.to_string()).collect();
+        let known: Vec<String> = [
+            "Read",
+            "Write",
+            "Edit",
+            "Bash",
+            "Glob",
+            "Grep",
+            "TodoWrite",
+            "mcp__fs__list",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
         let cases = [
             ("bash", Some("Bash")),
             ("BASH", Some("Bash")),
@@ -617,7 +803,10 @@ mod tests {
             ("run_command", Some("Bash")),
             ("mcp-fs-list", Some("mcp__fs__list")),
             ("Bash<\u{200B}|channel|>commentary", Some("Bash")),
-            ("Edit<|channel|>commentary<|channel|>commentary", Some("Edit")),
+            (
+                "Edit<|channel|>commentary<|channel|>commentary",
+                Some("Edit"),
+            ),
             ("Read<|channel|>", Some("Read")),
             ("assistant to=functions.Read", Some("Read")),
             ("to=functions.Bash <commentary>", Some("Bash")),
@@ -627,23 +816,39 @@ mod tests {
             ("", None),
         ];
         for (input, want) in cases {
-            assert_eq!(resolve_tool_name(input, &known).as_deref(), want, "{}", input);
+            assert_eq!(
+                resolve_tool_name(input, &known).as_deref(),
+                want,
+                "{}",
+                input
+            );
         }
     }
 
     #[test]
     fn p0_5_tool_name_found_among_leaked_tokens() {
-        let known: Vec<String> = ["Read", "Bash", "Grep", "Edit"].iter().map(|s| s.to_string()).collect();
+        let known: Vec<String> = ["Read", "Bash", "Grep", "Edit"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
         let cases = [
             ("<|start|>assistant<|channel|>Read", "Read"),
-            ("<|channel|>commentary to=functions.Bash<|constrain|>json", "Bash"),
+            (
+                "<|channel|>commentary to=functions.Bash<|constrain|>json",
+                "Bash",
+            ),
             ("Grep<\u{200B}|channel|>commentary", "Grep"),
             ("assistant<|channel|>commentary json Edit", "Edit"),
             ("functions.Read<|message|>", "Read"),
             ("<|start|>shell", "Bash"),
         ];
         for (raw, want) in cases {
-            assert_eq!(resolve_tool_name(raw, &known).as_deref(), Some(want), "{}", raw);
+            assert_eq!(
+                resolve_tool_name(raw, &known).as_deref(),
+                Some(want),
+                "{}",
+                raw
+            );
         }
         assert_eq!(resolve_tool_name("<|channel|>commentary", &known), None);
     }

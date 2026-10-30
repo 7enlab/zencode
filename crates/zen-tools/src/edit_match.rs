@@ -8,7 +8,13 @@ pub struct Applied {
     pub note: Option<String>,
 }
 
-pub fn apply_edit(text: &str, old: &str, new: &str, replace_all: bool, label: &str) -> Result<Applied, String> {
+pub fn apply_edit(
+    text: &str,
+    old: &str,
+    new: &str,
+    replace_all: bool,
+    label: &str,
+) -> Result<Applied, String> {
     if old.is_empty() {
         return Err("'old_string' must not be empty".into());
     }
@@ -19,12 +25,22 @@ pub fn apply_edit(text: &str, old: &str, new: &str, replace_all: bool, label: &s
         Some(a) => Ok(a),
         None => {
             let (o, _) = strip_line_numbers(old, new).unwrap_or((old.to_string(), new.to_string()));
-            Err(format!("'old_string' was not found in {}.\n{}", label, closest_candidates(text, &o)))
+            Err(format!(
+                "'old_string' was not found in {}.\n{}",
+                label,
+                closest_candidates(text, &o)
+            ))
         }
     }
 }
 
-fn apply_ladder(text: &str, old: &str, new: &str, replace_all: bool, label: &str) -> Result<Option<Applied>, String> {
+fn apply_ladder(
+    text: &str,
+    old: &str,
+    new: &str,
+    replace_all: bool,
+    label: &str,
+) -> Result<Option<Applied>, String> {
     let occurrences = text.matches(old).count();
     if occurrences > 1 && !replace_all {
         return Err(format!(
@@ -33,8 +49,16 @@ fn apply_ladder(text: &str, old: &str, new: &str, replace_all: bool, label: &str
         ));
     }
     if occurrences >= 1 {
-        let updated = if replace_all { text.replace(old, new) } else { text.replacen(old, new, 1) };
-        return Ok(Some(Applied { text: updated, count: occurrences, note: None }));
+        let updated = if replace_all {
+            text.replace(old, new)
+        } else {
+            text.replacen(old, new, 1)
+        };
+        return Ok(Some(Applied {
+            text: updated,
+            count: occurrences,
+            note: None,
+        }));
     }
     for strategy in [Strategy::TrailingWhitespace, Strategy::Indentation] {
         if let Some(a) = fuzzy_replace(text, old, new, strategy, label)? {
@@ -69,8 +93,12 @@ impl Strategy {
     }
     fn describe(self) -> &'static str {
         match self {
-            Strategy::TrailingWhitespace => "matched after ignoring trailing whitespace and line endings",
-            Strategy::Indentation => "matched after ignoring indentation; new_string was re-indented to fit",
+            Strategy::TrailingWhitespace => {
+                "matched after ignoring trailing whitespace and line endings"
+            }
+            Strategy::Indentation => {
+                "matched after ignoring indentation; new_string was re-indented to fit"
+            }
         }
     }
 }
@@ -98,7 +126,13 @@ fn indent_of(s: &str) -> &str {
     &s[..s.len() - s.trim_start().len()]
 }
 
-fn fuzzy_replace(text: &str, old: &str, new: &str, strategy: Strategy, label: &str) -> Result<Option<Applied>, String> {
+fn fuzzy_replace(
+    text: &str,
+    old: &str,
+    new: &str,
+    strategy: Strategy,
+    label: &str,
+) -> Result<Option<Applied>, String> {
     let olds = old_lines(old);
     if olds.is_empty() {
         return Ok(None);
@@ -124,12 +158,20 @@ fn fuzzy_replace(text: &str, old: &str, new: &str, strategy: Strategy, label: &s
         }
     }
     let start = hits[0];
-    let eol = if file[start].ends_with("\r\n") { "\r\n" } else { "\n" };
+    let eol = if file[start].ends_with("\r\n") {
+        "\r\n"
+    } else {
+        "\n"
+    };
     let last_has_eol = file[start + n - 1].ends_with('\n');
 
     let mut new_lines: Vec<String> = new.lines().map(str::to_string).collect();
     if let Strategy::Indentation = strategy {
-        let model_indent = olds.iter().find(|l| !l.trim().is_empty()).map(|l| indent_of(l)).unwrap_or("");
+        let model_indent = olds
+            .iter()
+            .find(|l| !l.trim().is_empty())
+            .map(|l| indent_of(l))
+            .unwrap_or("");
         let file_indent = (0..n)
             .find(|&k| !olds[k].trim().is_empty())
             .map(|k| indent_of(body(file[start + k])))
@@ -164,7 +206,11 @@ fn fuzzy_replace(text: &str, old: &str, new: &str, strategy: Strategy, label: &s
     for l in &file[start + n..] {
         out.push_str(l);
     }
-    Ok(Some(Applied { text: out, count: 1, note: Some(strategy.describe().to_string()) }))
+    Ok(Some(Applied {
+        text: out,
+        count: 1,
+        note: Some(strategy.describe().to_string()),
+    }))
 }
 
 fn strip_line_numbers(old: &str, new: &str) -> Option<(String, String)> {
@@ -222,7 +268,9 @@ pub fn closest_candidates(text: &str, old: &str) -> String {
     let n = olds.len().min(file.len());
     let mut scored: Vec<(f64, usize)> = (0..=file.len() - n)
         .map(|i| {
-            let s: f64 = (0..n).map(|k| similarity(file[i + k].trim(), olds[k].trim())).sum();
+            let s: f64 = (0..n)
+                .map(|k| similarity(file[i + k].trim(), olds[k].trim()))
+                .sum();
             (s / n as f64, i)
         })
         .filter(|(s, _)| *s >= MIN_SCORE)
@@ -238,11 +286,19 @@ pub fn closest_candidates(text: &str, old: &str) -> String {
         }
     }
     if picked.is_empty() {
-        return "No similar lines were found. Read the file again to see its current content.".into();
+        return "No similar lines were found. Read the file again to see its current content."
+            .into();
     }
-    let mut out = String::from("Closest matches in the current file (fix old_string to match one exactly):\n");
+    let mut out = String::from(
+        "Closest matches in the current file (fix old_string to match one exactly):\n",
+    );
     for (s, i) in picked {
-        out.push_str(&format!("--- lines {}-{} ({:.0}% similar)\n", i + 1, i + n, s * 100.0));
+        out.push_str(&format!(
+            "--- lines {}-{} ({:.0}% similar)\n",
+            i + 1,
+            i + n,
+            s * 100.0
+        ));
         for (k, line) in file.iter().enumerate().skip(i).take(n.min(SHOW_LINES)) {
             out.push_str(&format!("{:>6}\t{}\n", k + 1, line));
         }
@@ -270,7 +326,10 @@ fn similarity(a: &str, b: &str) -> f64 {
     if total == 0 {
         return 0.0;
     }
-    let common: usize = x.iter().map(|(k, c)| (*c).min(*y.get(k).unwrap_or(&0))).sum();
+    let common: usize = x
+        .iter()
+        .map(|(k, c)| (*c).min(*y.get(k).unwrap_or(&0)))
+        .sum();
     2.0 * common as f64 / total as f64
 }
 
@@ -279,7 +338,8 @@ mod tests {
     use super::*;
 
     fn ok(text: &str, old: &str, new: &str) -> Applied {
-        apply_edit(text, old, new, false, "f.rs").unwrap_or_else(|e| panic!("expected a match: {}", e))
+        apply_edit(text, old, new, false, "f.rs")
+            .unwrap_or_else(|e| panic!("expected a match: {}", e))
     }
 
     #[test]
@@ -292,15 +352,26 @@ mod tests {
     #[test]
     fn indentation_shifted_old_string_is_applied_and_new_reindented() {
         let text = "fn main() {\n    if x {\n        run();\n    }\n}\n";
-        let a = ok(text, "if x {\n    run();\n}", "if x {\n    run();\n    log();\n}");
-        assert_eq!(a.text, "fn main() {\n    if x {\n        run();\n        log();\n    }\n}\n");
+        let a = ok(
+            text,
+            "if x {\n    run();\n}",
+            "if x {\n    run();\n    log();\n}",
+        );
+        assert_eq!(
+            a.text,
+            "fn main() {\n    if x {\n        run();\n        log();\n    }\n}\n"
+        );
         assert!(a.note.unwrap().contains("indentation"));
     }
 
     #[test]
     fn tabs_vs_spaces_match_by_indentation() {
         let text = "fn f() {\n\tlet a = 1;\n\tlet b = 2;\n}\n";
-        let a = ok(text, "    let a = 1;\n    let b = 2;", "    let a = 10;\n    let b = 2;");
+        let a = ok(
+            text,
+            "    let a = 1;\n    let b = 2;",
+            "    let a = 10;\n    let b = 2;",
+        );
         assert_eq!(a.text, "fn f() {\n\tlet a = 10;\n\tlet b = 2;\n}\n");
     }
 
@@ -315,14 +386,17 @@ mod tests {
     #[test]
     fn line_number_prefixes_from_read_are_stripped() {
         let text = "alpha\nbeta\ngamma\n";
-        let a = ok(text, "     2\tbeta\n     3\tgamma", "     2\tBETA\n     3\tgamma");
+        let a = ok(
+            text,
+            "     2\tbeta\n     3\tgamma",
+            "     2\tBETA\n     3\tgamma",
+        );
         assert_eq!(a.text, "alpha\nBETA\ngamma\n");
         assert!(a.note.unwrap().contains("line-number"));
     }
 
     #[test]
     fn non_monotonic_number_prefixes_are_not_stripped() {
-
         assert!(strip_line_numbers("123\tfoo\n123\tbar", "x").is_none());
         assert!(strip_line_numbers("5\tfoo\n3\tbar", "x").is_none());
         assert!(strip_line_numbers("1\tfoo\n1\tbar", "x").is_none());
@@ -347,11 +421,13 @@ mod tests {
     #[test]
     fn miss_reports_closest_lines_with_numbers() {
         let text = "fn alpha() {}\nfn beta(x: u32) -> u32 { x + 1 }\nfn gamma() {}\n";
-        let err = apply_edit(text, "fn beta(x: u64) -> u64 { x + 1 }", "z", false, "f.rs").unwrap_err();
+        let err =
+            apply_edit(text, "fn beta(x: u64) -> u64 { x + 1 }", "z", false, "f.rs").unwrap_err();
         assert!(err.contains("not found"), "{}", err);
         assert!(err.contains("lines 2-2"), "{}", err);
         assert!(err.contains("     2\tfn beta(x: u32)"), "{}", err);
-        let err = apply_edit(text, "completely unrelated words here", "z", false, "f.rs").unwrap_err();
+        let err =
+            apply_edit(text, "completely unrelated words here", "z", false, "f.rs").unwrap_err();
         assert!(err.contains("No similar lines"), "{}", err);
     }
 

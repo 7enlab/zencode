@@ -3,7 +3,6 @@ use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SlashSource {
-
     Command,
 
     Skill,
@@ -11,7 +10,6 @@ pub enum SlashSource {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SlashCommand {
-
     pub name: String,
     pub description: Option<String>,
     pub argument_hint: Option<String>,
@@ -26,7 +24,13 @@ pub struct SlashCommand {
 }
 
 impl SlashCommand {
-    fn from_parts(name: String, fm: Frontmatter, body: String, path: PathBuf, source: SlashSource) -> Self {
+    fn from_parts(
+        name: String,
+        fm: Frontmatter,
+        body: String,
+        path: PathBuf,
+        source: SlashSource,
+    ) -> Self {
         let get = |k: &str| fm.extra.get(k).filter(|v| !v.is_empty()).cloned();
         Self {
             name,
@@ -50,7 +54,6 @@ impl SlashCommand {
 }
 
 pub struct ExpandContext<'a> {
-
     pub project_dir: PathBuf,
 
     pub session_id: String,
@@ -67,7 +70,9 @@ fn parse_bool(v: &str) -> Option<bool> {
 }
 
 fn collect_md(root: &Path, dir: &Path, out: &mut Vec<(String, PathBuf)>) {
-    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return;
+    };
     let mut paths: Vec<PathBuf> = rd.flatten().map(|e| e.path()).collect();
     paths.sort();
     for p in paths {
@@ -99,9 +104,17 @@ pub fn discover_custom_commands(cwd: &Path, home: Option<&Path>) -> Vec<SlashCom
         let mut files = Vec::new();
         collect_md(&root, &root, &mut files);
         for (name, path) in files {
-            let Ok(raw) = std::fs::read_to_string(&path) else { continue };
+            let Ok(raw) = std::fs::read_to_string(&path) else {
+                continue;
+            };
             let (fm, body) = split_frontmatter(&raw);
-            let cmd = SlashCommand::from_parts(name, fm.unwrap_or_default(), body, path, SlashSource::Command);
+            let cmd = SlashCommand::from_parts(
+                name,
+                fm.unwrap_or_default(),
+                body,
+                path,
+                SlashSource::Command,
+            );
             out.retain(|c| c.name != cmd.name);
             out.push(cmd);
         }
@@ -122,14 +135,22 @@ pub fn discover_slash_commands(cwd: &Path, home: Option<&Path>) -> Vec<SlashComm
         if !user_invocable {
             continue;
         }
-        out.push(SlashCommand::from_parts(info.name, fm, info.body, info.path, SlashSource::Skill));
+        out.push(SlashCommand::from_parts(
+            info.name,
+            fm,
+            info.body,
+            info.path,
+            SlashSource::Skill,
+        ));
     }
     out.sort_by(|a, b| a.name.cmp(&b.name));
     out
 }
 
 pub fn find_slash_command(cwd: &Path, home: Option<&Path>, name: &str) -> Option<SlashCommand> {
-    discover_slash_commands(cwd, home).into_iter().find(|c| c.name == name)
+    discover_slash_commands(cwd, home)
+        .into_iter()
+        .find(|c| c.name == name)
 }
 
 pub fn split_args(args: &str) -> Vec<String> {
@@ -197,7 +218,6 @@ fn substitute_args(body: &str, args: &str) -> (String, bool) {
         }
         let mut digits = after.chars();
         if let Some(d) = digits.next().filter(char::is_ascii_digit) {
-
             if !after[1..].starts_with(|c: char| c.is_ascii_digit()) {
                 out.push_str(&nth(d as usize - '0' as usize));
                 used = true;
@@ -217,7 +237,11 @@ fn resolve_ref(raw: &str, base: &Path) -> Option<PathBuf> {
         dirs::home_dir()?.join(rest)
     } else {
         let p = PathBuf::from(raw);
-        if p.is_absolute() { p } else { base.join(p) }
+        if p.is_absolute() {
+            p
+        } else {
+            base.join(p)
+        }
     };
     p.is_file().then_some(p)
 }
@@ -237,7 +261,9 @@ fn inline_files(text: &str, base: &Path) -> String {
 
             let trimmed = token.trim_end_matches([',', '.', ';', ':', ')', '!', '?']);
             if !trimmed.is_empty() {
-                if let Some(content) = resolve_ref(trimmed, base).and_then(|p| std::fs::read_to_string(p).ok()) {
+                if let Some(content) =
+                    resolve_ref(trimmed, base).and_then(|p| std::fs::read_to_string(p).ok())
+                {
                     out.push_str(content.trim_end_matches('\n'));
                     out.push_str(&token[trimmed.len()..]);
                     i = end;
@@ -343,7 +369,11 @@ mod tests {
     use std::fs;
 
     fn ctx(dir: &Path) -> ExpandContext<'static> {
-        ExpandContext { project_dir: dir.to_path_buf(), session_id: "sess-1".into(), allow_shell: None }
+        ExpandContext {
+            project_dir: dir.to_path_buf(),
+            session_id: "sess-1".into(),
+            allow_shell: None,
+        }
     }
 
     fn cmd(body: &str) -> SlashCommand {
@@ -396,12 +426,22 @@ mod tests {
     fn c5_2_argument_placeholders() {
         let t = TempDir::new();
         let c = ctx(t.path());
-        let out = expand_command(&cmd("a=$0 b=$1 c=$ARGUMENTS[2] all=$ARGUMENTS miss=$5 ten=$10 cost=$x"), "one \"two words\" three", &c);
-        assert_eq!(out, "a=one b=two words c=three all=one \"two words\" three miss= ten=$10 cost=$x");
+        let out = expand_command(
+            &cmd("a=$0 b=$1 c=$ARGUMENTS[2] all=$ARGUMENTS miss=$5 ten=$10 cost=$x"),
+            "one \"two words\" three",
+            &c,
+        );
+        assert_eq!(
+            out,
+            "a=one b=two words c=three all=one \"two words\" three miss= ten=$10 cost=$x"
+        );
 
         assert_eq!(expand_command(&cmd("[$0]"), "$1", &c), "[$1]");
 
-        assert_eq!(expand_command(&cmd("Review this.\n"), "src/a.rs", &c), "Review this.\n\nARGUMENTS: src/a.rs");
+        assert_eq!(
+            expand_command(&cmd("Review this.\n"), "src/a.rs", &c),
+            "Review this.\n\nARGUMENTS: src/a.rs"
+        );
         assert_eq!(expand_command(&cmd("Plain"), "", &c), "Plain");
     }
 
@@ -413,10 +453,16 @@ mod tests {
         let out = expand_command(&cmd("dir=${ZEN_PROJECT_DIR} id=${ZEN_SESSION_ID} see @notes/a.txt, mail a@notes/a.txt @missing.txt"), "", &c);
         assert_eq!(
             out,
-            format!("dir={} id=sess-1 see ALPHA, mail a@notes/a.txt @missing.txt", t.path().display())
+            format!(
+                "dir={} id=sess-1 see ALPHA, mail a@notes/a.txt @missing.txt",
+                t.path().display()
+            )
         );
 
-        assert_eq!(expand_command(&cmd("Fix $ARGUMENTS"), "@notes/a.txt", &c), "Fix ALPHA");
+        assert_eq!(
+            expand_command(&cmd("Fix $ARGUMENTS"), "@notes/a.txt", &c),
+            "Fix ALPHA"
+        );
     }
 
     #[test]
@@ -424,14 +470,39 @@ mod tests {
         let t = TempDir::new();
         write(&t.path().join("f.txt"), "x");
         let allow_ls = |c: &str| c.starts_with("ls");
-        let c = ExpandContext { project_dir: t.path().to_path_buf(), session_id: "s9".into(), allow_shell: Some(&allow_ls) };
-        let out = expand_command(&cmd("Files: !`ls` sid: !`echo $ZEN_SESSION_ID` arg: $0"), "z", &c);
-        assert!(out.starts_with("Files: f.txt sid: !`echo $ZEN_SESSION_ID` (not run: permission denied) arg: z"), "{}", out);
+        let c = ExpandContext {
+            project_dir: t.path().to_path_buf(),
+            session_id: "s9".into(),
+            allow_shell: Some(&allow_ls),
+        };
+        let out = expand_command(
+            &cmd("Files: !`ls` sid: !`echo $ZEN_SESSION_ID` arg: $0"),
+            "z",
+            &c,
+        );
+        assert!(
+            out.starts_with(
+                "Files: f.txt sid: !`echo $ZEN_SESSION_ID` (not run: permission denied) arg: z"
+            ),
+            "{}",
+            out
+        );
         let all = |_: &str| true;
-        let c = ExpandContext { project_dir: t.path().to_path_buf(), session_id: "s9".into(), allow_shell: Some(&all) };
-        assert_eq!(expand_command(&cmd("sid=!`echo $ZEN_SESSION_ID`"), "", &c), "sid=s9");
+        let c = ExpandContext {
+            project_dir: t.path().to_path_buf(),
+            session_id: "s9".into(),
+            allow_shell: Some(&all),
+        };
+        assert_eq!(
+            expand_command(&cmd("sid=!`echo $ZEN_SESSION_ID`"), "", &c),
+            "sid=s9"
+        );
         let fail = expand_command(&cmd("!`echo oops >&2; exit 3`"), "", &c);
-        assert!(fail.contains("oops") && fail.contains("(exit 3)"), "{}", fail);
+        assert!(
+            fail.contains("oops") && fail.contains("(exit 3)"),
+            "{}",
+            fail
+        );
 
         assert!(expand_command(&cmd("!`echo hi`"), "", &ctx(t.path())).contains("not run"));
     }
@@ -455,11 +526,17 @@ mod tests {
         let deploy = all.iter().find(|c| c.name == "deploy").unwrap();
         assert_eq!(deploy.source, SlashSource::Skill);
         assert_eq!(deploy.argument_hint.as_deref(), Some("[env]"));
-        assert!(all.iter().all(|c| c.name != "bg"), "user-invocable:false skill hides /bg (and shadows the command)");
+        assert!(
+            all.iter().all(|c| c.name != "bg"),
+            "user-invocable:false skill hides /bg (and shadows the command)"
+        );
         let c = ctx(&proj);
         let (_, text) = expand_slash_prompt("/deploy prod", &proj, Some(&home), &c).unwrap();
 
-        let want = format!("SKILL deploy prod from {}", proj.join(".zen/skills/deploy").display());
+        let want = format!(
+            "SKILL deploy prod from {}",
+            proj.join(".zen/skills/deploy").display()
+        );
         assert_eq!(text.trim().replace('\\', "/"), want.replace('\\', "/"));
 
         write(
@@ -476,7 +553,8 @@ mod tests {
         let home = tmp.path().join("home");
         write(&proj.join(".zen/commands/greet.md"), "Hello $0 and $1!");
         let c = ctx(&proj);
-        let (cmd, text) = expand_slash_prompt("  /greet Alice Bob", &proj, Some(&home), &c).unwrap();
+        let (cmd, text) =
+            expand_slash_prompt("  /greet Alice Bob", &proj, Some(&home), &c).unwrap();
         assert_eq!(cmd.name, "greet");
         assert_eq!(text, "Hello Alice and Bob!");
         assert!(expand_slash_prompt("/nope x", &proj, Some(&home), &c).is_none());

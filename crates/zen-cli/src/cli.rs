@@ -41,7 +41,6 @@ impl PermissionMode {
     }
     pub fn parse(s: &str) -> Option<Self> {
         Some(match s {
-
             "default" | "manual" | "auto" => PermissionMode::Default,
             "acceptEdits" => PermissionMode::AcceptEdits,
             "plan" => PermissionMode::Plan,
@@ -86,7 +85,10 @@ fn parse_autocompact(s: &str) -> Result<String, String> {
     match s {
         "auto" | "off" => Ok(s.to_string()),
         n if n.parse::<u64>().map(|v| v > 0).unwrap_or(false) => Ok(n.to_string()),
-        _ => Err(format!("invalid --autocompact '{}': use auto, off or a token count", s)),
+        _ => Err(format!(
+            "invalid --autocompact '{}': use auto, off or a token count",
+            s
+        )),
     }
 }
 
@@ -99,7 +101,6 @@ fn parse_session_uuid(s: &str) -> Result<String, String> {
 #[derive(Parser, Debug, Clone)]
 #[command(name = "zen", version, about = "ZenCode CLI coding agent")]
 pub struct Cli {
-
     #[arg(short = 'p', long = "print")]
     pub print: bool,
 
@@ -258,7 +259,6 @@ pub struct Cli {
 
 #[derive(Subcommand, Debug, Clone)]
 pub enum Commands {
-
     Mcp(McpArgs),
 
     Skill(SkillArgs),
@@ -273,7 +273,6 @@ pub enum Commands {
 
     #[command(name = "tool-help")]
     ToolHelp {
-
         name: String,
     },
 
@@ -289,7 +288,6 @@ pub enum Commands {
 
     #[command(name = "pr-comments")]
     PrComments {
-
         pr: Option<String>,
 
         #[arg(long)]
@@ -298,7 +296,6 @@ pub enum Commands {
 
     #[command(name = "ci-fix")]
     CiFix {
-
         #[arg(long)]
         json: bool,
     },
@@ -308,14 +305,12 @@ pub enum Commands {
 
 #[derive(Args, Debug, Clone)]
 pub struct UpdateArgs {
-
     #[arg(long)]
     pub check: bool,
 }
 
 #[derive(Args, Debug, Clone)]
 pub struct ModelsArgs {
-
     #[arg(long = "refresh")]
     pub refresh: bool,
 
@@ -325,7 +320,6 @@ pub struct ModelsArgs {
 
 #[derive(Args, Debug, Clone)]
 pub struct CostArgs {
-
     #[arg(long = "session")]
     pub session: Option<String>,
 
@@ -335,14 +329,12 @@ pub struct CostArgs {
 
 #[derive(Args, Debug, Clone)]
 pub struct ContextArgs {
-
     #[arg(long = "session")]
     pub session: Option<String>,
 }
 
 #[derive(Args, Debug, Clone)]
 pub struct ExportArgs {
-
     #[arg(long, value_enum, default_value_t = crate::export::ExportFormat::Markdown)]
     pub format: crate::export::ExportFormat,
 
@@ -358,7 +350,6 @@ pub struct ExportArgs {
 
 #[derive(Args, Debug, Clone)]
 pub struct ImportArgs {
-
     pub file: PathBuf,
 }
 
@@ -370,20 +361,16 @@ pub struct SessionsArgs {
 
 #[derive(Subcommand, Debug, Clone)]
 pub enum SessionSubcommand {
-
     List {
-
         #[arg(long)]
         all: bool,
     },
 
     Archive {
-
         id: String,
     },
 
     Delete {
-
         id: String,
 
         #[arg(long)]
@@ -391,14 +378,12 @@ pub enum SessionSubcommand {
     },
 
     Restore {
-
         id: String,
     },
 }
 
 #[derive(Args, Debug, Clone)]
 pub struct EvalArgs {
-
     #[arg(long)]
     pub model: Option<String>,
 
@@ -420,11 +405,9 @@ pub struct SkillArgs {
 
 #[derive(Subcommand, Debug, Clone)]
 pub enum SkillSubcommand {
-
     List,
 
     Install {
-
         source: String,
 
         #[arg(long)]
@@ -435,7 +418,6 @@ pub enum SkillSubcommand {
     },
 
     Search {
-
         query: String,
 
         #[arg(long)]
@@ -446,7 +428,6 @@ pub enum SkillSubcommand {
     },
 
     Info {
-
         name: String,
 
         #[arg(long)]
@@ -454,17 +435,14 @@ pub enum SkillSubcommand {
     },
 
     Remove {
-
         name: String,
     },
 
     Test {
-
         name: String,
     },
 
     Create {
-
         name: String,
     },
 }
@@ -477,11 +455,9 @@ pub struct McpArgs {
 
 #[derive(Subcommand, Debug, Clone)]
 pub enum McpSubcommand {
-
     List,
 
     Add {
-
         #[arg(long = "transport", default_value = "stdio")]
         transport: String,
 
@@ -501,7 +477,6 @@ pub enum McpSubcommand {
     },
 
     Remove {
-
         #[arg(short = 's', long = "scope", default_value = "local")]
         scope: String,
 
@@ -509,7 +484,6 @@ pub enum McpSubcommand {
     },
 
     Get {
-
         #[arg(short = 's', long = "scope", default_value = "")]
         scope: String,
 
@@ -517,7 +491,6 @@ pub enum McpSubcommand {
     },
 
     AddJson {
-
         #[arg(short = 's', long = "scope", default_value = "local")]
         scope: String,
 
@@ -529,7 +502,6 @@ pub enum McpSubcommand {
 
 #[derive(Args, Debug, Clone)]
 pub struct ReviewArgs {
-
     #[arg(long)]
     pub uncommitted: bool,
 
@@ -614,14 +586,24 @@ mod tests {
 
     #[test]
     fn c2_11_permission_mode_aliases() {
-        assert_eq!(parse(&["--permission-mode", "manual"]).permission_mode, Some(PermissionMode::Default));
-        assert_eq!(parse(&["--permission-mode", "auto"]).permission_mode, Some(PermissionMode::Default));
+        assert_eq!(
+            parse(&["--permission-mode", "manual"]).permission_mode,
+            Some(PermissionMode::Default)
+        );
+        assert_eq!(
+            parse(&["--permission-mode", "auto"]).permission_mode,
+            Some(PermissionMode::Default)
+        );
         assert_eq!(
             parse(&["--permission-mode", "dontAsk"]).permission_mode,
             Some(PermissionMode::DontAsk)
         );
         let err = Cli::try_parse_from(["zen", "--permission-mode", "yolo"]).unwrap_err();
-        assert!(err.to_string().contains("invalid permission mode 'yolo'"), "{}", err);
+        assert!(
+            err.to_string().contains("invalid permission mode 'yolo'"),
+            "{}",
+            err
+        );
     }
 
     #[test]
@@ -657,7 +639,7 @@ mod tests {
         let cli = parse(&["mcp", "remove", "-s", "user", "foo"]);
         match &cli.subcommand {
             Some(Commands::Mcp(m)) => {
-                assert!(matches!(m.command, McpSubcommand::Remove{..}));
+                assert!(matches!(m.command, McpSubcommand::Remove { .. }));
             }
             _ => panic!("expected Mcp Remove"),
         }
@@ -665,10 +647,21 @@ mod tests {
 
     #[test]
     fn parse_mcp_subcommand_add_http() {
-        let cli = parse(&["mcp", "add", "--transport", "http", "-s", "project", "myserver", "http://localhost:3000"]);
+        let cli = parse(&[
+            "mcp",
+            "add",
+            "--transport",
+            "http",
+            "-s",
+            "project",
+            "myserver",
+            "http://localhost:3000",
+        ]);
         match &cli.subcommand {
             Some(Commands::Mcp(m)) => {
-                assert!(matches!(&m.command, McpSubcommand::Add{transport,..} if transport == "http"));
+                assert!(
+                    matches!(&m.command, McpSubcommand::Add{transport,..} if transport == "http")
+                );
             }
             _ => panic!("expected Mcp Add"),
         }
@@ -766,7 +759,11 @@ mod tests {
         let cli = parse(&["skill", "install", "builtin:tdd", "--yes"]);
         match cli.subcommand {
             Some(Commands::Skill(s)) => match s.command {
-                SkillSubcommand::Install { source, yes, registry } => {
+                SkillSubcommand::Install {
+                    source,
+                    yes,
+                    registry,
+                } => {
                     assert_eq!(source, "builtin:tdd");
                     assert!(yes);
                     assert!(registry.is_none());
@@ -874,7 +871,6 @@ mod tests {
 
     #[test]
     fn parse_prune_flags() {
-
         let cli = parse(&[]);
         assert!(!cli.prune);
         assert!(!cli.no_prune);
@@ -917,7 +913,10 @@ mod tests {
         }
 
         let cli = parse(&["--session-id", "123E4567E89B12D3A456426614174000"]);
-        assert_eq!(cli.session_id.as_deref(), Some("123e4567-e89b-12d3-a456-426614174000"));
+        assert_eq!(
+            cli.session_id.as_deref(),
+            Some("123e4567-e89b-12d3-a456-426614174000")
+        );
     }
 
     #[test]
@@ -944,7 +943,14 @@ mod tests {
         assert_eq!(cli.until.as_deref(), Some("cargo test -q"));
 
         assert_eq!(cli.max_verify_retries, 3);
-        let cli = parse(&["-p", "--until", "make check", "--max-verify-retries", "0", "go"]);
+        let cli = parse(&[
+            "-p",
+            "--until",
+            "make check",
+            "--max-verify-retries",
+            "0",
+            "go",
+        ]);
         assert_eq!(cli.max_verify_retries, 0);
     }
 
@@ -961,7 +967,14 @@ mod tests {
 
     #[test]
     fn flags_after_prompt_are_parsed() {
-        let cli = parse(&["-p", "list files", "--output-format", "json", "--model", "m:free"]);
+        let cli = parse(&[
+            "-p",
+            "list files",
+            "--output-format",
+            "json",
+            "--model",
+            "m:free",
+        ]);
         assert!(cli.print);
         assert_eq!(cli.prompt, vec!["list files".to_string()]);
         assert!(matches!(cli.output_format, OutputFormat::Json));
@@ -988,7 +1001,13 @@ mod tests {
 
     #[test]
     fn parse_allowed_disallowed() {
-        let cli = parse(&["--allowedTools", "Read", "Bash(git status)", "--disallowedTools", "Write"]);
+        let cli = parse(&[
+            "--allowedTools",
+            "Read",
+            "Bash(git status)",
+            "--disallowedTools",
+            "Write",
+        ]);
         assert_eq!(cli.allowed_tools, vec!["Read", "Bash(git status)"]);
         assert_eq!(cli.disallowed_tools, vec!["Write"]);
     }

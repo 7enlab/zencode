@@ -41,9 +41,12 @@ async fn until_failure_retries_then_gives_up() {
     let home = TempDir::new("until_home");
     let cwd = TempDir::new("until_cwd");
 
-    let server =
-        MockServer::start(vec![Reply::text("try one"), Reply::text("try two"), Reply::text("try three")])
-            .await;
+    let server = MockServer::start(vec![
+        Reply::text("try one"),
+        Reply::text("try two"),
+        Reply::text("try three"),
+    ])
+    .await;
     let (stdout, stderr, code) = tokio::time::timeout(TEST_TIMEOUT, async {
         ZenRun::new("until_fail", &home, &cwd)
             .args(base_args())
@@ -73,7 +76,12 @@ async fn until_failure_output_feeds_back_into_retry() {
     let (stdout, stderr, code) = tokio::time::timeout(TEST_TIMEOUT, async {
         ZenRun::new("until_feedback", &home, &cwd)
             .args(base_args())
-            .args(["--until", "echo VERIFY-OUTPUT-MARKER; exit 1", "--max-verify-retries", "1"])
+            .args([
+                "--until",
+                "echo VERIFY-OUTPUT-MARKER; exit 1",
+                "--max-verify-retries",
+                "1",
+            ])
             .mock("mock-model", &server)
             .arg("do it")
             .run_output()
@@ -124,7 +132,14 @@ async fn until_emits_verify_event_in_stream_json() {
     let server = MockServer::start(vec![Reply::text("done")]).await;
     let (stdout, stderr, code) = tokio::time::timeout(TEST_TIMEOUT, async {
         ZenRun::new("until_stream", &home, &cwd)
-            .args(["-p", "--output-format", "stream-json", "--bare", "--setting-sources", ""])
+            .args([
+                "-p",
+                "--output-format",
+                "stream-json",
+                "--bare",
+                "--setting-sources",
+                "",
+            ])
             .args(["--until", "exit 0"])
             .mock("mock-model", &server)
             .arg("do it")
@@ -167,10 +182,16 @@ async fn plan_mode_plans_first_then_executes_with_yes() {
     let plan_sys = system_message(&reqs[0]);
     assert!(plan_sys.contains("Plan mode"), "{plan_sys}");
     let plan_tools = request_tool_names(&reqs[0]);
-    assert!(!plan_tools.iter().any(|t| t == "Write"), "Write visible in plan mode: {plan_tools:?}");
+    assert!(
+        !plan_tools.iter().any(|t| t == "Write"),
+        "Write visible in plan mode: {plan_tools:?}"
+    );
 
     let exec_tools = request_tool_names(&reqs[1]);
-    assert!(exec_tools.iter().any(|t| t == "Write"), "Write missing in exec turn: {exec_tools:?}");
+    assert!(
+        exec_tools.iter().any(|t| t == "Write"),
+        "Write missing in exec turn: {exec_tools:?}"
+    );
     let exec_text = request_messages_text(&reqs[1]);
     assert!(exec_text.contains("Approved plan"), "{exec_text}");
     assert!(exec_text.contains("Create foo.txt"), "{exec_text}");

@@ -9,7 +9,6 @@ use crate::testutil::*;
 
 #[derive(Clone)]
 struct Reply {
-
     delay_ms: u64,
     status: u16,
     headers: &'static str,

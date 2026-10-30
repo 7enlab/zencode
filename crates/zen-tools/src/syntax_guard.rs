@@ -81,7 +81,11 @@ fn random_suffix() -> String {
     std::thread::current().id().hash(&mut h);
     let stack_var = 0u8;
     std::ptr::addr_of!(stack_var).hash(&mut h);
-    format!("{:016x}{:016x}", h.finish(), h.finish().wrapping_mul(0x9e3779b97f4a7c15))
+    format!(
+        "{:016x}{:016x}",
+        h.finish(),
+        h.finish().wrapping_mul(0x9e3779b97f4a7c15)
+    )
 }
 
 async fn run_checker(cmd: &str, args: &[&str], text: &str) -> Option<String> {
@@ -96,20 +100,30 @@ async fn run_checker(cmd: &str, args: &[&str], text: &str) -> Option<String> {
     if let Some(mut stdin) = child.stdin.take() {
         let _ = stdin.write_all(text.as_bytes()).await;
     }
-    let out = tokio::time::timeout(CHECK_TIMEOUT, child.wait_with_output()).await.ok()?.ok()?;
+    let out = tokio::time::timeout(CHECK_TIMEOUT, child.wait_with_output())
+        .await
+        .ok()?
+        .ok()?;
     if out.status.success() {
         return None;
     }
     let mut msg = String::from_utf8_lossy(&out.stdout).to_string();
     msg.push_str(&String::from_utf8_lossy(&out.stderr));
     let msg = msg.trim().to_string();
-    Some(if msg.is_empty() { "syntax check failed".into() } else { msg.chars().take(1500).collect() })
+    Some(if msg.is_empty() {
+        "syntax check failed".into()
+    } else {
+        msg.chars().take(1500).collect()
+    })
 }
 
 fn error_line(msg: &str) -> Option<usize> {
     let lower = msg.to_ascii_lowercase();
     if let Some(i) = lower.find("line ") {
-        let digits: String = lower[i + 5..].chars().take_while(|c| c.is_ascii_digit()).collect();
+        let digits: String = lower[i + 5..]
+            .chars()
+            .take_while(|c| c.is_ascii_digit())
+            .collect();
         if let Ok(n) = digits.parse() {
             return Some(n);
         }
@@ -130,7 +144,12 @@ fn refusal(path: &Path, new_text: &str, msg: &str) -> String {
         if from <= to {
             out.push_str("Your version around that line:\n");
             for n in from..=to {
-                out.push_str(&format!("{:>6}{}\t{}\n", n, if n == line { ">" } else { " " }, lines[n - 1]));
+                out.push_str(&format!(
+                    "{:>6}{}\t{}\n",
+                    n,
+                    if n == line { ">" } else { " " },
+                    lines[n - 1]
+                ));
             }
         }
     }
@@ -138,11 +157,17 @@ fn refusal(path: &Path, new_text: &str, msg: &str) -> String {
     out
 }
 
-pub async fn guard_write(path: &Path, old_text: Option<&str>, new_text: &str) -> Result<(), String> {
+pub async fn guard_write(
+    path: &Path,
+    old_text: Option<&str>,
+    new_text: &str,
+) -> Result<(), String> {
     if std::env::var_os("ZEN_NO_SYNTAX_GUARD").is_some() {
         return Ok(());
     }
-    let Some(msg) = syntax_error(path, new_text).await else { return Ok(()) };
+    let Some(msg) = syntax_error(path, new_text).await else {
+        return Ok(());
+    };
     if let Some(old) = old_text {
         if syntax_error(path, old).await.is_some() {
             return Ok(());
@@ -156,7 +181,10 @@ mod tests {
     use super::*;
 
     fn has(cmd: &str) -> bool {
-        std::process::Command::new(cmd).arg("--version").output().is_ok()
+        std::process::Command::new(cmd)
+            .arg("--version")
+            .output()
+            .is_ok()
     }
 
     #[tokio::test]
@@ -166,28 +194,62 @@ mod tests {
         }
         let p = Path::new("m.py");
         let old = "def f():\n    return 1\n";
-        assert!(guard_write(p, Some(old), "def f():\n    return 2\n").await.is_ok());
-        let err = guard_write(p, Some(old), "def f():\n    if x\n        return 2\n").await.unwrap_err();
-        assert!(err.contains("NOT applied") && err.contains("line 2"), "{}", err);
+        assert!(guard_write(p, Some(old), "def f():\n    return 2\n")
+            .await
+            .is_ok());
+        let err = guard_write(p, Some(old), "def f():\n    if x\n        return 2\n")
+            .await
+            .unwrap_err();
+        assert!(
+            err.contains("NOT applied") && err.contains("line 2"),
+            "{}",
+            err
+        );
         assert!(err.contains("     2>\t    if x"), "{}", err);
 
         assert!(guard_write(p, None, "def (:\n").await.is_err());
-        assert!(guard_write(p, Some("def (:\n"), "def (:\n  x\n").await.is_ok());
+        assert!(guard_write(p, Some("def (:\n"), "def (:\n  x\n")
+            .await
+            .is_ok());
     }
 
     #[tokio::test]
     async fn json_shell_and_js_are_checked_and_other_types_are_not() {
-        assert!(guard_write(Path::new("a.json"), Some("{}"), "{\"a\": 1,}").await.is_err());
-        assert!(guard_write(Path::new("a.json"), Some("{}"), "{\"a\": 1}").await.is_ok());
-        assert!(guard_write(Path::new("a.txt"), Some("x"), "{{{").await.is_ok());
-        assert!(guard_write(Path::new("a.rs"), Some("fn a(){}"), "fn a({").await.is_ok());
+        assert!(guard_write(Path::new("a.json"), Some("{}"), "{\"a\": 1,}")
+            .await
+            .is_err());
+        assert!(guard_write(Path::new("a.json"), Some("{}"), "{\"a\": 1}")
+            .await
+            .is_ok());
+        assert!(guard_write(Path::new("a.txt"), Some("x"), "{{{")
+            .await
+            .is_ok());
+        assert!(guard_write(Path::new("a.rs"), Some("fn a(){}"), "fn a({")
+            .await
+            .is_ok());
         if has("bash") {
-            assert!(guard_write(Path::new("s.sh"), Some("echo hi\n"), "if then fi\n").await.is_err());
-            assert!(guard_write(Path::new("s.sh"), Some("echo hi\n"), "echo ok\n").await.is_ok());
+            assert!(
+                guard_write(Path::new("s.sh"), Some("echo hi\n"), "if then fi\n")
+                    .await
+                    .is_err()
+            );
+            assert!(
+                guard_write(Path::new("s.sh"), Some("echo hi\n"), "echo ok\n")
+                    .await
+                    .is_ok()
+            );
         }
         if has("node") {
-            assert!(guard_write(Path::new("f.js"), Some("let a = 1;\n"), "let a = ;\n").await.is_err());
-            assert!(guard_write(Path::new("f.js"), Some("let a = 1;\n"), "let a = 2;\n").await.is_ok());
+            assert!(
+                guard_write(Path::new("f.js"), Some("let a = 1;\n"), "let a = ;\n")
+                    .await
+                    .is_err()
+            );
+            assert!(
+                guard_write(Path::new("f.js"), Some("let a = 1;\n"), "let a = 2;\n")
+                    .await
+                    .is_ok()
+            );
         }
     }
 }

@@ -1,3 +1,4 @@
+use crate::edit_match::apply_edit;
 use crate::gitignore::{is_ignored, load_ignore_rules};
 use async_trait::async_trait;
 use regex::Regex;
@@ -6,8 +7,7 @@ use std::path::{Component, Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
 use tokio::io::AsyncReadExt;
-use crate::edit_match::apply_edit;
-use zen_core::{Tool, ToolContext, ToolOutput, TodoItem};
+use zen_core::{TodoItem, Tool, ToolContext, ToolOutput};
 
 pub const BASH_MAX_CHARS: usize = 30_000;
 
@@ -24,7 +24,11 @@ fn detect_binary_kind(bytes: &[u8]) -> &'static str {
         "JPEG image"
     } else if bytes.len() >= 6 && (&bytes[0..6] == b"GIF87a" || &bytes[0..6] == b"GIF89a") {
         "GIF image"
-    } else if bytes.len() >= 4 && &bytes[0..4] == b"RIFF" && bytes.len() >= 12 && &bytes[8..12] == b"WEBP" {
+    } else if bytes.len() >= 4
+        && &bytes[0..4] == b"RIFF"
+        && bytes.len() >= 12
+        && &bytes[8..12] == b"WEBP"
+    {
         "WebP image"
     } else if bytes.len() >= 4 && &bytes[0..4] == b"%PDF" {
         "PDF document"
@@ -112,7 +116,9 @@ fn lexical_normalize(p: &Path) -> PathBuf {
 }
 
 fn arg_str<'a>(args: &'a Value, key: &str) -> Option<&'a str> {
-    args.get(key).and_then(|v| v.as_str()).filter(|s| !s.is_empty())
+    args.get(key)
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
 }
 
 fn missing(key: &str) -> ToolOutput {
@@ -139,7 +145,13 @@ pub fn truncate_middle(s: &str, max_chars: usize) -> String {
 fn safe_file_stem(id: &str) -> String {
     let s: String = id
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .take(80)
         .collect();
     if s.is_empty() {
@@ -156,7 +168,12 @@ fn fresh_stem() -> String {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    format!("out-{}-{}-{}", std::process::id(), nanos, N.fetch_add(1, Ordering::Relaxed))
+    format!(
+        "out-{}-{}-{}",
+        std::process::id(),
+        nanos,
+        N.fetch_add(1, Ordering::Relaxed)
+    )
 }
 
 pub fn spill_output(text: &str, max_chars: usize, ctx: &ToolContext) -> String {
@@ -165,7 +182,11 @@ pub fn spill_output(text: &str, max_chars: usize, ctx: &ToolContext) -> String {
         return text.to_string();
     }
     let dir = ctx.scratch_dir().join("tool-output");
-    let mut stem = ctx.current_tool_use_id.as_deref().map(safe_file_stem).unwrap_or_else(fresh_stem);
+    let mut stem = ctx
+        .current_tool_use_id
+        .as_deref()
+        .map(safe_file_stem)
+        .unwrap_or_else(fresh_stem);
     if dir.join(format!("{}.txt", stem)).exists() {
         stem = format!("{}-{}", stem, fresh_stem());
     }
@@ -224,8 +245,14 @@ impl Tool for ReadTool {
         true
     }
     async fn call(&self, args: Value, ctx: &ToolContext) -> ToolOutput {
-        let Some(fp) = arg_str(&args, "file_path") else { return missing("file_path") };
-        let offset = args.get("offset").and_then(|v| v.as_u64()).unwrap_or(1).max(1) as usize;
+        let Some(fp) = arg_str(&args, "file_path") else {
+            return missing("file_path");
+        };
+        let offset = args
+            .get("offset")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(1)
+            .max(1) as usize;
         let limit = args
             .get("limit")
             .and_then(|v| v.as_u64())
@@ -234,7 +261,10 @@ impl Tool for ReadTool {
 
         let path = canonicalize_lenient(&resolve_path(&ctx.cwd(), fp));
         if path.is_dir() {
-            return ToolOutput::err(format!("Error: {} is a directory, not a file", path.display()));
+            return ToolOutput::err(format!(
+                "Error: {} is a directory, not a file",
+                path.display()
+            ));
         }
 
         let bytes = match tokio::fs::read(&path).await {
@@ -262,7 +292,10 @@ impl Tool for ReadTool {
                 ));
             }
         };
-        ctx.read_files.lock().unwrap().insert(path.clone(), content_stamp(text.as_bytes()));
+        ctx.read_files
+            .lock()
+            .unwrap()
+            .insert(path.clone(), content_stamp(text.as_bytes()));
 
         let total = text.lines().count();
         let mut out = String::new();
@@ -313,7 +346,9 @@ impl Tool for WriteTool {
         false
     }
     async fn call(&self, args: Value, ctx: &ToolContext) -> ToolOutput {
-        let Some(fp) = arg_str(&args, "file_path") else { return missing("file_path") };
+        let Some(fp) = arg_str(&args, "file_path") else {
+            return missing("file_path");
+        };
         let content = args.get("content").and_then(|v| v.as_str()).unwrap_or("");
         let path = canonicalize_lenient(&resolve_path(&ctx.cwd(), fp));
 
@@ -336,21 +371,33 @@ impl Tool for WriteTool {
                 old_text = String::from_utf8(current).ok();
             }
         }
-        if let Err(msg) = crate::syntax_guard::guard_write(&path, old_text.as_deref(), content).await {
+        if let Err(msg) =
+            crate::syntax_guard::guard_write(&path, old_text.as_deref(), content).await
+        {
             return ToolOutput::err(msg);
         }
         if let Some(parent) = path.parent() {
             if let Err(e) = tokio::fs::create_dir_all(parent).await {
-                return ToolOutput::err(format!("Error creating directory {}: {}", parent.display(), e));
+                return ToolOutput::err(format!(
+                    "Error creating directory {}: {}",
+                    parent.display(),
+                    e
+                ));
             }
         }
         let ck_warning = checkpoint_before(ctx, &path);
         match crate::atomic::write_atomic_async(path.clone(), content.as_bytes().to_vec()).await {
             Ok(warning) => {
                 checkpoint_after(ctx, &path, content.as_bytes());
-                ctx.read_files.lock().unwrap().insert(path.clone(), content_stamp(content.as_bytes()));
+                ctx.read_files
+                    .lock()
+                    .unwrap()
+                    .insert(path.clone(), content_stamp(content.as_bytes()));
                 ToolOutput::ok(with_warning(
-                    with_warning(format!("Wrote {} bytes to {}", content.len(), path.display()), warning),
+                    with_warning(
+                        format!("Wrote {} bytes to {}", content.len(), path.display()),
+                        warning,
+                    ),
                     ck_warning,
                 ))
             }
@@ -386,14 +433,19 @@ impl Tool for EditTool {
         false
     }
     async fn call(&self, args: Value, ctx: &ToolContext) -> ToolOutput {
-        let Some(fp) = arg_str(&args, "file_path") else { return missing("file_path") };
+        let Some(fp) = arg_str(&args, "file_path") else {
+            return missing("file_path");
+        };
         let Some(old) = args.get("old_string").and_then(|v| v.as_str()) else {
             return missing("old_string");
         };
         let Some(new) = args.get("new_string").and_then(|v| v.as_str()) else {
             return missing("new_string");
         };
-        let replace_all = args.get("replace_all").and_then(|v| v.as_bool()).unwrap_or(false);
+        let replace_all = args
+            .get("replace_all")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
         let (path, text) = match load_for_edit(ctx, fp).await {
             Ok(v) => v,
             Err(e) => return e,
@@ -407,7 +459,10 @@ impl Tool for EditTool {
             Ok(w) => w,
             Err(e) => return e,
         };
-        let note = applied.note.map(|n| format!(" ({})", n)).unwrap_or_default();
+        let note = applied
+            .note
+            .map(|n| format!(" ({})", n))
+            .unwrap_or_default();
         ToolOutput::ok(with_warning(
             format!(
                 "Replaced {} occurrence(s) in {}{}\n{}",
@@ -442,7 +497,10 @@ fn check_fresh(ctx: &ToolContext, path: &Path, current: &[u8]) -> Result<(), Too
 async fn load_for_edit(ctx: &ToolContext, fp: &str) -> Result<(PathBuf, String), ToolOutput> {
     let path = canonicalize_lenient(&resolve_path(&ctx.cwd(), fp));
     if path.is_dir() {
-        return Err(ToolOutput::err(format!("Error: {} is a directory", path.display())));
+        return Err(ToolOutput::err(format!(
+            "Error: {} is a directory",
+            path.display()
+        )));
     }
     if !ctx.read_files.lock().unwrap().contains_key(&path) {
         return Err(ToolOutput::err(format!(
@@ -452,23 +510,45 @@ async fn load_for_edit(ctx: &ToolContext, fp: &str) -> Result<(PathBuf, String),
     }
     let text = match tokio::fs::read_to_string(&path).await {
         Ok(t) => t,
-        Err(e) => return Err(ToolOutput::err(format!("Error reading {}: {}", path.display(), e))),
+        Err(e) => {
+            return Err(ToolOutput::err(format!(
+                "Error reading {}: {}",
+                path.display(),
+                e
+            )))
+        }
     };
     check_fresh(ctx, &path, text.as_bytes())?;
     Ok((path, text))
 }
 
-async fn save_edit(ctx: &ToolContext, path: &Path, old: &str, text: &str) -> Result<Option<String>, ToolOutput> {
+async fn save_edit(
+    ctx: &ToolContext,
+    path: &Path,
+    old: &str,
+    text: &str,
+) -> Result<Option<String>, ToolOutput> {
     if let Err(msg) = crate::syntax_guard::guard_write(path, Some(old), text).await {
         return Err(ToolOutput::err(msg));
     }
     let ck_warning = checkpoint_before(ctx, path);
-    let warning = match crate::atomic::write_atomic_async(path.to_path_buf(), text.as_bytes().to_vec()).await {
-        Ok(w) => w,
-        Err(e) => return Err(ToolOutput::err(format!("Error writing {}: {}", path.display(), e))),
-    };
+    let warning =
+        match crate::atomic::write_atomic_async(path.to_path_buf(), text.as_bytes().to_vec()).await
+        {
+            Ok(w) => w,
+            Err(e) => {
+                return Err(ToolOutput::err(format!(
+                    "Error writing {}: {}",
+                    path.display(),
+                    e
+                )))
+            }
+        };
     checkpoint_after(ctx, path, text.as_bytes());
-    ctx.read_files.lock().unwrap().insert(path.to_path_buf(), content_stamp(text.as_bytes()));
+    ctx.read_files
+        .lock()
+        .unwrap()
+        .insert(path.to_path_buf(), content_stamp(text.as_bytes()));
     Ok(match (warning, ck_warning) {
         (Some(w), Some(c)) => Some(format!("{w}\n{c}")),
         (w, c) => w.or(c),
@@ -531,8 +611,14 @@ impl Tool for MultiEditTool {
         false
     }
     async fn call(&self, args: Value, ctx: &ToolContext) -> ToolOutput {
-        let Some(fp) = arg_str(&args, "file_path") else { return missing("file_path") };
-        let Some(edits) = args.get("edits").and_then(|v| v.as_array()).filter(|e| !e.is_empty()) else {
+        let Some(fp) = arg_str(&args, "file_path") else {
+            return missing("file_path");
+        };
+        let Some(edits) = args
+            .get("edits")
+            .and_then(|v| v.as_array())
+            .filter(|e| !e.is_empty())
+        else {
             return missing("edits");
         };
         let (path, original) = match load_for_edit(ctx, fp).await {
@@ -546,7 +632,10 @@ impl Tool for MultiEditTool {
         for (i, e) in edits.iter().enumerate() {
             let old = e.get("old_string").and_then(|v| v.as_str()).unwrap_or("");
             let new = e.get("new_string").and_then(|v| v.as_str()).unwrap_or("");
-            let all = e.get("replace_all").and_then(|v| v.as_bool()).unwrap_or(false);
+            let all = e
+                .get("replace_all")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
             match apply_edit(&text, old, new, all, &label) {
                 Ok(a) => {
                     total += if all { a.count } else { 1 };
@@ -569,7 +658,11 @@ impl Tool for MultiEditTool {
             Ok(w) => w,
             Err(e) => return e,
         };
-        let note = if notes.is_empty() { String::new() } else { format!(" ({})", notes.join("; ")) };
+        let note = if notes.is_empty() {
+            String::new()
+        } else {
+            format!(" ({})", notes.join("; "))
+        };
         ToolOutput::ok(with_warning(
             format!(
                 "Applied {} edit(s), {} replacement(s), to {}{}",
@@ -584,11 +677,16 @@ impl Tool for MultiEditTool {
 }
 
 fn snippet_around(text: &str, needle: &str) -> String {
-    let Some(pos) = text.find(needle) else { return String::new() };
+    let Some(pos) = text.find(needle) else {
+        return String::new();
+    };
     let start = text[..pos].rfind('\n').map(|i| i + 1).unwrap_or(0);
     let start = text[..start].rfind('\n').map(|i| i + 1).unwrap_or(start);
     let end_off = pos + needle.len();
-    let mut end = text[end_off..].find('\n').map(|i| end_off + i + 1).unwrap_or(text.len());
+    let mut end = text[end_off..]
+        .find('\n')
+        .map(|i| end_off + i + 1)
+        .unwrap_or(text.len());
     if let Some(i) = text[end..].find('\n') {
         end += i + 1;
     }
@@ -623,7 +721,9 @@ impl Tool for BashTool {
         false
     }
     async fn call(&self, args: Value, ctx: &ToolContext) -> ToolOutput {
-        let Some(cmd_str) = arg_str(&args, "command") else { return missing("command") };
+        let Some(cmd_str) = arg_str(&args, "command") else {
+            return missing("command");
+        };
         let timeout_ms = args
             .get("timeout_ms")
             .and_then(|v| v.as_u64())
@@ -636,7 +736,6 @@ impl Tool for BashTool {
 
         let shell = zen_core::resolve_shell("bash");
         if background {
-
             return match crate::jobs::start_job(cmd_str, &cwd, &ctx.env, &ctx.scratch_dir(), ctx.api_key_env.as_deref()) {
                 Ok(j) => ToolOutput::ok(format!(
                     "Started background job {} (pid {}). Output is logged to {}. Read new output with \
@@ -758,16 +857,24 @@ impl Tool for GlobTool {
         true
     }
     async fn call(&self, args: Value, ctx: &ToolContext) -> ToolOutput {
-        let Some(pattern) = arg_str(&args, "pattern") else { return missing("pattern") };
+        let Some(pattern) = arg_str(&args, "pattern") else {
+            return missing("pattern");
+        };
         let cwd = ctx.cwd();
         let base = match arg_str(&args, "path") {
             Some(p) => resolve_path(&cwd, p),
             None => cwd.clone(),
         };
         if !base.exists() {
-            return ToolOutput::err(format!("Error: directory does not exist: {}", base.display()));
+            return ToolOutput::err(format!(
+                "Error: directory does not exist: {}",
+                base.display()
+            ));
         }
-        let matcher = match globset::GlobBuilder::new(pattern).literal_separator(true).build() {
+        let matcher = match globset::GlobBuilder::new(pattern)
+            .literal_separator(true)
+            .build()
+        {
             Ok(g) => g.compile_matcher(),
             Err(e) => return ToolOutput::err(format!("Error: invalid glob pattern: {}", e)),
         };
@@ -864,7 +971,9 @@ impl Tool for GrepTool {
         true
     }
     async fn call(&self, args: Value, ctx: &ToolContext) -> ToolOutput {
-        let Some(pattern) = arg_str(&args, "pattern") else { return missing("pattern") };
+        let Some(pattern) = arg_str(&args, "pattern") else {
+            return missing("pattern");
+        };
         let cwd = ctx.cwd();
         let target = match arg_str(&args, "path") {
             Some(p) => resolve_path(&cwd, p),
@@ -875,7 +984,9 @@ impl Tool for GrepTool {
         }
         let glob = arg_str(&args, "glob").map(|s| s.to_string());
         let ftype = arg_str(&args, "type").map(|s| s.to_string());
-        let mode = arg_str(&args, "output_mode").unwrap_or("files_with_matches").to_string();
+        let mode = arg_str(&args, "output_mode")
+            .unwrap_or("files_with_matches")
+            .to_string();
         let case_insensitive = args.get("-i").and_then(|v| v.as_bool()).unwrap_or(false);
         let line_numbers = args.get("-n").and_then(|v| v.as_bool()).unwrap_or(false);
         let mut after = args.get("-A").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
@@ -899,20 +1010,40 @@ impl Tool for GrepTool {
 
         let (pattern, literal_note) = match regex::Regex::new(pattern) {
             Ok(_) => (pattern.to_string(), None),
-            Err(e) => (regex::escape(pattern), Some(literal_fallback_note(pattern, &e.to_string()))),
+            Err(e) => (
+                regex::escape(pattern),
+                Some(literal_fallback_note(pattern, &e.to_string())),
+            ),
         };
 
         let with_note = |s: String| -> ToolOutput {
             match &literal_note {
                 Some(n) if s.trim().is_empty() || s.trim() == "No matches found" => {
-                    ToolOutput::err(format!("Error: invalid regex, and no literal matches either. {}", n))
+                    ToolOutput::err(format!(
+                        "Error: invalid regex, and no literal matches either. {}",
+                        n
+                    ))
                 }
                 Some(n) => ToolOutput::ok(format!("{}\n{}", n, s)),
                 None => ToolOutput::ok(s),
             }
         };
         if rg_available() {
-            match run_rg(&target, &cwd, &pattern, &mode, case_insensitive, line_numbers, before, after, glob.as_deref(), ftype.as_deref(), head_limit).await {
+            match run_rg(
+                &target,
+                &cwd,
+                &pattern,
+                &mode,
+                case_insensitive,
+                line_numbers,
+                before,
+                after,
+                glob.as_deref(),
+                ftype.as_deref(),
+                head_limit,
+            )
+            .await
+            {
                 Ok(s) => return with_note(s),
 
                 Err(RgError::BadPattern(msg)) => return ToolOutput::err(msg),
@@ -941,12 +1072,23 @@ impl Tool for GrepTool {
 }
 
 fn literal_fallback_note(pattern: &str, err: &str) -> String {
-    let first = err.lines().rev().find(|l| l.trim_start().starts_with("error:")).unwrap_or("").trim();
+    let first = err
+        .lines()
+        .rev()
+        .find(|l| l.trim_start().starts_with("error:"))
+        .unwrap_or("")
+        .trim();
     let why = first.strip_prefix("error:").unwrap_or(first).trim();
     if why.is_empty() {
-        format!("[zen: '{}' is not a valid regex; searched for it as literal text]", pattern)
+        format!(
+            "[zen: '{}' is not a valid regex; searched for it as literal text]",
+            pattern
+        )
     } else {
-        format!("[zen: '{}' is not a valid regex ({}); searched for it as literal text]", pattern, why)
+        format!(
+            "[zen: '{}' is not a valid regex ({}); searched for it as literal text]",
+            pattern, why
+        )
     }
 }
 
@@ -1019,7 +1161,9 @@ async fn run_rg(
     cmd.arg("--").arg(pattern).arg(target);
     cmd.current_dir(cwd);
     cmd.stdin(Stdio::null());
-    cmd.stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
+    cmd.stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
 
     let out = tokio::time::timeout(Duration::from_secs(60), cmd.output())
         .await
@@ -1031,10 +1175,16 @@ async fn run_rg(
     if out.status.code() == Some(2) {
         let msg = stderr.trim();
         if msg.contains("regex") || msg.contains("pattern") {
-            return Err(RgError::BadPattern(format!("Error: invalid regex: {}", msg)));
+            return Err(RgError::BadPattern(format!(
+                "Error: invalid regex: {}",
+                msg
+            )));
         }
     }
-    Ok(truncate_lines(&normalize_paths(&stdout, target, cwd), head_limit))
+    Ok(truncate_lines(
+        &normalize_paths(&stdout, target, cwd),
+        head_limit,
+    ))
 }
 
 fn normalize_paths(text: &str, target: &Path, cwd: &Path) -> String {
@@ -1086,8 +1236,17 @@ pub fn search_builtin(
     glob: Option<&str>,
     head_limit: usize,
 ) -> String {
-    let glob_matcher = glob.and_then(|g| globset::GlobBuilder::new(g).build().ok().map(|g| g.compile_matcher()));
-    let base = if target.is_dir() { target } else { target.parent().unwrap_or(cwd) };
+    let glob_matcher = glob.and_then(|g| {
+        globset::GlobBuilder::new(g)
+            .build()
+            .ok()
+            .map(|g| g.compile_matcher())
+    });
+    let base = if target.is_dir() {
+        target
+    } else {
+        target.parent().unwrap_or(cwd)
+    };
     let rules = load_ignore_rules(base);
 
     let mut files: Vec<PathBuf> = Vec::new();
@@ -1122,13 +1281,18 @@ pub fn search_builtin(
     }
 
     let display = |p: &Path| -> String {
-        p.strip_prefix(cwd).unwrap_or(p).to_string_lossy().to_string()
+        p.strip_prefix(cwd)
+            .unwrap_or(p)
+            .to_string_lossy()
+            .to_string()
     };
 
     let mut out_lines: Vec<String> = Vec::new();
     let mut total_matches = 0usize;
     for file in &files {
-        let Ok(content) = std::fs::read(file) else { continue };
+        let Ok(content) = std::fs::read(file) else {
+            continue;
+        };
         if content.contains(&0u8) {
             continue;
         }
@@ -1213,7 +1377,9 @@ impl Tool for WebFetchTool {
         false
     }
     async fn call(&self, args: Value, ctx: &ToolContext) -> ToolOutput {
-        let Some(url) = arg_str(&args, "url") else { return missing("url") };
+        let Some(url) = arg_str(&args, "url") else {
+            return missing("url");
+        };
         let prompt = arg_str(&args, "prompt").unwrap_or("").to_string();
         let url = upgrade_scheme(url);
         if !(url.starts_with("http://") || url.starts_with("https://")) {
@@ -1248,7 +1414,9 @@ impl Tool for WebFetchTool {
             if hops > 10 {
                 return ToolOutput::err(format!("Error: too many redirects fetching {}", url));
             }
-            let loc = r.headers().get(reqwest::header::LOCATION)
+            let loc = r
+                .headers()
+                .get(reqwest::header::LOCATION)
                 .and_then(|v| v.to_str().ok())
                 .unwrap_or("")
                 .to_string();
@@ -1276,11 +1444,7 @@ impl Tool for WebFetchTool {
         };
         let raw = String::from_utf8_lossy(&bytes).to_string();
         let is_html = content_type.contains("html") || looks_like_html(&raw);
-        let text = if is_html {
-            html_to_text(&raw)
-        } else {
-            raw
-        };
+        let text = if is_html { html_to_text(&raw) } else { raw };
         let body = truncate_chars(&text, WEBFETCH_MAX_CHARS);
         let mut out = format!("URL: {}\nContent-Type: {}\n\n", url, content_type);
         if !prompt.is_empty() {
@@ -1313,11 +1477,9 @@ fn is_public_ip(ip: std::net::IpAddr) -> bool {
                 || v4.is_broadcast()
                 || v4.is_documentation()
                 || v4.is_unspecified()
-
                 || (v4.octets()[0] == 100 && (v4.octets()[1] & 0b1100_0000) == 0b0100_0000))
         }
         IpAddr::V6(v6) => {
-
             if let Some(v4) = v6.to_ipv4_mapped() {
                 return is_public_ip(IpAddr::V4(v4));
             }
@@ -1348,7 +1510,9 @@ fn url_host_port(url: &str) -> (String, u16) {
         }
     }
     match host_port.rsplit_once(':') {
-        Some((h, p)) if p.parse::<u16>().is_ok() => (h.to_string(), p.parse().unwrap_or(default_port)),
+        Some((h, p)) if p.parse::<u16>().is_ok() => {
+            (h.to_string(), p.parse().unwrap_or(default_port))
+        }
         _ => (host_port.to_string(), default_port),
     }
 }
@@ -1402,7 +1566,12 @@ async fn check_fetch_target(url: &str, allow_private: bool) -> Result<(), String
 }
 
 fn looks_like_html(s: &str) -> bool {
-    let head = s.trim_start().chars().take(200).collect::<String>().to_lowercase();
+    let head = s
+        .trim_start()
+        .chars()
+        .take(200)
+        .collect::<String>()
+        .to_lowercase();
     head.starts_with("<!doctype html") || head.starts_with("<html") || head.contains("<head>")
 }
 
@@ -1557,7 +1726,11 @@ impl Tool for TodoWriteTool {
                 .get("activeForm")
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string());
-            items.push(TodoItem { content, status, active_form });
+            items.push(TodoItem {
+                content,
+                status,
+                active_form,
+            });
         }
         *ctx.todos.lock().unwrap() = items.clone();
         ToolOutput::ok(render_todos(&items))
@@ -1574,7 +1747,9 @@ pub fn render_todos(items: &[TodoItem]) -> String {
             "completed" => ("[x]", item.content.clone()),
             "in_progress" => (
                 "[>]",
-                item.active_form.clone().unwrap_or_else(|| item.content.clone()),
+                item.active_form
+                    .clone()
+                    .unwrap_or_else(|| item.content.clone()),
             ),
             _ => ("[ ]", item.content.clone()),
         };
@@ -1609,10 +1784,18 @@ mod tests {
     #[test]
     fn ssrf_guard_rejects_ipv4_mapped_ipv6() {
         use std::net::IpAddr;
-        assert!(!super::is_public_ip("::ffff:127.0.0.1".parse::<IpAddr>().unwrap()));
-        assert!(!super::is_public_ip("::ffff:10.0.0.1".parse::<IpAddr>().unwrap()));
-        assert!(!super::is_public_ip("::ffff:169.254.169.254".parse::<IpAddr>().unwrap()));
-        assert!(super::is_public_ip("::ffff:8.8.8.8".parse::<IpAddr>().unwrap()));
+        assert!(!super::is_public_ip(
+            "::ffff:127.0.0.1".parse::<IpAddr>().unwrap()
+        ));
+        assert!(!super::is_public_ip(
+            "::ffff:10.0.0.1".parse::<IpAddr>().unwrap()
+        ));
+        assert!(!super::is_public_ip(
+            "::ffff:169.254.169.254".parse::<IpAddr>().unwrap()
+        ));
+        assert!(super::is_public_ip(
+            "::ffff:8.8.8.8".parse::<IpAddr>().unwrap()
+        ));
     }
 
     use super::*;
@@ -1655,7 +1838,9 @@ mod tests {
         let canonical = canonicalize_lenient(&file);
         assert!(ctx.read_files.lock().unwrap().contains_key(&canonical));
 
-        let err = ReadTool.call(json!({"file_path": "missing.txt"}), &ctx).await;
+        let err = ReadTool
+            .call(json!({"file_path": "missing.txt"}), &ctx)
+            .await;
         assert!(err.is_error);
         assert!(err.content.contains("missing.txt"));
         let _ = std::fs::remove_dir_all(&dir);
@@ -1668,21 +1853,35 @@ mod tests {
         std::fs::write(&existing, "old").unwrap();
         let ctx = ctx_for(&dir);
 
-        let denied = WriteTool.call(json!({"file_path": "e.txt", "content": "new"}), &ctx).await;
+        let denied = WriteTool
+            .call(json!({"file_path": "e.txt", "content": "new"}), &ctx)
+            .await;
         assert!(denied.is_error);
-        assert!(denied.content.contains("has not been read"), "{}", denied.content);
+        assert!(
+            denied.content.contains("has not been read"),
+            "{}",
+            denied.content
+        );
         assert_eq!(std::fs::read_to_string(&existing).unwrap(), "old");
 
         ReadTool.call(json!({"file_path": "e.txt"}), &ctx).await;
-        let ok = WriteTool.call(json!({"file_path": "e.txt", "content": "new"}), &ctx).await;
+        let ok = WriteTool
+            .call(json!({"file_path": "e.txt", "content": "new"}), &ctx)
+            .await;
         assert!(!ok.is_error, "{}", ok.content);
         assert_eq!(std::fs::read_to_string(&existing).unwrap(), "new");
 
         let created = WriteTool
-            .call(json!({"file_path": "deep/nested/f.txt", "content": "hi"}), &ctx)
+            .call(
+                json!({"file_path": "deep/nested/f.txt", "content": "hi"}),
+                &ctx,
+            )
             .await;
         assert!(!created.is_error, "{}", created.content);
-        assert_eq!(std::fs::read_to_string(dir.join("deep/nested/f.txt")).unwrap(), "hi");
+        assert_eq!(
+            std::fs::read_to_string(dir.join("deep/nested/f.txt")).unwrap(),
+            "hi"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1695,13 +1894,19 @@ mod tests {
         ReadTool.call(json!({"file_path": "c.txt"}), &ctx).await;
 
         let nf = EditTool
-            .call(json!({"file_path": "c.txt", "old_string": "zzz", "new_string": "x"}), &ctx)
+            .call(
+                json!({"file_path": "c.txt", "old_string": "zzz", "new_string": "x"}),
+                &ctx,
+            )
             .await;
         assert!(nf.is_error);
         assert!(nf.content.contains("not found"), "{}", nf.content);
 
         let amb = EditTool
-            .call(json!({"file_path": "c.txt", "old_string": "one", "new_string": "ONE"}), &ctx)
+            .call(
+                json!({"file_path": "c.txt", "old_string": "one", "new_string": "ONE"}),
+                &ctx,
+            )
             .await;
         assert!(amb.is_error);
         assert!(amb.content.contains("occurs 2 times"), "{}", amb.content);
@@ -1716,13 +1921,19 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "ONE\ntwo\nONE\n");
 
         let one = EditTool
-            .call(json!({"file_path": "c.txt", "old_string": "two", "new_string": "TWO"}), &ctx)
+            .call(
+                json!({"file_path": "c.txt", "old_string": "two", "new_string": "TWO"}),
+                &ctx,
+            )
             .await;
         assert!(!one.is_error, "{}", one.content);
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "ONE\nTWO\nONE\n");
 
         let same = EditTool
-            .call(json!({"file_path": "c.txt", "old_string": "TWO", "new_string": "TWO"}), &ctx)
+            .call(
+                json!({"file_path": "c.txt", "old_string": "TWO", "new_string": "TWO"}),
+                &ctx,
+            )
             .await;
         assert!(same.is_error);
         let _ = std::fs::remove_dir_all(&dir);
@@ -1734,7 +1945,10 @@ mod tests {
         std::fs::write(dir.join("x.txt"), "hello").unwrap();
         let ctx = ctx_for(&dir);
         let out = EditTool
-            .call(json!({"file_path": "x.txt", "old_string": "hello", "new_string": "bye"}), &ctx)
+            .call(
+                json!({"file_path": "x.txt", "old_string": "hello", "new_string": "bye"}),
+                &ctx,
+            )
             .await;
         assert!(out.is_error);
         assert!(out.content.contains("has not been read"), "{}", out.content);
@@ -1745,12 +1959,16 @@ mod tests {
     async fn bash_reports_exit_code_and_combines_output() {
         let dir = tmpdir("bash-out");
         let ctx = ctx_for(&dir);
-        let ok = BashTool.call(json!({"command": "echo out; echo err 1>&2"}), &ctx).await;
+        let ok = BashTool
+            .call(json!({"command": "echo out; echo err 1>&2"}), &ctx)
+            .await;
         assert!(!ok.is_error, "{}", ok.content);
         assert!(ok.content.contains("out"));
         assert!(ok.content.contains("err"));
 
-        let bad = BashTool.call(json!({"command": "echo boom 1>&2; exit 3"}), &ctx).await;
+        let bad = BashTool
+            .call(json!({"command": "echo boom 1>&2; exit 3"}), &ctx)
+            .await;
         assert!(bad.is_error);
         assert!(bad.content.contains("Exit code 3"), "{}", bad.content);
         assert!(bad.content.contains("boom"));
@@ -1803,14 +2021,19 @@ mod tests {
     async fn bash_truncates_middle_output() {
         let dir = tmpdir("bash-trunc");
         let ctx = ctx_for(&dir);
-        let out = BashTool
-            .call(json!({"command": "seq 1 40000"}), &ctx)
-            .await;
+        let out = BashTool.call(json!({"command": "seq 1 40000"}), &ctx).await;
 
-        assert!(out.content.contains("output too long") && out.content.contains("Full output saved to"), "no spill notice");
+        assert!(
+            out.content.contains("output too long") && out.content.contains("Full output saved to"),
+            "no spill notice"
+        );
         assert!(out.content.chars().count() <= BASH_MAX_CHARS + 400);
 
-        assert!(out.content.starts_with('1'), "{}", &out.content[..20.min(out.content.len())]);
+        assert!(
+            out.content.starts_with('1'),
+            "{}",
+            &out.content[..20.min(out.content.len())]
+        );
         assert!(out.content.trim_end().ends_with("40000"));
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -1868,20 +2091,26 @@ mod tests {
             0,
             Some("*.rs"),
             100,
-        ).replace('\\', "/");
+        )
+        .replace('\\', "/");
         assert!(files.contains("src/a.rs"), "{}", files);
         assert!(!files.contains("src/c.txt"), "{}", files);
         assert!(!files.contains("src/b.rs"), "{}", files);
 
-        let content = search_builtin(&dir, &dir, &re, "content", true, 0, 0, None, 100).replace('\\', "/");
+        let content =
+            search_builtin(&dir, &dir, &re, "content", true, 0, 0, None, 100).replace('\\', "/");
         assert!(content.contains("src/a.rs:1:fn alpha() {}"), "{}", content);
 
-        let counts = search_builtin(&dir, &dir, &re, "count", false, 0, 0, None, 100).replace('\\', "/");
+        let counts =
+            search_builtin(&dir, &dir, &re, "count", false, 0, 0, None, 100).replace('\\', "/");
         assert!(counts.contains("src/a.rs:1"), "{}", counts);
         assert!(counts.contains("src/c.txt:1"), "{}", counts);
 
         let ci = GrepTool
-            .call(json!({"pattern": "ALPHA", "-i": true, "glob": "*.rs"}), &ctx)
+            .call(
+                json!({"pattern": "ALPHA", "-i": true, "glob": "*.rs"}),
+                &ctx,
+            )
             .await;
         assert!(!ci.is_error, "{}", ci.content);
         assert!(ci.content.contains("a.rs"), "{}", ci.content);
@@ -1891,7 +2120,17 @@ mod tests {
             .await;
         assert!(counted.content.contains(":"), "{}", counted.content);
 
-        let none = search_builtin(&dir, &dir, &Regex::new("zzzznope").unwrap(), "content", false, 0, 0, None, 100);
+        let none = search_builtin(
+            &dir,
+            &dir,
+            &Regex::new("zzzznope").unwrap(),
+            "content",
+            false,
+            0,
+            0,
+            None,
+            100,
+        );
         assert_eq!(none, "No matches found");
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -1923,7 +2162,10 @@ mod tests {
 
     #[test]
     fn scheme_upgrade_and_truncate() {
-        assert_eq!(upgrade_scheme("http://example.com/x"), "https://example.com/x");
+        assert_eq!(
+            upgrade_scheme("http://example.com/x"),
+            "https://example.com/x"
+        );
         assert_eq!(upgrade_scheme("https://example.com"), "https://example.com");
         assert!(looks_like_html("<!DOCTYPE html><p>x</p>"));
         assert!(!looks_like_html("{\"json\":true}"));
@@ -1953,13 +2195,19 @@ mod tests {
         assert_eq!(ctx.todos.lock().unwrap().len(), 3);
 
         TodoWriteTool
-            .call(json!({"todos": [{"content": "only", "status": "pending"}]}), &ctx)
+            .call(
+                json!({"todos": [{"content": "only", "status": "pending"}]}),
+                &ctx,
+            )
             .await;
         assert_eq!(ctx.todos.lock().unwrap().len(), 1);
         assert_eq!(ctx.todos.lock().unwrap()[0].content, "only");
 
         let bad = TodoWriteTool
-            .call(json!({"todos": [{"content": "x", "status": "bogus"}]}), &ctx)
+            .call(
+                json!({"todos": [{"content": "x", "status": "bogus"}]}),
+                &ctx,
+            )
             .await;
         assert!(bad.is_error);
         let _ = std::fs::remove_dir_all(&dir);
@@ -1967,10 +2215,23 @@ mod tests {
 
     #[test]
     fn builtin_tools_cover_the_spec_list() {
-        let names: Vec<String> = builtin_tools().iter().map(|t| t.name().to_string()).collect();
+        let names: Vec<String> = builtin_tools()
+            .iter()
+            .map(|t| t.name().to_string())
+            .collect();
         assert_eq!(
             names,
-            vec!["Read", "Write", "Edit", "MultiEdit", "Bash", "Glob", "Grep", "WebFetch", "TodoWrite"]
+            vec![
+                "Read",
+                "Write",
+                "Edit",
+                "MultiEdit",
+                "Bash",
+                "Glob",
+                "Grep",
+                "WebFetch",
+                "TodoWrite"
+            ]
         );
         let tools = builtin_tools();
         for t in &tools {
@@ -1979,7 +2240,13 @@ mod tests {
         }
         let readonly = |n: &str| tools.iter().find(|t| t.name() == n).unwrap().is_read_only();
         assert!(readonly("Read") && readonly("Glob") && readonly("Grep") && readonly("TodoWrite"));
-        assert!(!readonly("Write") && !readonly("Edit") && !readonly("MultiEdit") && !readonly("Bash") && !readonly("WebFetch"));
+        assert!(
+            !readonly("Write")
+                && !readonly("Edit")
+                && !readonly("MultiEdit")
+                && !readonly("Bash")
+                && !readonly("WebFetch")
+        );
     }
 
     #[tokio::test]
@@ -1992,21 +2259,46 @@ mod tests {
         std::fs::write(&file, "hello world\n").unwrap();
 
         let e = EditTool
-            .call(json!({"file_path": "s.txt", "old_string": "hello", "new_string": "bye"}), &ctx)
+            .call(
+                json!({"file_path": "s.txt", "old_string": "hello", "new_string": "bye"}),
+                &ctx,
+            )
             .await;
-        assert!(e.is_error && e.content.contains("changed on disk"), "{}", e.content);
-        let w = WriteTool.call(json!({"file_path": "s.txt", "content": "x"}), &ctx).await;
-        assert!(w.is_error && w.content.contains("changed on disk"), "{}", w.content);
+        assert!(
+            e.is_error && e.content.contains("changed on disk"),
+            "{}",
+            e.content
+        );
+        let w = WriteTool
+            .call(json!({"file_path": "s.txt", "content": "x"}), &ctx)
+            .await;
+        assert!(
+            w.is_error && w.content.contains("changed on disk"),
+            "{}",
+            w.content
+        );
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "hello world\n");
 
         ReadTool.call(json!({"file_path": "s.txt"}), &ctx).await;
         for (o, n) in [("hello", "bye"), ("world", "moon")] {
-            let ok = EditTool.call(json!({"file_path": "s.txt", "old_string": o, "new_string": n}), &ctx).await;
+            let ok = EditTool
+                .call(
+                    json!({"file_path": "s.txt", "old_string": o, "new_string": n}),
+                    &ctx,
+                )
+                .await;
             assert!(!ok.is_error, "{}", ok.content);
         }
-        let ok = WriteTool.call(json!({"file_path": "s.txt", "content": "final\n"}), &ctx).await;
+        let ok = WriteTool
+            .call(json!({"file_path": "s.txt", "content": "final\n"}), &ctx)
+            .await;
         assert!(!ok.is_error, "{}", ok.content);
-        let ok = EditTool.call(json!({"file_path": "s.txt", "old_string": "final", "new_string": "done"}), &ctx).await;
+        let ok = EditTool
+            .call(
+                json!({"file_path": "s.txt", "old_string": "final", "new_string": "done"}),
+                &ctx,
+            )
+            .await;
         assert!(!ok.is_error, "{}", ok.content);
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "done\n");
         let _ = std::fs::remove_dir_all(&dir);
@@ -2024,14 +2316,28 @@ mod tests {
             .call(json!({"file_path": "m.py", "old_string": "    if x:\n        return 1", "new_string": "    if x:\n        return 2"}), &ctx)
             .await;
         assert!(!ok.is_error, "{}", ok.content);
-        assert!(ok.content.contains("indentation"), "the result says a fallback was used: {}", ok.content);
-        assert_eq!(std::fs::read_to_string(&file).unwrap(), "def f():\n\tif x:\n\t\treturn 2\n\treturn 0\n");
+        assert!(
+            ok.content.contains("indentation"),
+            "the result says a fallback was used: {}",
+            ok.content
+        );
+        assert_eq!(
+            std::fs::read_to_string(&file).unwrap(),
+            "def f():\n\tif x:\n\t\treturn 2\n\treturn 0\n"
+        );
 
         let miss = EditTool
-            .call(json!({"file_path": "m.py", "old_string": "return 9", "new_string": "return 3"}), &ctx)
+            .call(
+                json!({"file_path": "m.py", "old_string": "return 9", "new_string": "return 3"}),
+                &ctx,
+            )
             .await;
         assert!(miss.is_error);
-        assert!(miss.content.contains("not found") && miss.content.contains("return 2"), "{}", miss.content);
+        assert!(
+            miss.content.contains("not found") && miss.content.contains("return 2"),
+            "{}",
+            miss.content
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -2043,9 +2349,16 @@ mod tests {
         let ctx = ctx_for(&dir);
 
         let unread = MultiEditTool
-            .call(json!({"file_path": "t.rs", "edits": [{"old_string": "1", "new_string": "9"}]}), &ctx)
+            .call(
+                json!({"file_path": "t.rs", "edits": [{"old_string": "1", "new_string": "9"}]}),
+                &ctx,
+            )
             .await;
-        assert!(unread.is_error && unread.content.contains("has not been read"), "{}", unread.content);
+        assert!(
+            unread.is_error && unread.content.contains("has not been read"),
+            "{}",
+            unread.content
+        );
         ReadTool.call(json!({"file_path": "t.rs"}), &ctx).await;
 
         let failed = MultiEditTool
@@ -2058,8 +2371,15 @@ mod tests {
                 &ctx,
             )
             .await;
-        assert!(failed.is_error && failed.content.contains("edit 2 of 3"), "{}", failed.content);
-        assert_eq!(std::fs::read_to_string(&file).unwrap(), "let a = 1;\nlet b = 2;\nlet c = 3;\n");
+        assert!(
+            failed.is_error && failed.content.contains("edit 2 of 3"),
+            "{}",
+            failed.content
+        );
+        assert_eq!(
+            std::fs::read_to_string(&file).unwrap(),
+            "let a = 1;\nlet b = 2;\nlet c = 3;\n"
+        );
 
         let ok = MultiEditTool
             .call(
@@ -2072,13 +2392,20 @@ mod tests {
             )
             .await;
         assert!(!ok.is_error, "{}", ok.content);
-        assert_eq!(std::fs::read_to_string(&file).unwrap(), "const a = 10;\nconst bb = 2;\nconst c = 3;\n");
+        assert_eq!(
+            std::fs::read_to_string(&file).unwrap(),
+            "const a = 10;\nconst bb = 2;\nconst c = 3;\n"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[tokio::test]
     async fn r8_edit_that_breaks_python_is_not_written() {
-        if std::process::Command::new("python3").arg("--version").output().is_err() {
+        if std::process::Command::new("python3")
+            .arg("--version")
+            .output()
+            .is_err()
+        {
             return;
         }
         let dir = tmpdir("synguard");
@@ -2089,13 +2416,25 @@ mod tests {
         let bad = EditTool
             .call(json!({"file_path": "g.py", "old_string": "return x + 1", "new_string": "return (x + 1"}), &ctx)
             .await;
-        assert!(bad.is_error && bad.content.contains("NOT applied"), "{}", bad.content);
-        assert_eq!(std::fs::read_to_string(&file).unwrap(), "def f(x):\n    return x + 1\n");
+        assert!(
+            bad.is_error && bad.content.contains("NOT applied"),
+            "{}",
+            bad.content
+        );
+        assert_eq!(
+            std::fs::read_to_string(&file).unwrap(),
+            "def f(x):\n    return x + 1\n"
+        );
         let ok = EditTool
             .call(json!({"file_path": "g.py", "old_string": "return x + 1", "new_string": "return x + 2"}), &ctx)
             .await;
         assert!(!ok.is_error, "{}", ok.content);
-        let w = WriteTool.call(json!({"file_path": "h.py", "content": "def broken(:\n"}), &ctx).await;
+        let w = WriteTool
+            .call(
+                json!({"file_path": "h.py", "content": "def broken(:\n"}),
+                &ctx,
+            )
+            .await;
         assert!(w.is_error && !dir.join("h.py").exists(), "{}", w.content);
         let _ = std::fs::remove_dir_all(&dir);
     }

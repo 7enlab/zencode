@@ -8,7 +8,6 @@ pub const ARCHIVE_DIR_NAME: &str = "archive";
 
 #[derive(Debug, Clone)]
 pub struct SessionInfo {
-
     pub id: String,
 
     pub path: PathBuf,
@@ -159,7 +158,10 @@ pub fn archive_session(home: &Path, id: &str) -> Result<PathBuf> {
         .ok_or_else(|| anyhow!("cannot determine project dir for {}", path.display()))?;
     let ad = archive_dir(proj);
     std::fs::create_dir_all(&ad)?;
-    let dest = ad.join(path.file_name().ok_or_else(|| anyhow!("bad session path"))?);
+    let dest = ad.join(
+        path.file_name()
+            .ok_or_else(|| anyhow!("bad session path"))?,
+    );
     if dest.exists() {
         return Err(anyhow!(
             "session {} already exists in the archive; restore or delete it first",
@@ -185,7 +187,10 @@ pub fn restore_session(home: &Path, id: &str) -> Result<PathBuf> {
     let proj = archive
         .parent()
         .ok_or_else(|| anyhow!("cannot determine project dir for {}", path.display()))?;
-    let dest = proj.join(path.file_name().ok_or_else(|| anyhow!("bad session path"))?);
+    let dest = proj.join(
+        path.file_name()
+            .ok_or_else(|| anyhow!("bad session path"))?,
+    );
     if dest.exists() {
         return Err(anyhow!(
             "an active session {} already exists; delete it first",
@@ -246,7 +251,11 @@ pub fn auto_archive_old(home: &Path, days: u64) -> Result<Vec<String>> {
         if info.modified < cutoff {
             match archive_session(home, &info.id) {
                 Ok(_) => archived.push(info.id),
-                Err(e) => eprintln!("warning: auto-archive of {} failed: {}", short_id(&info.id), e),
+                Err(e) => eprintln!(
+                    "warning: auto-archive of {} failed: {}",
+                    short_id(&info.id),
+                    e
+                ),
             }
         }
     }
@@ -302,7 +311,11 @@ mod tests {
         crate::session::append_usage(
             &path,
             id,
-            &zen_core::UsageStats { input_tokens: 100, output_tokens: 50, ..Default::default() },
+            &zen_core::UsageStats {
+                input_tokens: 100,
+                output_tokens: 50,
+                ..Default::default()
+            },
         )
         .unwrap();
         path

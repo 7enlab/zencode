@@ -1,11 +1,11 @@
 pub mod acp;
 pub mod agent_run;
-pub mod budget;
 pub mod btw;
+pub mod budget;
 pub mod cli;
 pub mod commands;
-pub mod cost;
 pub mod context;
+pub mod cost;
 pub mod curation;
 pub mod deep_research;
 pub mod doneguard;
@@ -14,27 +14,31 @@ pub mod eval;
 pub mod eventlog;
 pub mod export;
 pub mod git;
-pub mod ollama;
-pub mod models;
-pub mod mentions;
 pub mod github;
+pub mod mentions;
+pub mod models;
+pub mod ollama;
 pub mod output;
 pub mod planmode;
 pub mod prompt_budget;
 pub mod repl;
-pub mod safety;
 pub mod repl_polish;
 pub mod repomap;
 pub mod review;
+pub mod safety;
 pub mod session;
 pub mod session_mgmt;
 pub mod settings;
-pub mod skills;
 pub mod skill_registry;
+pub mod skills;
 pub mod system_prompt;
 pub mod update;
 
-pub use cli::{Cli, Commands, CostArgs, EvalArgs, ExportArgs, ImportArgs, InputFormat, McpArgs, McpSubcommand, ModelsArgs, OutputFormat, PermissionMode, ReviewArgs, SessionSubcommand, SessionsArgs, UpdateArgs};
+pub use cli::{
+    Cli, Commands, CostArgs, EvalArgs, ExportArgs, ImportArgs, InputFormat, McpArgs, McpSubcommand,
+    ModelsArgs, OutputFormat, PermissionMode, ReviewArgs, SessionSubcommand, SessionsArgs,
+    UpdateArgs,
+};
 pub use settings::{resolve_config, ResolvedConfig};
 pub use system_prompt::build_system_prompt;
 
@@ -48,7 +52,6 @@ pub async fn run(cli: Cli) -> Result<i32> {
 }
 
 pub async fn run_with_home(cli: Cli, cwd: &Path, home: Option<&Path>) -> Result<i32> {
-
     if cli.acp {
         return acp::run_acp_server(&cli).await;
     }
@@ -67,12 +70,7 @@ pub async fn run_with_home(cli: Cli, cwd: &Path, home: Option<&Path>) -> Result<
     Ok(0)
 }
 
-async fn run_subcommand(
-    cli: &Cli,
-    cwd: &Path,
-    home: Option<&Path>,
-    sub: &Commands,
-) -> Result<i32> {
+async fn run_subcommand(cli: &Cli, cwd: &Path, home: Option<&Path>, sub: &Commands) -> Result<i32> {
     match sub {
         Commands::Doctor => {
             let cfg = settings::resolve_config_with_home(cli, cwd, home)?;
@@ -198,9 +196,7 @@ async fn run_subcommand(
             }
             Ok(0)
         }
-        Commands::Update(args) => {
-            update::run_update(args.check, home)
-        }
+        Commands::Update(args) => update::run_update(args.check, home),
         Commands::CiFix { json } => {
             let status = github::fetch_ci_status(cwd)?;
             if *json {
@@ -283,7 +279,10 @@ fn ask_folder_trust(cli: &Cli, cwd: &Path, home: Option<&Path>) {
         return;
     }
     if std::io::stdin().is_terminal() {
-        eprintln!("This folder has project config that can run commands: {}", gated.join("; "));
+        eprintln!(
+            "This folder has project config that can run commands: {}",
+            gated.join("; ")
+        );
         eprint!("Trust this folder? [y/N] ");
         let _ = std::io::stderr().flush();
         let mut answer = String::new();
@@ -372,7 +371,11 @@ fn resolve_session(
     cli: &Cli,
     cwd: &Path,
     home: Option<&Path>,
-) -> Result<(String, Option<std::path::PathBuf>, Option<std::path::PathBuf>)> {
+) -> Result<(
+    String,
+    Option<std::path::PathBuf>,
+    Option<std::path::PathBuf>,
+)> {
     let home_path = home.map(|p| p.to_path_buf());
 
     let persist = !cli.no_session_persistence && !cli.ephemeral;
@@ -392,7 +395,6 @@ fn resolve_session(
             None
         }
     } else {
-
         if cli.resume.as_deref().is_some_and(|r| !r.is_empty()) {
             anyhow::bail!("--resume needs a home directory to locate the session");
         }
@@ -451,10 +453,18 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("zen_lib_sess_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        let cli = Cli::parse_from(["zen", "-p", "--session-id", "00000000-0000-4000-8000-0000000000aa", "hi"]);
+        let cli = Cli::parse_from([
+            "zen",
+            "-p",
+            "--session-id",
+            "00000000-0000-4000-8000-0000000000aa",
+            "hi",
+        ]);
         let (id, path, _) = resolve_session(&cli, &dir, Some(&dir)).unwrap();
         assert_eq!(id, "00000000-0000-4000-8000-0000000000aa");
-        assert!(path.unwrap().ends_with("00000000-0000-4000-8000-0000000000aa.jsonl"));
+        assert!(path
+            .unwrap()
+            .ends_with("00000000-0000-4000-8000-0000000000aa.jsonl"));
     }
 
     #[test]
@@ -475,7 +485,10 @@ mod tests {
         let cli = Cli::parse_from(["zen", "-p", "--ephemeral", "hi"]);
         let (id, path, _) = resolve_session(&cli, &dir, Some(&dir)).unwrap();
         assert!(!id.is_empty());
-        assert!(path.is_none(), "ephemeral must not produce a transcript path");
+        assert!(
+            path.is_none(),
+            "ephemeral must not produce a transcript path"
+        );
 
         assert!(
             !dir.join(".zen").exists(),
@@ -498,7 +511,10 @@ mod tests {
         let (id, path, src) = resolve_session(&cli, &dir, Some(&dir)).unwrap();
         assert_eq!(id, "orig");
         assert_eq!(src, Some(p), "ephemeral resume replays history read-only");
-        assert!(path.is_none(), "ephemeral resume must not open a transcript for writing");
+        assert!(
+            path.is_none(),
+            "ephemeral resume must not open a transcript for writing"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

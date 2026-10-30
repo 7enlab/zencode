@@ -47,34 +47,41 @@ impl StdioTransport {
             .spawn()
             .map_err(|e| anyhow::anyhow!("failed to spawn '{}': {}", command, e))?;
         let child_pid = child.id();
-        let stdin = child.stdin.take().ok_or_else(|| anyhow::anyhow!("no stdin pipe"))?;
-        let stdout = child.stdout.take().ok_or_else(|| anyhow::anyhow!("no stdout pipe"))?;
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| anyhow::anyhow!("no stdin pipe"))?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| anyhow::anyhow!("no stdout pipe"))?;
 
         let pending: Pending = Arc::new(Mutex::new(HashMap::new()));
         let reader_pending = pending.clone();
         tokio::spawn(async move {
             let mut lines = BufReader::new(stdout).lines();
             while let Ok(Some(line)) = lines.next_line().await {
-                    {
-                        let trimmed = line.trim();
-                        if trimmed.is_empty() {
-                            continue;
-                        }
-                        if let Ok(val) = serde_json::from_str::<Value>(trimmed) {
-
-                            if let Some(id) = val.get("id").and_then(id_to_u64) {
-                                let tx = reader_pending.lock().unwrap().remove(&id);
-                                if let Some(tx) = tx {
-                                    let _ = tx.send(val);
-                                }
+                {
+                    let trimmed = line.trim();
+                    if trimmed.is_empty() {
+                        continue;
+                    }
+                    if let Ok(val) = serde_json::from_str::<Value>(trimmed) {
+                        if let Some(id) = val.get("id").and_then(id_to_u64) {
+                            let tx = reader_pending.lock().unwrap().remove(&id);
+                            if let Some(tx) = tx {
+                                let _ = tx.send(val);
                             }
                         }
                     }
+                }
             }
 
             let mut map = reader_pending.lock().unwrap();
             for (_, tx) in map.drain() {
-                let _ = tx.send(json!({"jsonrpc":"2.0","error":{"code":-32000,"message":"MCP server closed"}}));
+                let _ = tx.send(
+                    json!({"jsonrpc":"2.0","error":{"code":-32000,"message":"MCP server closed"}}),
+                );
             }
         });
 
@@ -134,7 +141,6 @@ impl StdioTransport {
     }
 
     pub(crate) fn kill(&self) {
-
         let pid = self.child_pid.lock().ok().and_then(|mut g| g.take());
         if let Ok(mut guard) = self.child.lock() {
             if let Some(mut child) = guard.take() {
@@ -149,7 +155,6 @@ fn kill_process_group(pid: Option<u32>) {
     let Some(pid) = pid else { return };
     #[cfg(unix)]
     {
-
         let _ = std::process::Command::new("kill")
             .args(["-KILL", "--", &format!("-{}", pid)])
             .stdin(std::process::Stdio::null())
@@ -194,8 +199,9 @@ impl HttpTransport {
             .url
             .clone()
             .ok_or_else(|| anyhow::anyhow!("http server has no url"))?;
-        let mut builder = with_extra_roots(reqwest::Client::builder()
-            .timeout(Duration::from_millis(timeout_ms.max(1))));
+        let mut builder = with_extra_roots(
+            reqwest::Client::builder().timeout(Duration::from_millis(timeout_ms.max(1))),
+        );
 
         if url_is_loopback(&url) {
             builder = builder.no_proxy();
@@ -204,7 +210,11 @@ impl HttpTransport {
         Ok(Arc::new(Self {
             client,
             url,
-            headers: cfg.headers.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+            headers: cfg
+                .headers
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
             session_id: Mutex::new(None),
             next_id: AtomicU64::new(1),
             timeout_ms,
@@ -252,9 +262,12 @@ impl HttpTransport {
             .to_string();
         let body = resp.text().await?;
 
-        let val = if content_type.contains("text/event-stream") || body.trim_start().starts_with("data:") {
-            parse_sse_for_id(&body, id)
-                .ok_or_else(|| anyhow::anyhow!("MCP SSE response carried no payload for id {}", id))?
+        let val = if content_type.contains("text/event-stream")
+            || body.trim_start().starts_with("data:")
+        {
+            parse_sse_for_id(&body, id).ok_or_else(|| {
+                anyhow::anyhow!("MCP SSE response carried no payload for id {}", id)
+            })?
         } else {
             serde_json::from_str::<Value>(&body)
                 .map_err(|e| anyhow::anyhow!("invalid MCP JSON response: {}", e))?
@@ -365,9 +378,10 @@ pub(crate) async fn handshake(transport: &Transport) -> anyhow::Result<Vec<Remot
         "capabilities": {},
         "clientInfo": {"name": "ZenCode", "version": env!("CARGO_PKG_VERSION")}
     });
-    let _ = transport.request("initialize", init_params).await.map_err(|e| {
-        anyhow::anyhow!("initialize failed: {}", e)
-    })?;
+    let _ = transport
+        .request("initialize", init_params)
+        .await
+        .map_err(|e| anyhow::anyhow!("initialize failed: {}", e))?;
     transport
         .notify("notifications/initialized", json!({}))
         .await
@@ -389,7 +403,11 @@ pub(crate) async fn list_tools(transport: &Transport) -> anyhow::Result<Vec<Remo
             .map_err(|e| anyhow::anyhow!("tools/list failed: {}", e))?;
         if let Some(arr) = result.get("tools").and_then(|v| v.as_array()) {
             for t in arr {
-                let name = t.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let name = t
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
                 if name.is_empty() {
                     continue;
                 }
@@ -402,7 +420,11 @@ pub(crate) async fn list_tools(transport: &Transport) -> anyhow::Result<Vec<Remo
                     .get("inputSchema")
                     .cloned()
                     .unwrap_or_else(|| json!({"type": "object"}));
-                tools.push(RemoteTool { name, description, schema });
+                tools.push(RemoteTool {
+                    name,
+                    description,
+                    schema,
+                });
             }
         }
         cursor = result

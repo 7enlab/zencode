@@ -147,7 +147,10 @@ pub static RESEARCH_ANGLES: &[ResearchAngle] = &[
 ];
 
 pub fn research_angles(max: usize) -> Vec<&'static ResearchAngle> {
-    RESEARCH_ANGLES.iter().take(max.min(RESEARCH_ANGLES.len())).collect()
+    RESEARCH_ANGLES
+        .iter()
+        .take(max.min(RESEARCH_ANGLES.len()))
+        .collect()
 }
 
 pub fn researcher_prompt(topic: &str, angle: &ResearchAngle) -> String {
@@ -401,8 +404,10 @@ mod tests {
 
     #[test]
     fn parse_quoted_topic_and_flags() {
-        let o = parse_deep_research_args("\"prompt caching\" --max-subagents 2 --timeout-secs 120 --max-budget-usd 1.5")
-            .unwrap();
+        let o = parse_deep_research_args(
+            "\"prompt caching\" --max-subagents 2 --timeout-secs 120 --max-budget-usd 1.5",
+        )
+        .unwrap();
         assert_eq!(o.topic, "prompt caching");
         assert_eq!(o.max_subagents, 2);
         assert_eq!(o.researcher_timeout_secs, 120);
@@ -451,13 +456,20 @@ mod tests {
         let p = researcher_prompt("vector databases", angle);
         assert!(p.contains("vector databases"));
         assert!(p.contains(angle.title));
-        assert!(p.contains("[source:"), "researchers must be told the citation format");
+        assert!(
+            p.contains("[source:"),
+            "researchers must be told the citation format"
+        );
         assert!(p.contains("do not ask follow-up questions"));
     }
 
     #[test]
     fn budget_gate_math() {
-        assert!((estimate_cost_usd(4) - (4.0 * ESTIMATED_USD_PER_RESEARCHER + ESTIMATED_USD_SYNTHESIS)).abs() < 1e-9);
+        assert!(
+            (estimate_cost_usd(4) - (4.0 * ESTIMATED_USD_PER_RESEARCHER + ESTIMATED_USD_SYNTHESIS))
+                .abs()
+                < 1e-9
+        );
         assert!(check_budget_usd(None, 4).is_ok());
         assert!(check_budget_usd(Some(10.0), 4).is_ok());
         let err = check_budget_usd(Some(0.5), 4).unwrap_err();
@@ -477,7 +489,13 @@ mod tests {
             elapsed_secs: 3,
         }];
         let p = synthesis_prompt("topic", &findings);
-        for section in ["## Summary", "## Findings", "## Sources", "## Confidence", "## Open questions"] {
+        for section in [
+            "## Summary",
+            "## Findings",
+            "## Sources",
+            "## Confidence",
+            "## Open questions",
+        ] {
             assert!(p.contains(section), "missing {section}");
         }
         assert!(p.contains("topic"));
@@ -494,7 +512,13 @@ mod tests {
             ok: true,
             elapsed_secs: 12,
         }];
-        let r = render_report("my topic", "test-model", &opts, &findings, "## Summary\n\nAll good.");
+        let r = render_report(
+            "my topic",
+            "test-model",
+            &opts,
+            &findings,
+            "## Summary\n\nAll good.",
+        );
         assert!(r.starts_with("# Deep Research: my topic"));
         assert!(r.contains("test-model"));
         assert!(r.contains("## Summary\n\nAll good."));
@@ -536,24 +560,37 @@ mod tests {
         fn is_read_only(&self) -> bool {
             true
         }
-        async fn call(&self, args: serde_json::Value, _ctx: &zen_core::ToolContext) -> zen_core::ToolOutput {
+        async fn call(
+            &self,
+            args: serde_json::Value,
+            _ctx: &zen_core::ToolContext,
+        ) -> zen_core::ToolOutput {
             let n = self.calls.fetch_add(1, Ordering::SeqCst);
             let cur = self.inflight.fetch_add(1, Ordering::SeqCst) + 1;
             self.max_inflight.fetch_max(cur, Ordering::SeqCst);
             tokio::time::sleep(Duration::from_millis(self.delay_ms)).await;
             self.inflight.fetch_sub(1, Ordering::SeqCst);
-            let desc = args.get("description").and_then(|v| v.as_str()).unwrap_or("");
+            let desc = args
+                .get("description")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             if self.fail_substr.as_ref().is_some_and(|f| desc.contains(f)) {
                 return zen_core::ToolOutput::err("boom");
             }
 
             let prompt = args.get("prompt").and_then(|v| v.as_str()).unwrap_or("");
-            assert!(prompt.contains("[source:"), "researcher prompt lost citation format");
+            assert!(
+                prompt.contains("[source:"),
+                "researcher prompt lost citation format"
+            );
             zen_core::ToolOutput::ok(format!("finding #{n} [source: https://example.com/{n}]"))
         }
     }
 
-    fn fake_tool(delay_ms: u64, fail_substr: Option<String>) -> (Arc<dyn zen_core::Tool>, Arc<AtomicUsize>, Arc<AtomicUsize>) {
+    fn fake_tool(
+        delay_ms: u64,
+        fail_substr: Option<String>,
+    ) -> (Arc<dyn zen_core::Tool>, Arc<AtomicUsize>, Arc<AtomicUsize>) {
         let calls = Arc::new(AtomicUsize::new(0));
         let inflight = Arc::new(AtomicUsize::new(0));
         let max_inflight = Arc::new(AtomicUsize::new(0));
@@ -591,7 +628,11 @@ mod tests {
 
         let names: Vec<&str> = findings.iter().map(|f| f.angle_name.as_str()).collect();
         assert_eq!(names, vec!["docs", "code", "web"]);
-        assert_eq!(progress.lock().unwrap().len(), 3, "progress fires per researcher");
+        assert_eq!(
+            progress.lock().unwrap().len(),
+            3,
+            "progress fires per researcher"
+        );
         assert!(
             max_inflight.load(Ordering::SeqCst) >= 2,
             "researchers should overlap (max inflight = {})",

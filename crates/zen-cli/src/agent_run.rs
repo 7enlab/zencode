@@ -6,8 +6,8 @@ use anyhow::Result;
 use std::path::Path;
 use std::sync::Arc;
 use zen_core::{
-    AgentEvent, EventSink, HookRunner, NoHooks, PermissionChecker,
-    PermissionDenial, PermissionMode, Prompter, RunResult, Tool, ToolContext, ToolRegistry,
+    AgentEvent, EventSink, HookRunner, NoHooks, PermissionChecker, PermissionDenial,
+    PermissionMode, Prompter, RunResult, Tool, ToolContext, ToolRegistry,
 };
 
 pub struct AgentAssembly {
@@ -62,11 +62,7 @@ pub struct ReplPrompter;
 impl Prompter for ReplPrompter {
     fn ask_permission(&self, tool_name: &str, input: &serde_json::Value) -> zen_core::PromptAnswer {
         use std::io::Write;
-        eprint!(
-            "Allow {} {}? [y]es / [a]lways / [n]o: ",
-            tool_name,
-            input
-        );
+        eprint!("Allow {} {}? [y]es / [a]lways / [n]o: ", tool_name, input);
         let _ = std::io::stderr().flush();
         let mut line = String::new();
         if std::io::stdin().read_line(&mut line).is_err() {
@@ -75,9 +71,12 @@ impl Prompter for ReplPrompter {
         match line.trim().to_lowercase().as_str() {
             "y" | "yes" => zen_core::PromptAnswer::Yes,
             "a" | "always" => {
-
                 let rules = zen_tools::suggested_rules(tool_name, input);
-                let rule = if rules.is_empty() { tool_name.to_string() } else { rules.join("\n") };
+                let rule = if rules.is_empty() {
+                    tool_name.to_string()
+                } else {
+                    rules.join("\n")
+                };
                 zen_core::PromptAnswer::Always(rule)
             }
             _ => zen_core::PromptAnswer::No,
@@ -85,16 +84,29 @@ impl Prompter for ReplPrompter {
     }
 }
 
-pub fn select_builtin_tools(spec: Option<&str>, all: Vec<Arc<dyn Tool>>) -> Result<Vec<Arc<dyn Tool>>> {
+pub fn select_builtin_tools(
+    spec: Option<&str>,
+    all: Vec<Arc<dyn Tool>>,
+) -> Result<Vec<Arc<dyn Tool>>> {
     let list = match spec {
         None | Some("default") => return Ok(all),
         Some("") => return Ok(vec![]),
         Some(list) => list,
     };
-    let entries: Vec<&str> = list.split(',').map(str::trim).filter(|s| !s.is_empty()).collect();
-    let deltas = entries.iter().filter(|e| e.starts_with('+') || e.starts_with('-')).count();
+    let entries: Vec<&str> = list
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .collect();
+    let deltas = entries
+        .iter()
+        .filter(|e| e.starts_with('+') || e.starts_with('-'))
+        .count();
     if deltas == 0 {
-        return Ok(all.into_iter().filter(|t| entries.iter().any(|a| a.eq_ignore_ascii_case(t.name()))).collect());
+        return Ok(all
+            .into_iter()
+            .filter(|t| entries.iter().any(|a| a.eq_ignore_ascii_case(t.name())))
+            .collect());
     }
     if deltas != entries.len() {
         anyhow::bail!("--tools: cannot mix plain names with +name/-name entries: {list}");
@@ -107,7 +119,12 @@ pub fn select_builtin_tools(spec: Option<&str>, all: Vec<Arc<dyn Tool>>) -> Resu
         };
         keep[i] = add;
     }
-    Ok(all.into_iter().zip(keep).filter(|(_, k)| *k).map(|(t, _)| t).collect())
+    Ok(all
+        .into_iter()
+        .zip(keep)
+        .filter(|(_, k)| *k)
+        .map(|(t, _)| t)
+        .collect())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -119,7 +136,6 @@ pub async fn assemble(
     session_id: &str,
     transcript_path: Option<&Path>,
 ) -> Result<AgentAssembly> {
-
     let recorder = transcript_path.map(|p| crate::eventlog::Recorder::new(p.to_path_buf()));
 
     let mut registry = ToolRegistry::new();
@@ -139,13 +155,12 @@ pub async fn assemble(
     let mut mcp_errors: Vec<(String, String)> = vec![];
     let mut skills: Vec<zen_core::SkillInfo> = vec![];
 
-    let skill_gate = Arc::new(crate::skills::SkillPermissionGate::new(
-        build_permissions(cwd, cfg, cli),
-    ));
+    let skill_gate = Arc::new(crate::skills::SkillPermissionGate::new(build_permissions(
+        cwd, cfg, cli,
+    )));
     if !cli.bare {
         skills = zen_ext::discover_skills(cwd, home);
         if cli.tools.as_deref() != Some("") {
-
             let installed = home
                 .map(crate::skills::load_enabled_skills)
                 .unwrap_or_default();
@@ -158,7 +173,6 @@ pub async fn assemble(
     }
 
     if !cli.bare || !cli.mcp_config.is_empty() {
-
         let mcp_configs = match zen_mcp::load_mcp_configs_scoped(
             cwd,
             home,
@@ -195,7 +209,6 @@ pub async fn assemble(
         for t in manager.tools() {
             registry.register(t);
         }
-
     }
 
     let allowed_bare: Vec<String> = split_rule_names(&cli.allowed_tools)
@@ -213,9 +226,16 @@ pub async fn assemble(
 
     let mut deny_rules = cfg.permissions.deny.clone();
     deny_rules.extend(split_rule_names(&cli.disallowed_tools));
-    let tool_denied =
-        |name: &str| deny_rules.iter().any(|r| zen_tools::rule_removes_tool(r, name));
-    let kept: Vec<String> = registry.names().into_iter().filter(|n| !tool_denied(n)).collect();
+    let tool_denied = |name: &str| {
+        deny_rules
+            .iter()
+            .any(|r| zen_tools::rule_removes_tool(r, name))
+    };
+    let kept: Vec<String> = registry
+        .names()
+        .into_iter()
+        .filter(|n| !tool_denied(n))
+        .collect();
     registry = registry.filtered(&kept);
 
     let mut agent_system_prompt: Option<String> = None;
@@ -247,22 +267,17 @@ pub async fn assemble(
 
     let subagent_sink = Arc::new(ForwardSink::default());
     if !agents.is_empty() && cli.tools.as_deref() != Some("") && !tool_denied("Task") {
-
         let fwd: Arc<dyn EventSink> = subagent_sink.clone();
         let executor = zen_agent::SubAgentExecutor::new(
             crate::eventlog::wrap(cfg.gated_llm_client(fwd.clone(), home), recorder.as_ref()),
             registry.clone(),
-
             Arc::new(skill_gate.shared(assembly_permissions.clone())),
             hooks.clone(),
             fwd,
             ToolContext::new(cwd.to_path_buf(), session_id.to_string()),
             base_agent_config(cfg, cli, ""),
         );
-        registry.register(Arc::new(zen_mcp::TaskTool::new(
-            agents,
-            Arc::new(executor),
-        )));
+        registry.register(Arc::new(zen_mcp::TaskTool::new(agents, Arc::new(executor))));
 
         assembly_permissions = Arc::new(skill_gate.shared(build_permissions(cwd, cfg, cli)));
     }
@@ -275,7 +290,6 @@ pub async fn assemble(
             Arc::new(zen_mcp::FindReferencesTool::new(lsp_manager.clone())),
         ];
         for tool in lsp_tools {
-
             let name = tool.name();
             let allowed = allowed_bare.is_empty()
                 || allowed_bare.iter().any(|a| a.eq_ignore_ascii_case(name));
@@ -314,7 +328,10 @@ fn lsp_tool_allowed(spec: Option<&str>, name: &str) -> bool {
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .collect();
-    if entries.iter().any(|e| e.starts_with('+') || e.starts_with('-')) {
+    if entries
+        .iter()
+        .any(|e| e.starts_with('+') || e.starts_with('-'))
+    {
         return !entries
             .iter()
             .filter_map(|e| e.strip_prefix('-'))
@@ -392,9 +409,7 @@ fn build_hooks(
             cwd.to_path_buf(),
             core_mode(cfg.permission_mode),
         )
-
         .with_env(cfg.env.clone())
-
         .with_api_key_env(cfg.api_key_env.clone()),
     )
 }
@@ -416,7 +431,6 @@ fn resolve_auto_compact_threshold(
     setting: Option<&serde_json::Value>,
     context_window: u64,
 ) -> Option<u64> {
-
     let flag_value = flag.map(|v| match v {
         "auto" => serde_json::Value::Bool(true),
         "off" => serde_json::Value::Bool(false),
@@ -430,10 +444,17 @@ fn resolve_auto_compact_threshold(
     }
 }
 
-pub fn base_agent_config(cfg: &ResolvedConfig, cli: &Cli, system_prompt: &str) -> zen_agent::AgentConfig {
+pub fn base_agent_config(
+    cfg: &ResolvedConfig,
+    cli: &Cli,
+    system_prompt: &str,
+) -> zen_agent::AgentConfig {
     let context_window = cfg.context_window.unwrap_or(128_000);
-    let auto_compact_threshold =
-        resolve_auto_compact_threshold(cli.autocompact.as_deref(), cfg.auto_compact.as_ref(), context_window);
+    let auto_compact_threshold = resolve_auto_compact_threshold(
+        cli.autocompact.as_deref(),
+        cfg.auto_compact.as_ref(),
+        context_window,
+    );
     let mut config = zen_agent::AgentConfig {
         model: cfg.model.clone(),
         fallback_models: cfg.fallback_models.clone(),
@@ -452,7 +473,6 @@ pub fn base_agent_config(cfg: &ResolvedConfig, cli: &Cli, system_prompt: &str) -
         tool_timeouts: cfg.tool_timeouts.clone(),
         max_continuations: cfg.max_continuations,
         prune: zen_agent::prune::PruneConfig {
-
             enabled: !cli.no_prune,
             prune_after: cli
                 .prune_after
@@ -477,7 +497,11 @@ pub fn base_agent_config(cfg: &ResolvedConfig, cli: &Cli, system_prompt: &str) -
     config
 }
 
-pub fn apply_verify_settings(config: &mut zen_agent::AgentConfig, cfg: &ResolvedConfig, interactive: bool) {
+pub fn apply_verify_settings(
+    config: &mut zen_agent::AgentConfig,
+    cfg: &ResolvedConfig,
+    interactive: bool,
+) {
     let v = cfg.verify.as_ref().filter(|v| v.is_object());
     let enabled = v.and_then(|v| v.get("enabled")).and_then(|e| e.as_bool());
     if enabled == Some(false) {
@@ -488,14 +512,19 @@ pub fn apply_verify_settings(config: &mut zen_agent::AgentConfig, cfg: &Resolved
     }
 
     config.verify_after_edit = match v.and_then(|v| v.get("afterEdit")) {
-        Some(serde_json::Value::Bool(true)) => v.and_then(|v| v.get("command")).and_then(|c| c.as_str()),
+        Some(serde_json::Value::Bool(true)) => {
+            v.and_then(|v| v.get("command")).and_then(|c| c.as_str())
+        }
         Some(serde_json::Value::String(c)) => Some(c.as_str()),
         _ => None,
     }
     .map(str::trim)
     .filter(|c| !c.is_empty())
     .map(String::from);
-    if let Some(t) = v.and_then(|v| v.get("afterEditTimeoutSecs")).and_then(|t| t.as_u64()) {
+    if let Some(t) = v
+        .and_then(|v| v.get("afterEditTimeoutSecs"))
+        .and_then(|t| t.as_u64())
+    {
         config.verify_after_edit_timeout_secs = t.max(1);
     }
     config.verify_reminder = interactive || v.is_some();
@@ -505,7 +534,10 @@ pub fn apply_verify_settings(config: &mut zen_agent::AgentConfig, cfg: &Resolved
         .map(str::trim)
         .filter(|c| !c.is_empty())
         .map(String::from);
-    if let Some(t) = v.and_then(|v| v.get("timeoutSecs")).and_then(|t| t.as_u64()) {
+    if let Some(t) = v
+        .and_then(|v| v.get("timeoutSecs"))
+        .and_then(|t| t.as_u64())
+    {
         config.verify_timeout_secs = t.max(1);
     }
 }
@@ -579,7 +611,10 @@ pub(crate) async fn run_agent_with_result(
     if let Some((name, _)) = &builtin {
         if !commands::HEADLESS_BUILTINS.contains(&name.as_str()) {
             let buf = Buffered::new();
-            let text = format!("/{} isn't available in -p mode (interactive sessions only).", name);
+            let text = format!(
+                "/{} isn't available in -p mode (interactive sessions only).",
+                name
+            );
             let result = local_result(session_id, &cfg.model, Default::default(), text, true, 0);
             print_result(&result, &cli.output_format, &buf, false);
             print!("{}", buf.text());
@@ -593,7 +628,6 @@ pub(crate) async fn run_agent_with_result(
     let (prompt, slash_cmd) = match &builtin {
         Some((name, args)) if name == "review" => (commands::review_prompt(args), None),
         Some((name, _)) if name == "init" => {
-
             let candidates = zen_ext::detect_import_candidates(cwd);
             let prompt = if candidates.is_empty() {
                 commands::init_prompt()
@@ -643,13 +677,20 @@ pub(crate) async fn run_agent_with_result(
     };
     assembly.subagent_sink.set(sink.clone());
 
-    let llm = crate::eventlog::wrap(cfg.gated_llm_client(sink.clone(), home), assembly.recorder.as_ref());
+    let llm = crate::eventlog::wrap(
+        cfg.gated_llm_client(sink.clone(), home),
+        assembly.recorder.as_ref(),
+    );
 
     let mut config = base_agent_config(cfg, cli, system_prompt);
     config.model = effective_model.clone();
 
     let base_prompt = match &assembly.agent_system_prompt {
-        Some(body) => format!("{}\n\n{}", body, crate::system_prompt::environment_block(cwd)),
+        Some(body) => format!(
+            "{}\n\n{}",
+            body,
+            crate::system_prompt::environment_block(cwd)
+        ),
         None => system_prompt.to_string(),
     };
     config.system_prompt =
@@ -673,12 +714,14 @@ pub(crate) async fn run_agent_with_result(
         ctx,
         config,
     );
-    agent.journal = assembly.recorder.clone().map(|r| r as Arc<dyn zen_core::ToolJournal>);
+    agent.journal = assembly
+        .recorder
+        .clone()
+        .map(|r| r as Arc<dyn zen_core::ToolJournal>);
 
     let mut writer = transcript_path
         .map(|p| crate::session::TranscriptWriter::new(p.to_path_buf(), session_id, cwd));
     if let Some(src) = history_from {
-
         let (committed, history) = crate::eventlog::resume_history(src)?;
         if !history.is_empty() {
             if let Some(w) = writer.as_mut() {
@@ -710,7 +753,11 @@ pub(crate) async fn run_agent_with_result(
                 agent.config.model = args.clone();
                 Some(format!("Set model to {}", args))
             }
-            "cost" => Some(commands::cost_report(&agent.usage, &agent.config.model, &cfg.base_url)),
+            "cost" => Some(commands::cost_report(
+                &agent.usage,
+                &agent.config.model,
+                &cfg.base_url,
+            )),
             "mcp" => Some(commands::mcp_report(&assembly.mcp_status)),
             "context" => Some(commands::context_report(
                 &agent.config.system_prompt,
@@ -744,8 +791,14 @@ pub(crate) async fn run_agent_with_result(
         };
         if let Some(text) = local {
             run_session_end(&assembly.hooks, session_id, cwd, cfg, "other").await;
-            let result =
-                local_result(session_id, &agent.config.model, agent.usage.clone(), text, false, 0);
+            let result = local_result(
+                session_id,
+                &agent.config.model,
+                agent.usage.clone(),
+                text,
+                false,
+                0,
+            );
             print_result(&result, &cli.output_format, &buf, false);
             print!("{}", buf.text());
             if cli.output_format == OutputFormat::Text {
@@ -806,7 +859,8 @@ pub(crate) async fn run_agent_with_result(
         cfg,
         if resume { "resume" } else { "startup" },
     )
-    .await {
+    .await
+    {
         prompt.push_str("\n\n");
         prompt.push_str(&ctx);
     }
@@ -841,7 +895,6 @@ pub(crate) async fn run_agent_with_result(
         let turn_result: RunResult = match outcome {
             Ok(r) => r,
             Err(interrupt) => {
-
                 run_session_end(&assembly.hooks, session_id, cwd, cfg, "other").await;
 
                 let total_cost_usd = zen_agent::budget::estimate_cost_usd(
@@ -865,7 +918,6 @@ pub(crate) async fn run_agent_with_result(
                     permission_denials: vec![],
                 };
                 if interrupt != Interrupt::Term {
-
                     print_result(&result, &cli.output_format, &buf, false);
                     print!("{}", buf.text());
                     if cli.output_format == OutputFormat::Text {
@@ -873,7 +925,11 @@ pub(crate) async fn run_agent_with_result(
                     }
                 }
                 return Ok((
-                    if interrupt == Interrupt::Term { 143 } else { 130 },
+                    if interrupt == Interrupt::Term {
+                        143
+                    } else {
+                        130
+                    },
                     result,
                 ));
             }
@@ -913,7 +969,10 @@ pub(crate) async fn run_agent_with_result(
         };
         sink.emit(AgentEvent::SystemMessage {
             event: "verify".into(),
-            text: format!("verify: `{}` {status} (attempt {attempt_no}/{total})", v.command),
+            text: format!(
+                "verify: `{}` {status} (attempt {attempt_no}/{total})",
+                v.command
+            ),
         });
         match decide_verify(&vo, &v.command, attempt_no, v.max_retries) {
             VerifyDecision::Done => break turn_result,
@@ -922,7 +981,13 @@ pub(crate) async fn run_agent_with_result(
                 prompt = feedback;
             }
             VerifyDecision::Failed => {
-                break verify_failed_result(&turn_result, &vo, &v.command, v.max_retries, session_id)
+                break verify_failed_result(
+                    &turn_result,
+                    &vo,
+                    &v.command,
+                    v.max_retries,
+                    session_id,
+                )
             }
         }
     };
@@ -960,7 +1025,6 @@ pub async fn run_plan_flow(
     transcript_path: Option<&Path>,
     history_from: Option<&Path>,
 ) -> Result<i32> {
-
     let mut plan_cli = cli.clone();
     plan_cli.plan = false;
     plan_cli.until = None;
@@ -1065,16 +1129,17 @@ fn local_result(
     is_error: bool,
     duration_ms: u64,
 ) -> RunResult {
-
-    let total_cost_usd = zen_agent::budget::estimate_cost_usd(
-        model,
-        usage.input_tokens,
-        usage.output_tokens,
-    )
-    .unwrap_or(0.0);
+    let total_cost_usd =
+        zen_agent::budget::estimate_cost_usd(model, usage.input_tokens, usage.output_tokens)
+            .unwrap_or(0.0);
     RunResult {
         record_type: "result".into(),
-        subtype: if is_error { "error_during_execution" } else { "success" }.into(),
+        subtype: if is_error {
+            "error_during_execution"
+        } else {
+            "success"
+        }
+        .into(),
         is_error,
         duration_ms,
         duration_api_ms: 0,
@@ -1090,7 +1155,6 @@ fn local_result(
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Interrupt {
-
     Term,
 
     Int,
@@ -1161,9 +1225,13 @@ pub fn descendants_of(root: u32) -> Vec<u32> {
             let Some(pid) = e.file_name().to_str().and_then(|n| n.parse::<u32>().ok()) else {
                 continue;
             };
-            let Ok(stat) = std::fs::read_to_string(e.path().join("stat")) else { continue };
+            let Ok(stat) = std::fs::read_to_string(e.path().join("stat")) else {
+                continue;
+            };
 
-            let Some(after) = stat.rfind(')').map(|i| &stat[i + 1..]) else { continue };
+            let Some(after) = stat.rfind(')').map(|i| &stat[i + 1..]) else {
+                continue;
+            };
             if let Some(ppid) = after.split_whitespace().nth(1).and_then(|p| p.parse().ok()) {
                 parent_of.push((pid, ppid));
             }
@@ -1265,16 +1333,17 @@ pub fn expand_slash_prompt_cmd(
         session_id: session_id.to_string(),
         allow_shell: Some(&gate),
     };
-    Ok(match zen_ext::expand_slash_prompt(prompt, cwd, home, &ectx) {
-        Some((mut cmd, text)) => {
-
-            if !cfg.folder_trusted && cmd.path.starts_with(cwd.join(".zen")) {
-                cmd.allowed_tools.clear();
+    Ok(
+        match zen_ext::expand_slash_prompt(prompt, cwd, home, &ectx) {
+            Some((mut cmd, text)) => {
+                if !cfg.folder_trusted && cmd.path.starts_with(cwd.join(".zen")) {
+                    cmd.allowed_tools.clear();
+                }
+                (text, Some(cmd))
             }
-            (text, Some(cmd))
-        }
-        None => (prompt.to_string(), None),
-    })
+            None => (prompt.to_string(), None),
+        },
+    )
 }
 
 pub fn denied_result(session_id: &str, model: &str, denials: Vec<PermissionDenial>) -> RunResult {
@@ -1319,7 +1388,6 @@ pub fn verify_config(cli: &Cli) -> Option<VerifyConfig> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VerifyOutcome {
-
     pub exit_code: i32,
     pub stdout: String,
     pub stderr: String,
@@ -1354,13 +1422,19 @@ fn truncate_head_tail(s: &str, max_chars: usize) -> String {
     let head = max_chars * 2 / 3;
     let tail = max_chars - head;
     let h: String = s.chars().take(head).collect();
-    let t: String = s.chars().rev().take(tail).collect::<String>().chars().rev().collect();
+    let t: String = s
+        .chars()
+        .rev()
+        .take(tail)
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect();
     format!("{h}\n…[truncated {} chars]…\n{t}", len - max_chars)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VerifyDecision {
-
     Done,
 
     Retry(String),
@@ -1380,7 +1454,12 @@ pub fn decide_verify(
     if attempt > max_retries {
         return VerifyDecision::Failed;
     }
-    VerifyDecision::Retry(verify_feedback_prompt(command, outcome, attempt, max_retries))
+    VerifyDecision::Retry(verify_feedback_prompt(
+        command,
+        outcome,
+        attempt,
+        max_retries,
+    ))
 }
 
 pub fn verify_feedback_prompt(
@@ -1528,7 +1607,10 @@ mod verify_tests {
             other => panic!("expected Retry, got {other:?}"),
         }
 
-        assert!(matches!(decide_verify(&f, "c", 3, 3), VerifyDecision::Retry(_)));
+        assert!(matches!(
+            decide_verify(&f, "c", 3, 3),
+            VerifyDecision::Retry(_)
+        ));
         assert_eq!(decide_verify(&f, "c", 4, 3), VerifyDecision::Failed);
     }
 
@@ -1580,7 +1662,16 @@ mod verify_tests {
         assert!(verify_config(&cli).is_none());
         let cli = crate::cli::Cli::try_parse_from(["zen", "-p", "--until", "   ", "hi"]).unwrap();
         assert!(verify_config(&cli).is_none());
-        let cli = crate::cli::Cli::try_parse_from(["zen", "-p", "--until", "cargo test -q", "--max-verify-retries", "5", "hi"]).unwrap();
+        let cli = crate::cli::Cli::try_parse_from([
+            "zen",
+            "-p",
+            "--until",
+            "cargo test -q",
+            "--max-verify-retries",
+            "5",
+            "hi",
+        ])
+        .unwrap();
         let v = verify_config(&cli).unwrap();
         assert_eq!(v.command, "cargo test -q");
         assert_eq!(v.max_retries, 5);
@@ -1634,7 +1725,11 @@ mod verify_tests {
         std::fs::create_dir_all(&dir).unwrap();
         let o = run_verify_command("pwd", &dir, &env).await;
         assert!(o.success());
-        assert!(o.stdout.trim_end().ends_with("zen-verify-cwd-test"), "{:?}", o.stdout);
+        assert!(
+            o.stdout.trim_end().ends_with("zen-verify-cwd-test"),
+            "{:?}",
+            o.stdout
+        );
         let _ = std::fs::remove_dir(&dir);
     }
 
@@ -1657,15 +1752,27 @@ mod tools_flag_tests {
 
     #[test]
     fn auto_compact_threshold_defaults_to_80_percent_of_context_window() {
-        assert_eq!(resolve_auto_compact_threshold(None, None, 128_000), Some(102_400));
-        assert_eq!(resolve_auto_compact_threshold(None, None, 200_000), Some(160_000));
+        assert_eq!(
+            resolve_auto_compact_threshold(None, None, 128_000),
+            Some(102_400)
+        );
+        assert_eq!(
+            resolve_auto_compact_threshold(None, None, 200_000),
+            Some(160_000)
+        );
     }
 
     #[test]
     fn auto_compact_flag_auto_and_true_setting_use_80_percent() {
         use serde_json::json;
-        assert_eq!(resolve_auto_compact_threshold(Some("auto"), None, 100_000), Some(80_000));
-        assert_eq!(resolve_auto_compact_threshold(None, Some(&json!(true)), 100_000), Some(80_000));
+        assert_eq!(
+            resolve_auto_compact_threshold(Some("auto"), None, 100_000),
+            Some(80_000)
+        );
+        assert_eq!(
+            resolve_auto_compact_threshold(None, Some(&json!(true)), 100_000),
+            Some(80_000)
+        );
 
         assert_eq!(
             resolve_auto_compact_threshold(Some("auto"), Some(&json!(false)), 100_000),
@@ -1676,8 +1783,14 @@ mod tools_flag_tests {
     #[test]
     fn auto_compact_flag_off_and_false_setting_disable() {
         use serde_json::json;
-        assert_eq!(resolve_auto_compact_threshold(Some("off"), None, 100_000), None);
-        assert_eq!(resolve_auto_compact_threshold(None, Some(&json!(false)), 100_000), None);
+        assert_eq!(
+            resolve_auto_compact_threshold(Some("off"), None, 100_000),
+            None
+        );
+        assert_eq!(
+            resolve_auto_compact_threshold(None, Some(&json!(false)), 100_000),
+            None
+        );
 
         assert_eq!(
             resolve_auto_compact_threshold(Some("off"), Some(&json!(5_000)), 100_000),
@@ -1688,8 +1801,14 @@ mod tools_flag_tests {
     #[test]
     fn auto_compact_numeric_flag_and_setting_set_absolute_threshold() {
         use serde_json::json;
-        assert_eq!(resolve_auto_compact_threshold(Some("5000"), None, 100_000), Some(5_000));
-        assert_eq!(resolve_auto_compact_threshold(None, Some(&json!(3000)), 100_000), Some(3_000));
+        assert_eq!(
+            resolve_auto_compact_threshold(Some("5000"), None, 100_000),
+            Some(5_000)
+        );
+        assert_eq!(
+            resolve_auto_compact_threshold(None, Some(&json!(3000)), 100_000),
+            Some(3_000)
+        );
 
         assert_eq!(
             resolve_auto_compact_threshold(Some("7000"), Some(&json!(3000)), 100_000),
@@ -1700,8 +1819,14 @@ mod tools_flag_tests {
     #[test]
     fn auto_compact_unexpected_setting_shape_falls_back_to_80_percent() {
         use serde_json::json;
-        assert_eq!(resolve_auto_compact_threshold(None, Some(&json!("weird")), 100_000), Some(80_000));
-        assert_eq!(resolve_auto_compact_threshold(None, Some(&json!(null)), 100_000), Some(80_000));
+        assert_eq!(
+            resolve_auto_compact_threshold(None, Some(&json!("weird")), 100_000),
+            Some(80_000)
+        );
+        assert_eq!(
+            resolve_auto_compact_threshold(None, Some(&json!(null)), 100_000),
+            Some(80_000)
+        );
     }
 
     fn names(v: &[Arc<dyn Tool>]) -> Vec<String> {
@@ -1711,28 +1836,52 @@ mod tools_flag_tests {
     #[test]
     fn tools_flag_default_empty_and_allowlist() {
         let all = names(&zen_tools::builtin_tools());
-        assert_eq!(names(&select_builtin_tools(None, zen_tools::builtin_tools()).unwrap()), all);
-        assert_eq!(names(&select_builtin_tools(Some("default"), zen_tools::builtin_tools()).unwrap()), all);
-        assert!(select_builtin_tools(Some(""), zen_tools::builtin_tools()).unwrap().is_empty());
-        assert_eq!(names(&select_builtin_tools(Some("read, Bash"), zen_tools::builtin_tools()).unwrap()), vec!["Read", "Bash"]);
+        assert_eq!(
+            names(&select_builtin_tools(None, zen_tools::builtin_tools()).unwrap()),
+            all
+        );
+        assert_eq!(
+            names(&select_builtin_tools(Some("default"), zen_tools::builtin_tools()).unwrap()),
+            all
+        );
+        assert!(select_builtin_tools(Some(""), zen_tools::builtin_tools())
+            .unwrap()
+            .is_empty());
+        assert_eq!(
+            names(&select_builtin_tools(Some("read, Bash"), zen_tools::builtin_tools()).unwrap()),
+            vec!["Read", "Bash"]
+        );
     }
 
     #[test]
     fn tools_flag_delta_form_removes_and_keeps_defaults() {
         let all = names(&zen_tools::builtin_tools());
-        let got = names(&select_builtin_tools(Some("-Bash,-write"), zen_tools::builtin_tools()).unwrap());
-        let want: Vec<String> = all.iter().filter(|n| *n != "Bash" && *n != "Write").cloned().collect();
+        let got =
+            names(&select_builtin_tools(Some("-Bash,-write"), zen_tools::builtin_tools()).unwrap());
+        let want: Vec<String> = all
+            .iter()
+            .filter(|n| *n != "Bash" && *n != "Write")
+            .cloned()
+            .collect();
         assert_eq!(got, want);
 
-        let got = names(&select_builtin_tools(Some("-Bash,+Bash"), zen_tools::builtin_tools()).unwrap());
+        let got =
+            names(&select_builtin_tools(Some("-Bash,+Bash"), zen_tools::builtin_tools()).unwrap());
         assert_eq!(got, all);
     }
 
     #[test]
     fn tools_flag_rejects_mixed_and_unknown_delta() {
-        let mixed = select_builtin_tools(Some("Read,-Bash"), zen_tools::builtin_tools()).err().unwrap();
+        let mixed = select_builtin_tools(Some("Read,-Bash"), zen_tools::builtin_tools())
+            .err()
+            .unwrap();
         assert!(mixed.to_string().contains("cannot mix"), "{mixed}");
-        let unknown = select_builtin_tools(Some("-Bsh"), zen_tools::builtin_tools()).err().unwrap();
-        assert!(unknown.to_string().contains("unknown built-in tool 'Bsh'"), "{unknown}");
+        let unknown = select_builtin_tools(Some("-Bsh"), zen_tools::builtin_tools())
+            .err()
+            .unwrap();
+        assert!(
+            unknown.to_string().contains("unknown built-in tool 'Bsh'"),
+            "{unknown}"
+        );
     }
 }

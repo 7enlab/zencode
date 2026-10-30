@@ -22,11 +22,19 @@ mod tests {
     #[test]
     fn every_builtin_has_docs() {
         for name in [
-            "Read", "Write", "Edit", "MultiEdit", "Bash", "Glob", "Grep", "WebFetch",
-            "TodoWrite", "JobOutput", "JobKill",
+            "Read",
+            "Write",
+            "Edit",
+            "MultiEdit",
+            "Bash",
+            "Glob",
+            "Grep",
+            "WebFetch",
+            "TodoWrite",
+            "JobOutput",
+            "JobKill",
         ] {
-            let docs = tool_long_docs(name)
-                .unwrap_or_else(|| panic!("missing docs for {name}"));
+            let docs = tool_long_docs(name).unwrap_or_else(|| panic!("missing docs for {name}"));
             assert!(docs.contains(&format!("# {name}")) || docs.contains(name));
             assert!(!docs.is_empty());
         }

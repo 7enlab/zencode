@@ -2,7 +2,6 @@ pub const MAX_LOOP_ITERATIONS: u32 = 100;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Theme {
-
     #[default]
     Dark,
 
@@ -12,7 +11,6 @@ pub enum Theme {
 }
 
 impl Theme {
-
     pub fn parse(name: &str) -> Option<Self> {
         match name.trim().to_ascii_lowercase().as_str() {
             "dark" => Some(Theme::Dark),
@@ -82,7 +80,6 @@ pub enum Personality {
 }
 
 impl Personality {
-
     pub fn parse(name: &str) -> Option<Self> {
         match name.trim().to_ascii_lowercase().as_str() {
             "concise" | "brief" | "terse" | "short" => Some(Personality::Concise),
@@ -102,12 +99,16 @@ impl Personality {
 
     pub fn system_suffix(self) -> &'static str {
         match self {
-            Personality::Concise => "\n\n[personality: concise] Be concise: skip preamble and \
-                summaries unless asked, give the shortest correct answer, prefer code over prose.",
+            Personality::Concise => {
+                "\n\n[personality: concise] Be concise: skip preamble and \
+                summaries unless asked, give the shortest correct answer, prefer code over prose."
+            }
             Personality::Normal => "",
-            Personality::Detailed => "\n\n[personality: detailed] Be thorough: explain your \
+            Personality::Detailed => {
+                "\n\n[personality: detailed] Be thorough: explain your \
                 reasoning, mention alternatives you considered, and give detailed answers with \
-                examples where they help.",
+                examples where they help."
+            }
         }
     }
 }
@@ -178,7 +179,9 @@ mod tests {
 
     #[test]
     fn loop_args_zero_rejected() {
-        assert!(parse_loop_args("0 do x").unwrap_err().contains("at least 1"));
+        assert!(parse_loop_args("0 do x")
+            .unwrap_err()
+            .contains("at least 1"));
     }
 
     #[test]
@@ -257,7 +260,6 @@ mod tests {
 
     #[test]
     fn prompt_without_goal_is_plain_prompt() {
-
         assert_eq!(prompt_text(Theme::None, &Option::None), "> ");
     }
 

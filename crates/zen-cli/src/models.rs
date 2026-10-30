@@ -13,11 +13,31 @@ pub struct CatalogModel {
 }
 
 pub const FREE_MODEL_CATALOG: &[CatalogModel] = &[
-    CatalogModel { id: "google/gemini-4-argon:free", provider: "experientiallabs", context_window: 1_000_000 },
-    CatalogModel { id: "qwen/qwen3-coder:free", provider: "openrouter", context_window: 262_144 },
-    CatalogModel { id: "deepseek/deepseek-r1:free", provider: "openrouter", context_window: 131_072 },
-    CatalogModel { id: "nvidia/nemotron-3-ultra-550b-a55b:free", provider: "openrouter", context_window: 131_072 },
-    CatalogModel { id: "cohere/north-mini-code:free", provider: "openrouter", context_window: 131_072 },
+    CatalogModel {
+        id: "google/gemini-4-argon:free",
+        provider: "experientiallabs",
+        context_window: 1_000_000,
+    },
+    CatalogModel {
+        id: "qwen/qwen3-coder:free",
+        provider: "openrouter",
+        context_window: 262_144,
+    },
+    CatalogModel {
+        id: "deepseek/deepseek-r1:free",
+        provider: "openrouter",
+        context_window: 131_072,
+    },
+    CatalogModel {
+        id: "nvidia/nemotron-3-ultra-550b-a55b:free",
+        provider: "openrouter",
+        context_window: 131_072,
+    },
+    CatalogModel {
+        id: "cohere/north-mini-code:free",
+        provider: "openrouter",
+        context_window: 131_072,
+    },
 ];
 
 struct ProbeTask {
@@ -58,10 +78,17 @@ fn check_code_completion(out: &str) -> f64 {
 }
 
 const PROBE_TASKS: &[ProbeTask] = &[
-    ProbeTask { prompt: "Reply with exactly: OK", check: check_exact_ok },
-    ProbeTask { prompt: "What is 2+2? Reply with just the number.", check: check_arithmetic },
     ProbeTask {
-        prompt: "Complete this Rust function, reply with code only:\nfn add(a: i32, b: i32) -> i32 {",
+        prompt: "Reply with exactly: OK",
+        check: check_exact_ok,
+    },
+    ProbeTask {
+        prompt: "What is 2+2? Reply with just the number.",
+        check: check_arithmetic,
+    },
+    ProbeTask {
+        prompt:
+            "Complete this Rust function, reply with code only:\nfn add(a: i32, b: i32) -> i32 {",
         check: check_code_completion,
     },
 ];
@@ -90,7 +117,6 @@ pub struct ModelProbe {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelsCache {
-
     pub verified_at: String,
 
     pub base_url: String,
@@ -123,11 +149,17 @@ pub fn save_cache(home: Option<&Path>, cache: &ModelsCache) -> Result<()> {
 
 pub fn cache_age_secs(cache: &ModelsCache) -> Option<i64> {
     let verified = chrono::DateTime::parse_from_rfc3339(&cache.verified_at).ok()?;
-    Some(chrono::Utc::now().signed_duration_since(verified).num_seconds())
+    Some(
+        chrono::Utc::now()
+            .signed_duration_since(verified)
+            .num_seconds(),
+    )
 }
 
 pub fn cache_is_stale(cache: &ModelsCache) -> bool {
-    cache_age_secs(cache).map(|a| a > CACHE_STALE_SECS).unwrap_or(true)
+    cache_age_secs(cache)
+        .map(|a| a > CACHE_STALE_SECS)
+        .unwrap_or(true)
 }
 
 pub fn aggregate_score(qualities: &[f64], avg_latency_ms: u64) -> f64 {
@@ -219,7 +251,11 @@ impl ProbeClient {
             .timeout(Duration::from_secs(PROBE_TIMEOUT_SECS))
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
-        Self { base_url: base_url.trim_end_matches('/').to_string(), api_key, http }
+        Self {
+            base_url: base_url.trim_end_matches('/').to_string(),
+            api_key,
+            http,
+        }
     }
 
     fn endpoint(&self) -> String {
@@ -269,9 +305,16 @@ impl LlmBackend for ProbeClient {
         }
         let resp = r.send().await?.error_for_status()?;
         let body: ProbeChatResponse = resp.json().await?;
-        let choice = body.choices.into_iter().next()
+        let choice = body
+            .choices
+            .into_iter()
+            .next()
             .ok_or_else(|| anyhow::anyhow!("probe: empty choices in response"))?;
-        let usage = body.usage.unwrap_or(ProbeUsage { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 });
+        let usage = body.usage.unwrap_or(ProbeUsage {
+            prompt_tokens: 0,
+            completion_tokens: 0,
+            total_tokens: 0,
+        });
         Ok(ChatResponse {
             message: ChatMessage::assistant(choice.message.content, None),
             usage: Usage {
@@ -317,22 +360,28 @@ pub async fn fetch_models_list(base_url: &str, api_key: Option<&str>) -> Vec<Dis
         },
         Err(_) => return vec![],
     };
-    let data = body.get("data").and_then(|d| d.as_array()).cloned().unwrap_or_default();
+    let data = body
+        .get("data")
+        .and_then(|d| d.as_array())
+        .cloned()
+        .unwrap_or_default();
     data.iter()
         .filter_map(|m| m.get("id")?.as_str().map(|s| s.to_string()))
         .map(|id| {
-
             let priced_zero = body_pointer_free(&body, &id);
-            DiscoveredModel { free: id_looks_free(&id) || priced_zero, id }
+            DiscoveredModel {
+                free: id_looks_free(&id) || priced_zero,
+                id,
+            }
         })
         .collect()
 }
 
 fn body_pointer_free(body: &serde_json::Value, id: &str) -> bool {
-    let entry = body
-        .get("data")
-        .and_then(|d| d.as_array())
-        .and_then(|arr| arr.iter().find(|m| m.get("id").and_then(|v| v.as_str()) == Some(id)));
+    let entry = body.get("data").and_then(|d| d.as_array()).and_then(|arr| {
+        arr.iter()
+            .find(|m| m.get("id").and_then(|v| v.as_str()) == Some(id))
+    });
     let pricing = match entry.and_then(|e| e.get("pricing")) {
         Some(p) => p,
         None => return false,
@@ -349,7 +398,10 @@ pub struct Candidate {
     pub free: bool,
 }
 
-pub fn merge_candidates(catalog: &[CatalogModel], discovered: &[DiscoveredModel]) -> Vec<Candidate> {
+pub fn merge_candidates(
+    catalog: &[CatalogModel],
+    discovered: &[DiscoveredModel],
+) -> Vec<Candidate> {
     let mut out: Vec<Candidate> = catalog
         .iter()
         .map(|c| Candidate {
@@ -402,14 +454,27 @@ pub async fn models_command(
             if !args.best {
                 eprintln!("  [{}/{}] probing {} ...", i + 1, candidates.len(), cand.id);
             }
-            let probe = probe_model(&backend, &cand.id, &cand.provider, cand.context_window, cand.free).await;
+            let probe = probe_model(
+                &backend,
+                &cand.id,
+                &cand.provider,
+                cand.context_window,
+                cand.free,
+            )
+            .await;
             if !args.best {
                 eprintln!(
                     "           {}",
                     if probe.success {
-                        format!("ok  score={:.2} latency={}ms", probe.score, probe.latency_ms)
+                        format!(
+                            "ok  score={:.2} latency={}ms",
+                            probe.score, probe.latency_ms
+                        )
                     } else {
-                        format!("FAIL {}", probe.last_error.as_deref().unwrap_or("unknown error"))
+                        format!(
+                            "FAIL {}",
+                            probe.last_error.as_deref().unwrap_or("unknown error")
+                        )
                     }
                 );
             }
@@ -446,7 +511,10 @@ pub async fn models_command(
                 Ok(())
             }
             None => {
-                eprintln!("zen models: no working model found (all {} candidates failed probing)", results.len());
+                eprintln!(
+                    "zen models: no working model found (all {} candidates failed probing)",
+                    results.len()
+                );
                 std::process::exit(1);
             }
         }
@@ -490,8 +558,15 @@ fn fmt_latency(ms: u64, success: bool) -> String {
 }
 
 fn print_table(results: &[ModelProbe], base_url: &str) {
-    println!("zen models - {} candidate(s) from {}", results.len(), base_url);
-    println!("  {:<40} {:<16} {:>6} {:>7} {:>8} {:>6}  STATUS", "MODEL", "PROVIDER", "CTX", "PRICE", "LATENCY", "SCORE");
+    println!(
+        "zen models - {} candidate(s) from {}",
+        results.len(),
+        base_url
+    );
+    println!(
+        "  {:<40} {:<16} {:>6} {:>7} {:>8} {:>6}  STATUS",
+        "MODEL", "PROVIDER", "CTX", "PRICE", "LATENCY", "SCORE"
+    );
     let best = best_model(results).map(|m| m.model.clone());
     for r in results {
         let status = if Some(&r.model) == best.as_ref() {
@@ -513,7 +588,11 @@ fn print_table(results: &[ModelProbe], base_url: &str) {
             fmt_ctx(r.context_window),
             if r.free { "$0.00" } else { "?" },
             fmt_latency(r.latency_ms, r.success),
-            if r.success { format!("{:.2}", r.score) } else { "-".to_string() },
+            if r.success {
+                format!("{:.2}", r.score)
+            } else {
+                "-".to_string()
+            },
             status,
             detail,
         );
@@ -549,7 +628,11 @@ mod tests {
         }
         fn errors(errs: Vec<&str>) -> Self {
             Self {
-                queue: Mutex::new(errs.into_iter().map(|e| Err(anyhow::anyhow!("{}", e))).collect()),
+                queue: Mutex::new(
+                    errs.into_iter()
+                        .map(|e| Err(anyhow::anyhow!("{}", e)))
+                        .collect(),
+                ),
             }
         }
     }
@@ -557,7 +640,11 @@ mod tests {
     #[async_trait::async_trait]
     impl LlmBackend for MockBackend {
         async fn chat(&self, req: ChatRequest) -> anyhow::Result<ChatResponse> {
-            assert_eq!(req.max_tokens, Some(PROBE_MAX_TOKENS), "probes must stay cheap");
+            assert_eq!(
+                req.max_tokens,
+                Some(PROBE_MAX_TOKENS),
+                "probes must stay cheap"
+            );
             let text = self
                 .queue
                 .lock()
@@ -566,7 +653,12 @@ mod tests {
                 .expect("mock: more probe calls than scripted replies")?;
             Ok(ChatResponse {
                 message: ChatMessage::assistant(Some(text), None),
-                usage: Usage { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15, ..Default::default() },
+                usage: Usage {
+                    prompt_tokens: 10,
+                    completion_tokens: 5,
+                    total_tokens: 15,
+                    ..Default::default()
+                },
                 finish_reason: Some("stop".into()),
             })
         }
@@ -581,26 +673,41 @@ mod tests {
             latency_ms: if success { 1200 } else { 0 },
             success,
             score,
-            last_error: if success { None } else { Some("boom".to_string()) },
+            last_error: if success {
+                None
+            } else {
+                Some("boom".to_string())
+            },
         }
     }
 
     #[tokio::test]
     async fn probe_all_tasks_pass_scores_high() {
-        let b = MockBackend::replies(vec!["OK", "4", "fn add(a: i32, b: i32) -> i32 {\n    a + b\n}"]);
+        let b = MockBackend::replies(vec![
+            "OK",
+            "4",
+            "fn add(a: i32, b: i32) -> i32 {\n    a + b\n}",
+        ]);
         let r = probe_model(&b, "m", "p", None, true).await;
         assert!(r.success);
-        assert!(r.score > 0.9, "perfect replies should score near 1.0, got {}", r.score);
+        assert!(
+            r.score > 0.9,
+            "perfect replies should score near 1.0, got {}",
+            r.score
+        );
         assert!(r.last_error.is_none());
     }
 
     #[tokio::test]
     async fn probe_chatty_but_correct_gets_partial_credit() {
-
         let b = MockBackend::replies(vec!["Sure! OK", "The answer is 4.", "return a+b; // done"]);
         let r = probe_model(&b, "m", "p", None, true).await;
         assert!(r.success);
-        assert!(r.score > 0.4 && r.score < 0.9, "partial credit expected, got {}", r.score);
+        assert!(
+            r.score > 0.4 && r.score < 0.9,
+            "partial credit expected, got {}",
+            r.score
+        );
     }
 
     #[tokio::test]
@@ -615,7 +722,6 @@ mod tests {
 
     #[tokio::test]
     async fn probe_second_task_error_fails_the_model() {
-
         let b = MockBackend {
             queue: Mutex::new(VecDeque::from([
                 Ok("OK".to_string()),
@@ -632,7 +738,11 @@ mod tests {
         let fast = aggregate_score(&[1.0, 1.0, 1.0], 1_000);
         let slow = aggregate_score(&[1.0, 1.0, 1.0], 30_000);
         assert!(fast > slow);
-        assert!((slow - 0.5).abs() < 0.01, "30s latency should halve the score, got {}", slow);
+        assert!(
+            (slow - 0.5).abs() < 0.01,
+            "30s latency should halve the score, got {}",
+            slow
+        );
     }
 
     #[test]
@@ -659,13 +769,25 @@ mod tests {
     #[test]
     fn merge_candidates_dedupes_and_keeps_catalog_metadata() {
         let discovered = vec![
-            DiscoveredModel { id: "qwen/qwen3-coder:free".to_string(), free: true },
-            DiscoveredModel { id: "new/model:free".to_string(), free: true },
-            DiscoveredModel { id: "paid/model".to_string(), free: false },
+            DiscoveredModel {
+                id: "qwen/qwen3-coder:free".to_string(),
+                free: true,
+            },
+            DiscoveredModel {
+                id: "new/model:free".to_string(),
+                free: true,
+            },
+            DiscoveredModel {
+                id: "paid/model".to_string(),
+                free: false,
+            },
         ];
         let merged = merge_candidates(FREE_MODEL_CATALOG, &discovered);
         assert_eq!(merged.len(), FREE_MODEL_CATALOG.len() + 1);
-        let qwen = merged.iter().find(|c| c.id == "qwen/qwen3-coder:free").unwrap();
+        let qwen = merged
+            .iter()
+            .find(|c| c.id == "qwen/qwen3-coder:free")
+            .unwrap();
         assert_eq!(qwen.provider, "openrouter");
         assert_eq!(qwen.context_window, Some(262_144));
         assert!(merged.iter().any(|c| c.id == "new/model:free"));

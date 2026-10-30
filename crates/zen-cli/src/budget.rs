@@ -7,7 +7,11 @@ pub fn resolve_budget(
     cfg_warn_at: Option<f64>,
 ) -> Option<BudgetPolicy> {
     let max = cli_max
-        .or_else(|| std::env::var("ZEN_MAX_BUDGET_USD").ok().and_then(|v| v.parse().ok()))
+        .or_else(|| {
+            std::env::var("ZEN_MAX_BUDGET_USD")
+                .ok()
+                .and_then(|v| v.parse().ok())
+        })
         .or(cfg_max);
     let max = match max {
         Some(m) if m > 0.0 && m.is_finite() => m,

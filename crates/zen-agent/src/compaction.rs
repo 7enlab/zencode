@@ -119,7 +119,10 @@ pub(crate) async fn compact_impl(
         )
         .await;
     if let Some(text) = post.system_message {
-        agent.sink.emit(AgentEvent::SystemMessage { event: "PostCompact".into(), text });
+        agent.sink.emit(AgentEvent::SystemMessage {
+            event: "PostCompact".into(),
+            text,
+        });
     }
     Ok(())
 }
@@ -153,7 +156,10 @@ pub fn serialize_conversation(msgs: &[ChatMessage]) -> String {
                     }
                 }
             }
-            "tool" => out.push(format!("[Tool result]: {}", truncate_chars(text, TOOL_RESULT_CHARS))),
+            "tool" => out.push(format!(
+                "[Tool result]: {}",
+                truncate_chars(text, TOOL_RESULT_CHARS)
+            )),
             _ => {}
         }
     }
@@ -167,7 +173,6 @@ pub struct FileOps {
 }
 
 impl FileOps {
-
     pub fn collect(msgs: &[ChatMessage]) -> Self {
         let mut ops = FileOps::default();
         for m in msgs {
@@ -177,10 +182,13 @@ impl FileOps {
                 ops.modified.extend(block_lines(text, "modified-files"));
             }
             for c in m.tool_calls.iter().flatten() {
-                let Ok(args) = serde_json::from_str::<serde_json::Value>(&c.function.arguments) else {
+                let Ok(args) = serde_json::from_str::<serde_json::Value>(&c.function.arguments)
+                else {
                     continue;
                 };
-                let Some(fp) = args.get("file_path").and_then(|v| v.as_str()) else { continue };
+                let Some(fp) = args.get("file_path").and_then(|v| v.as_str()) else {
+                    continue;
+                };
                 match c.function.name.as_str() {
                     "Read" => {
                         ops.read.insert(fp.to_string());
@@ -199,7 +207,10 @@ impl FileOps {
 
     pub fn render(&self) -> String {
         let mut out = String::new();
-        for (tag, set) in [("read-files", &self.read), ("modified-files", &self.modified)] {
+        for (tag, set) in [
+            ("read-files", &self.read),
+            ("modified-files", &self.modified),
+        ] {
             if !set.is_empty() {
                 let body: Vec<&str> = set.iter().map(String::as_str).collect();
                 out.push_str(&format!("\n\n<{tag}>\n{}\n</{tag}>", body.join("\n")));
@@ -211,10 +222,19 @@ impl FileOps {
 
 fn block_lines(text: &str, tag: &str) -> Vec<String> {
     let (open, close) = (format!("<{tag}>"), format!("</{tag}>"));
-    let Some(start) = text.rfind(&open) else { return vec![] };
+    let Some(start) = text.rfind(&open) else {
+        return vec![];
+    };
     let rest = &text[start + open.len()..];
-    let Some(end) = rest.find(&close) else { return vec![] };
-    rest[..end].lines().map(str::trim).filter(|l| !l.is_empty()).map(String::from).collect()
+    let Some(end) = rest.find(&close) else {
+        return vec![];
+    };
+    rest[..end]
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .map(String::from)
+        .collect()
 }
 
 #[cfg(test)]
@@ -225,7 +245,10 @@ mod tests {
         ToolCall {
             id: format!("id-{name}"),
             call_type: "function".into(),
-            function: FunctionCall { name: name.into(), arguments: args.into() },
+            function: FunctionCall {
+                name: name.into(),
+                arguments: args.into(),
+            },
         }
     }
 
@@ -235,12 +258,18 @@ mod tests {
         let msgs = vec![
             ChatMessage::system("sys"),
             ChatMessage::user("fix the bug"),
-            ChatMessage::assistant(Some("looking".into()), Some(vec![call("Read", r#"{"file_path":"a.rs"}"#)])),
+            ChatMessage::assistant(
+                Some("looking".into()),
+                Some(vec![call("Read", r#"{"file_path":"a.rs"}"#)]),
+            ),
             ChatMessage::tool("id-Read", big),
             ChatMessage::assistant(Some("done".into()), None),
         ];
         let t = serialize_conversation(&msgs);
-        assert!(!t.contains("sys"), "system prompt is not part of the transcript");
+        assert!(
+            !t.contains("sys"),
+            "system prompt is not part of the transcript"
+        );
         assert!(t.starts_with("[User]: fix the bug\n[Assistant]: looking\n"));
         assert!(t.contains(r#"[Assistant tool calls]: Read({"file_path":"a.rs"})"#));
         assert!(t.contains("[… 50 more characters truncated]"));
@@ -251,7 +280,10 @@ mod tests {
     #[test]
     fn truncation_is_char_safe() {
         let s = "é".repeat(5);
-        assert_eq!(truncate_chars(&s, 3), "ééé\n[… 2 more characters truncated]");
+        assert_eq!(
+            truncate_chars(&s, 3),
+            "ééé\n[… 2 more characters truncated]"
+        );
         assert_eq!(truncate_chars("ab", 3), "ab");
     }
 
@@ -262,17 +294,27 @@ mod tests {
         );
         let msgs = vec![
             ChatMessage::user(prev),
-            ChatMessage::assistant(None, Some(vec![
-                call("Read", r#"{"file_path":"a.rs"}"#),
-                call("Edit", r#"{"file_path":"b.rs","old_string":"x","new_string":"y"}"#),
-                call("Bash", r#"{"command":"ls"}"#),
-                call("Write", "not json"),
-            ])),
+            ChatMessage::assistant(
+                None,
+                Some(vec![
+                    call("Read", r#"{"file_path":"a.rs"}"#),
+                    call(
+                        "Edit",
+                        r#"{"file_path":"b.rs","old_string":"x","new_string":"y"}"#,
+                    ),
+                    call("Bash", r#"{"command":"ls"}"#),
+                    call("Write", "not json"),
+                ]),
+            ),
         ];
         let ops = FileOps::collect(&msgs);
         let read: Vec<&str> = ops.read.iter().map(String::as_str).collect();
         let modified: Vec<&str> = ops.modified.iter().map(String::as_str).collect();
-        assert_eq!(read, vec!["a.rs", "old.rs"], "b.rs was modified, so it is not listed as read");
+        assert_eq!(
+            read,
+            vec!["a.rs", "old.rs"],
+            "b.rs was modified, so it is not listed as read"
+        );
         assert_eq!(modified, vec!["b.rs", "lib.rs"]);
         assert_eq!(
             ops.render(),
