@@ -1,7 +1,7 @@
 {
   "name": "tdd",
   "version": "1.0.0",
-  "description": "Test-driven development workflow - write the failing test first",
+  "description": "Test-driven development workflow — write the failing test first",
   "author": "ZenCode",
   "permissions": {
     "allowed_tools": [
