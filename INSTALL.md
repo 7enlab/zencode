@@ -40,8 +40,19 @@ Invoke-WebRequest https://raw.githubusercontent.com/7enlabs/zencode/main/install
 
 ## Update
 
-Rerun the same one-command install. The script fast-forwards the
-existing checkout and rebuilds.
+Run:
+
+```sh
+zen update
+```
+
+This fast-forwards the source checkout, rebuilds `zen-cli` in
+release mode, and replaces the binary you are running. If no
+checkout exists yet, it clones one first. Use `zen update --check`
+to see whether an update is available without building anything.
+If the checkout has uncommitted changes, update stops instead of
+overwriting them. The one-command install above still works as a
+fallback for a first install.
 
 ## Manual install
 

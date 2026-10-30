@@ -32,8 +32,9 @@ pub mod settings;
 pub mod skills;
 pub mod skill_registry;
 pub mod system_prompt;
+pub mod update;
 
-pub use cli::{Cli, Commands, CostArgs, EvalArgs, ExportArgs, ImportArgs, InputFormat, McpArgs, McpSubcommand, ModelsArgs, OutputFormat, PermissionMode, ReviewArgs, SessionSubcommand, SessionsArgs};
+pub use cli::{Cli, Commands, CostArgs, EvalArgs, ExportArgs, ImportArgs, InputFormat, McpArgs, McpSubcommand, ModelsArgs, OutputFormat, PermissionMode, ReviewArgs, SessionSubcommand, SessionsArgs, UpdateArgs};
 pub use settings::{resolve_config, ResolvedConfig};
 pub use system_prompt::build_system_prompt;
 
@@ -196,6 +197,9 @@ async fn run_subcommand(
                 println!("{}", github::format_comments_text(&fetched));
             }
             Ok(0)
+        }
+        Commands::Update(args) => {
+            return update::run_update(args.check, home);
         }
         Commands::CiFix { json } => {
             let status = github::fetch_ci_status(cwd)?;

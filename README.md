@@ -32,6 +32,39 @@ free cloud models, your paid keys, or Ollama running fully offline on your machi
 More: [`docs/positioning.md`](docs/positioning.md) · [`docs/faq.md`](docs/faq.md) ·
 [`docs/messaging.md`](docs/messaging.md)
 
+## Install
+
+No binary release exists yet, so the one-command install builds from
+source. You need Git and a Rust toolchain (`cargo`) first. The build
+takes a few minutes.
+
+Linux and macOS:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/7enlabs/zencode/main/install.sh | sh
+```
+
+Windows, in PowerShell:
+
+```powershell
+powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/7enlabs/zencode/main/install.ps1 | iex"
+```
+
+The scripts clone this repo, build `zen-cli` in release mode, and copy
+the binary to `~/.local/bin/zen` on Linux and macOS, or
+`%USERPROFILE%\.local\bin\zen.exe` on Windows. No sudo or administrator
+rights are needed. Inspect the script before running it if you want to.
+
+Update an installed binary with:
+
+```sh
+zen update          # fetch, rebuild, and replace the binary you are running
+zen update --check  # only report whether an update is available
+```
+
+Full install, update, uninstall, and troubleshooting details:
+[`INSTALL.md`](INSTALL.md).
+
 ## Build
 
 ```bash

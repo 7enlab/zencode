@@ -302,6 +302,15 @@ pub enum Commands {
         #[arg(long)]
         json: bool,
     },
+
+    Update(UpdateArgs),
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct UpdateArgs {
+
+    #[arg(long)]
+    pub check: bool,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -662,6 +671,24 @@ mod tests {
                 assert!(matches!(&m.command, McpSubcommand::Add{transport,..} if transport == "http"));
             }
             _ => panic!("expected Mcp Add"),
+        }
+    }
+
+    #[test]
+    fn parse_update_subcommand() {
+        let cli = parse(&["update"]);
+        match &cli.subcommand {
+            Some(Commands::Update(args)) => {
+                assert!(!args.check);
+            }
+            _ => panic!("expected Update"),
+        }
+        let cli = parse(&["update", "--check"]);
+        match &cli.subcommand {
+            Some(Commands::Update(args)) => {
+                assert!(args.check);
+            }
+            _ => panic!("expected Update with check"),
         }
     }
 
