@@ -12,7 +12,6 @@ pub fn exporter_version() -> String {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum ExportFormat {
-
     Json,
 
     Markdown,
@@ -22,7 +21,6 @@ pub enum ExportFormat {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ExportedMessage {
-
     #[serde(rename = "type")]
     pub kind: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -92,9 +90,8 @@ pub fn load_session_for_export(path: &Path) -> Result<LoadedSession> {
         if line.is_empty() {
             continue;
         }
-        let v: Value = serde_json::from_str(line).with_context(|| {
-            format!("{}:{}: invalid transcript line", path.display(), n + 1)
-        })?;
+        let v: Value = serde_json::from_str(line)
+            .with_context(|| format!("{}:{}: invalid transcript line", path.display(), n + 1))?;
         let kind = record_str(&v, "type").unwrap_or_default();
         let timestamp = record_str(&v, "timestamp");
         let uuid = record_str(&v, "uuid");
@@ -158,7 +155,6 @@ pub fn load_session_for_export(path: &Path) -> Result<LoadedSession> {
                 }
             },
             "request" => {
-
                 out.model = out.model.or_else(|| record_str(&v, "model"));
             }
 
@@ -169,14 +165,8 @@ pub fn load_session_for_export(path: &Path) -> Result<LoadedSession> {
 }
 
 const SECRET_PREFIXES: &[&str] = &[
-    "sk-ant-",
-    "sk-",
-    "AIza",
-    "xoxb-", "xoxp-", "xoxa-", "xoxr-",
-    "ghp_", "gho_", "ghu_", "ghs_", "ghr_",
-    "glpat-",
-    "hf_",
-    "AKIA",
+    "sk-ant-", "sk-", "AIza", "xoxb-", "xoxp-", "xoxa-", "xoxr-", "ghp_", "gho_", "ghu_", "ghs_",
+    "ghr_", "glpat-", "hf_", "AKIA",
 ];
 
 const KEY_WORDS: &[&str] = &[
@@ -231,7 +221,10 @@ pub fn redact_str(s: &str) -> String {
             let abs = search_from + rel;
 
             let min_tail = if *prefix == "sk-" { 20 } else { 8 };
-            let tail: String = out[abs + prefix.len()..].chars().take_while(|c| is_token_char(*c)).collect();
+            let tail: String = out[abs + prefix.len()..]
+                .chars()
+                .take_while(|c| is_token_char(*c))
+                .collect();
             if tail.len() >= min_tail {
                 let end = abs + prefix.len() + tail.len();
                 out.replace_range(abs..end, "[REDACTED]");
@@ -259,7 +252,6 @@ fn redact_after_marker(s: &str, marker: &str, replacement: &str) -> String {
         if token_len >= 8 {
             out.push_str(replacement);
         } else {
-
             out.push_str(&rest[token_start..token_start + token_len]);
         }
         rest = &rest[token_start + token_len..];
@@ -275,11 +267,10 @@ fn redact_assignments_second_pass(s: &str) -> String {
         let mut from = 0;
         while let Some(rel) = lower[from..].find(word) {
             let abs = from + rel;
-            let left_ok = abs == 0
-                || {
-                    let c = s[..abs].chars().next_back().unwrap();
-                    !c.is_ascii_alphanumeric() && c != '_'
-                };
+            let left_ok = abs == 0 || {
+                let c = s[..abs].chars().next_back().unwrap();
+                !c.is_ascii_alphanumeric() && c != '_'
+            };
             if !left_ok {
                 from = abs + word.len();
                 continue;
@@ -292,7 +283,10 @@ fn redact_assignments_second_pass(s: &str) -> String {
                     let sep_len = 1;
                     let after = &trimmed[sep_len..];
                     let aval = after.trim_start();
-                    let val_start = abs + word.len() + (rest.len() - trimmed.len()) + sep_len
+                    let val_start = abs
+                        + word.len()
+                        + (rest.len() - trimmed.len())
+                        + sep_len
                         + (after.len() - aval.len());
                     let (val_start, quoted) = match aval.chars().next() {
                         Some(q @ ('"' | '\'')) => (val_start + q.len_utf8(), true),
@@ -346,11 +340,11 @@ pub fn redact_value(v: &mut Value) {
             }
         }
         Value::Object(o) => {
-
             let secret_key = |k: &str| {
                 let kl = k.to_ascii_lowercase();
-                KEY_WORDS.iter().any(|w| kl == *w || kl.ends_with(&format!("_{}", w)) || kl.ends_with(&format!("-{}", w)))
-                    || kl == "authorization"
+                KEY_WORDS.iter().any(|w| {
+                    kl == *w || kl.ends_with(&format!("_{}", w)) || kl.ends_with(&format!("-{}", w))
+                }) || kl == "authorization"
             };
             for (k, val) in o.iter_mut() {
                 if secret_key(k) {
@@ -388,10 +382,7 @@ fn payload_text(payload: &Value) -> String {
                     })
                     .collect::<Vec<_>>()
                     .join("\n"),
-                _ => {
-
-                    serde_json::to_string(payload).unwrap_or_default()
-                }
+                _ => serde_json::to_string(payload).unwrap_or_default(),
             }
         }
         _ => serde_json::to_string(payload).unwrap_or_default(),
@@ -454,7 +445,9 @@ pub fn render_markdown(exp: &SessionExport) -> String {
     ));
     match exp.cost_usd {
         Some(c) => out.push_str(&format!("- cost: ${:.4}\n", c)),
-        None => out.push_str("- cost: unknown (no pricing data on this build; free-tier default is $0.00)\n"),
+        None => out.push_str(
+            "- cost: unknown (no pricing data on this build; free-tier default is $0.00)\n",
+        ),
     }
     if exp.redacted {
         out.push_str("- secrets: redacted (`--redact`)\n");
@@ -484,11 +477,7 @@ pub fn render_markdown(exp: &SessionExport) -> String {
                     .payload
                     .get("name")
                     .and_then(|n| n.as_str())
-                    .or_else(|| {
-                        m.payload
-                            .get("tool_use_id")
-                            .and_then(|n| n.as_str())
-                    })
+                    .or_else(|| m.payload.get("tool_use_id").and_then(|n| n.as_str()))
                     .unwrap_or("tool");
                 out.push_str(&format!("### Tool: `{}`\n\n", name));
                 out.push_str("```\n");
@@ -563,7 +552,10 @@ pub fn render_html(exp: &SessionExport) -> String {
                 escape_html(&truncate(&payload_text(&m.payload), TOOL_OUTPUT_LIMIT))
             ));
         } else {
-            body.push_str(&format!("<pre>{}</pre>", escape_html(&payload_text(&m.payload))));
+            body.push_str(&format!(
+                "<pre>{}</pre>",
+                escape_html(&payload_text(&m.payload))
+            ));
         }
         body.push_str("</section>\n");
     }
@@ -591,23 +583,16 @@ pub fn render_json(exp: &SessionExport) -> Result<String> {
     serde_json::to_string_pretty(exp).context("cannot serialize session export")
 }
 
-fn resolve_session_path(
-    cwd: &Path,
-    home: Option<&Path>,
-    session: Option<&str>,
-) -> Result<PathBuf> {
+fn resolve_session_path(cwd: &Path, home: Option<&Path>, session: Option<&str>) -> Result<PathBuf> {
     let home = home.ok_or_else(|| anyhow!("cannot determine home directory"))?;
     match session {
         Some(id) => crate::session::find_session_path(home, id).ok_or_else(|| {
-            anyhow!(
-                "session not found: {id} (searched ~/.zen/projects for <id>.jsonl)"
-            )
+            anyhow!("session not found: {id} (searched ~/.zen/projects for <id>.jsonl)")
         }),
         None => {
             let encoded = crate::session::encode_cwd(cwd);
-            crate::session::latest_session_for_cwd(home, &encoded).ok_or_else(|| {
-                anyhow!("no sessions found for the current directory")
-            })
+            crate::session::latest_session_for_cwd(home, &encoded)
+                .ok_or_else(|| anyhow!("no sessions found for the current directory"))
         }
     }
 }
@@ -652,8 +637,7 @@ pub fn run_export(
     };
     match output {
         Some(p) => {
-            std::fs::write(p, rendered)
-                .with_context(|| format!("cannot write {}", p.display()))?;
+            std::fs::write(p, rendered).with_context(|| format!("cannot write {}", p.display()))?;
             println!("session exported to {}", p.display());
         }
         None => print!("{}", rendered),
@@ -663,8 +647,8 @@ pub fn run_export(
 
 pub fn run_import(cwd: &Path, home: Option<&Path>, file: &Path) -> Result<String> {
     let home = home.ok_or_else(|| anyhow!("cannot determine home directory"))?;
-    let raw = std::fs::read_to_string(file)
-        .with_context(|| format!("cannot read {}", file.display()))?;
+    let raw =
+        std::fs::read_to_string(file).with_context(|| format!("cannot read {}", file.display()))?;
     let exp: SessionExport = serde_json::from_str(&raw).with_context(|| {
         format!(
             "cannot parse {} as a zen session export (only `--format json` exports can be imported)",
@@ -717,7 +701,9 @@ pub fn run_import(cwd: &Path, home: Option<&Path>, file: &Path) -> Result<String
             &m.kind,
             &new_id,
             &cwd_s,
-            &m.uuid.clone().unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
+            &m.uuid
+                .clone()
+                .unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
             None,
             message,
             summary,
@@ -744,13 +730,23 @@ mod tests {
         let c = cwd.to_string_lossy().into_owned();
         let u = || uuid::Uuid::new_v4().to_string();
         crate::session::append_typed(
-            &path, "user", sid, &c, &u(), None,
+            &path,
+            "user",
+            sid,
+            &c,
+            &u(),
+            None,
             Some(serde_json::json!({"role": "user", "content": "fix the login bug"})),
             None,
         )
         .unwrap();
         crate::session::append_typed(
-            &path, "assistant", sid, &c, &u(), None,
+            &path,
+            "assistant",
+            sid,
+            &c,
+            &u(),
+            None,
             Some(serde_json::json!({
                 "role": "assistant",
                 "content": "On it.",
@@ -760,7 +756,12 @@ mod tests {
         )
         .unwrap();
         crate::session::append_typed(
-            &path, "tool", sid, &c, &u(), None,
+            &path,
+            "tool",
+            sid,
+            &c,
+            &u(),
+            None,
             Some(serde_json::json!({"role": "tool", "name": "Read", "content": "fn login() {}"})),
             None,
         )
@@ -772,11 +773,21 @@ mod tests {
         )
         .unwrap();
         crate::session::append_typed(
-            &path, "summary", sid, &c, &u(), None, None,
+            &path,
+            "summary",
+            sid,
+            &c,
+            &u(),
+            None,
+            None,
             Some(serde_json::json!({"summary": "compacted earlier work"})),
         )
         .unwrap();
-        let usage = zen_core::UsageStats { input_tokens: 100, output_tokens: 50, ..Default::default() };
+        let usage = zen_core::UsageStats {
+            input_tokens: 100,
+            output_tokens: 50,
+            ..Default::default()
+        };
         crate::session::append_usage(&path, sid, &usage).unwrap();
         path
     }
@@ -824,7 +835,12 @@ mod tests {
         let path = crate::session::ensure_session_path(&home, &cwd, "sess-html-1").unwrap();
         let c = cwd.to_string_lossy().into_owned();
         crate::session::append_typed(
-            &path, "user", "sess-html-1", &c, &uuid::Uuid::new_v4().to_string(), None,
+            &path,
+            "user",
+            "sess-html-1",
+            &c,
+            &uuid::Uuid::new_v4().to_string(),
+            None,
             Some(serde_json::json!({"role": "user", "content": "<script>alert(1)</script>"})),
             None,
         )
@@ -839,13 +855,29 @@ mod tests {
     #[test]
     fn redaction_catches_common_secrets() {
         let cases = [
-            ("anthropic", "key is sk-ant-abcdef0123456789XYZ ok", "sk-ant-"),
-            ("openai", "sk-abcdefghijklmnopqrstuvwxyz0123456789ABCD", "sk-abc"),
+            (
+                "anthropic",
+                "key is sk-ant-abcdef0123456789XYZ ok",
+                "sk-ant-",
+            ),
+            (
+                "openai",
+                "sk-abcdefghijklmnopqrstuvwxyz0123456789ABCD",
+                "sk-abc",
+            ),
             ("google", "AIzaSyD-abcdefghijklmnopqrstuvwxyz0123", "AIza"),
             ("github", "token ghp_0123456789abcdefghijKLMNOP", "ghp_"),
             ("aws", "AKIAIOSFODNN7EXAMPLE here", "AKIA"),
-            ("bearer", "Authorization: Bearer abcdef0123456789XYZ", "Bearer abcdef"),
-            ("assign-eq", "api_key = supersecretvalue123", "supersecretvalue"),
+            (
+                "bearer",
+                "Authorization: Bearer abcdef0123456789XYZ",
+                "Bearer abcdef",
+            ),
+            (
+                "assign-eq",
+                "api_key = supersecretvalue123",
+                "supersecretvalue",
+            ),
             ("assign-colon", "password: hunter2hunter2", "hunter2"),
             (
                 "pem",
@@ -891,7 +923,12 @@ mod tests {
         let path = crate::session::ensure_session_path(&home, &cwd, "sess-r-1").unwrap();
         let c = cwd.to_string_lossy().into_owned();
         crate::session::append_typed(
-            &path, "user", "sess-r-1", &c, &uuid::Uuid::new_v4().to_string(), None,
+            &path,
+            "user",
+            "sess-r-1",
+            &c,
+            &uuid::Uuid::new_v4().to_string(),
+            None,
             Some(serde_json::json!({"role": "user", "content": "key sk-ant-abcdef0123456789XYZ"})),
             None,
         )
@@ -965,11 +1002,25 @@ mod tests {
     fn export_errors_on_missing_session() {
         let home = tmp_home("missing");
         let cwd = tmp_home("missingcwd");
-        let err = run_export(&cwd, Some(home.as_path()), ExportFormat::Json, Some("nope"), None, false)
-            .unwrap_err();
+        let err = run_export(
+            &cwd,
+            Some(home.as_path()),
+            ExportFormat::Json,
+            Some("nope"),
+            None,
+            false,
+        )
+        .unwrap_err();
         assert!(err.to_string().contains("session not found"));
-        let err2 = run_export(&cwd, Some(home.as_path()), ExportFormat::Json, None, None, false)
-            .unwrap_err();
+        let err2 = run_export(
+            &cwd,
+            Some(home.as_path()),
+            ExportFormat::Json,
+            None,
+            None,
+            false,
+        )
+        .unwrap_err();
         assert!(err2.to_string().contains("no sessions found"));
     }
 

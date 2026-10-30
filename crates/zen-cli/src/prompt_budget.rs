@@ -38,7 +38,6 @@ impl PromptBudget {
 }
 
 pub fn measure_default_budget() -> Result<PromptBudget> {
-
     let cli = Cli::try_parse_from(["zen", "--bare"])?;
     let sys = crate::system_prompt::build_system_prompt(&cli, Path::new("/tmp"), None)?;
     let system_prompt_tokens = estimate_tokens(&sys);
@@ -104,10 +103,22 @@ mod tests {
         let b = measure_default_budget().expect("prompt budget measurement");
         let names: Vec<&str> = b.per_tool.iter().map(|(n, _)| n.as_str()).collect();
         for expected in [
-            "Read", "Write", "Edit", "MultiEdit", "Bash", "Glob", "Grep", "WebFetch", "TodoWrite",
-            "JobOutput", "JobKill",
+            "Read",
+            "Write",
+            "Edit",
+            "MultiEdit",
+            "Bash",
+            "Glob",
+            "Grep",
+            "WebFetch",
+            "TodoWrite",
+            "JobOutput",
+            "JobKill",
         ] {
-            assert!(names.contains(&expected), "missing tool {expected} in {names:?}");
+            assert!(
+                names.contains(&expected),
+                "missing tool {expected} in {names:?}"
+            );
         }
         assert_eq!(
             b.total(),

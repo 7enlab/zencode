@@ -1,6 +1,5 @@
 fn price_table(model: &str) -> Option<(f64, f64)> {
     Some(match model {
-
         "gpt-4o" => (2.50, 10.00),
         "gpt-4o-mini" => (0.15, 0.60),
         "o1" => (15.00, 60.00),
@@ -53,7 +52,6 @@ pub fn estimate_cost_usd(model: &str, input_tokens: u64, output_tokens: u64) -> 
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct BudgetPolicy {
-
     pub max_budget_usd: f64,
 
     pub warn_at: f64,
@@ -69,7 +67,6 @@ impl Default for BudgetPolicy {
 }
 
 impl BudgetPolicy {
-
     pub fn normalized(mut self) -> Self {
         if self.warn_at <= 0.0 || self.warn_at > 1.0 || !self.warn_at.is_finite() {
             self.warn_at = 0.8;
@@ -82,10 +79,12 @@ pub const DEFAULT_OUTPUT_ESTIMATE_TOKENS: u64 = 4096;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum BudgetVerdict {
-
     Allow,
 
-    Warn { spent_usd: f64, cap_usd: f64 },
+    Warn {
+        spent_usd: f64,
+        cap_usd: f64,
+    },
 
     Block {
         spent_usd: f64,
@@ -152,19 +151,24 @@ mod tests {
     fn known_models_have_prices() {
         assert_eq!(price_per_1m("gpt-4o"), Some((2.50, 10.00)));
         assert_eq!(price_per_1m("openai/gpt-4o-mini"), Some((0.15, 0.60)));
-        assert_eq!(price_per_1m("anthropic/claude-sonnet-4-5"), Some((3.00, 15.00)));
+        assert_eq!(
+            price_per_1m("anthropic/claude-sonnet-4-5"),
+            Some((3.00, 15.00))
+        );
     }
 
     #[test]
     fn unknown_models_are_none_not_guessed() {
         assert_eq!(price_per_1m("some-future-model-9000"), None);
         assert_eq!(price_per_1m(""), None);
-        assert_eq!(estimate_cost_usd("some-future-model-9000", 1000, 1000), None);
+        assert_eq!(
+            estimate_cost_usd("some-future-model-9000", 1000, 1000),
+            None
+        );
     }
 
     #[test]
     fn estimate_math() {
-
         let c = estimate_cost_usd("gpt-4o", 1_000_000, 1_000_000).unwrap();
         assert!((c - 12.50).abs() < 1e-9);
 
@@ -200,7 +204,6 @@ mod tests {
 
     #[test]
     fn exact_boundary_is_allowed() {
-
         assert_eq!(
             check_budget(&policy(1.0), 0.70, 0.30, false),
             BudgetVerdict::Allow
@@ -209,7 +212,6 @@ mod tests {
 
     #[test]
     fn warn_once_at_threshold() {
-
         assert_eq!(
             check_budget(&policy(1.0), 0.85, 0.01, false),
             BudgetVerdict::Warn {
@@ -226,7 +228,6 @@ mod tests {
 
     #[test]
     fn block_takes_precedence_over_warn() {
-
         assert_eq!(
             check_budget(&policy(1.0), 0.95, 0.10, false),
             BudgetVerdict::Block {
@@ -239,7 +240,6 @@ mod tests {
 
     #[test]
     fn zero_cap_blocks_any_priced_call() {
-
         assert!(matches!(
             check_budget(&policy(0.0), 0.0, 0.01, false),
             BudgetVerdict::Block { .. }

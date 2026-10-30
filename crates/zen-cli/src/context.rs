@@ -24,7 +24,9 @@ fn message_tokens(m: &ChatMessage) -> u64 {
 }
 
 fn tool_def_tokens(t: &ToolDefinition) -> u64 {
-    serde_json::to_string(t).map(|s| est_tokens(&s)).unwrap_or(0)
+    serde_json::to_string(t)
+        .map(|s| est_tokens(&s))
+        .unwrap_or(0)
 }
 
 pub const PRUNE_CANDIDATE_TOKENS: u64 = 2000;
@@ -71,7 +73,8 @@ fn parse_transcript(path: &Path, session_id: &str) -> Result<ParsedSession> {
         match v.get("type").and_then(|t| t.as_str()) {
             Some("tools") => {
                 let h = v["hash"].as_str().unwrap_or_default().to_string();
-                if let Ok(defs) = serde_json::from_value::<Vec<ToolDefinition>>(v["tools"].clone()) {
+                if let Ok(defs) = serde_json::from_value::<Vec<ToolDefinition>>(v["tools"].clone())
+                {
                     tools_by_hash.insert(h, defs);
                 }
             }
@@ -85,8 +88,7 @@ fn parse_transcript(path: &Path, session_id: &str) -> Result<ParsedSession> {
                     }
                     None => vec![],
                 };
-                if let Ok(append) =
-                    serde_json::from_value::<Vec<ChatMessage>>(v["append"].clone())
+                if let Ok(append) = serde_json::from_value::<Vec<ChatMessage>>(v["append"].clone())
                 {
                     messages.extend(append);
                 }
@@ -102,7 +104,9 @@ fn parse_transcript(path: &Path, session_id: &str) -> Result<ParsedSession> {
             }
             Some("response") => {
                 if let Some(seq) = v["seq"].as_u64() {
-                    let pt = v["response"]["usage"]["prompt_tokens"].as_u64().unwrap_or(0);
+                    let pt = v["response"]["usage"]["prompt_tokens"]
+                        .as_u64()
+                        .unwrap_or(0);
                     if pt > 0 {
                         usage_by_seq.insert(seq, pt);
                     }
@@ -128,13 +132,18 @@ fn parse_transcript(path: &Path, session_id: &str) -> Result<ParsedSession> {
     }
 
     requests.sort_by_key(|r| r.seq);
-    Ok(ParsedSession { session_id: session_id.to_string(), requests, usage_by_seq, tools_by_hash, summaries })
+    Ok(ParsedSession {
+        session_id: session_id.to_string(),
+        requests,
+        usage_by_seq,
+        tools_by_hash,
+        summaries,
+    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum TotalSource {
-
     Reported,
 
     Estimated,
@@ -189,7 +198,6 @@ pub struct ContextAnalysis {
 }
 
 fn tool_call_label(name: &str, arguments: &str) -> String {
-
     let args: Value = serde_json::from_str(arguments).unwrap_or(Value::Null);
     let target = ["path", "file", "pattern", "command", "query", "url"]
         .iter()
@@ -212,7 +220,6 @@ fn tool_labels(messages: &[ChatMessage]) -> HashMap<String, String> {
     for m in messages {
         if let Some(calls) = &m.tool_calls {
             for c in calls {
-
                 out.insert(
                     c.id.clone(),
                     tool_call_label(&c.function.name, &c.function.arguments),
@@ -230,11 +237,20 @@ fn analyze(parsed: &ParsedSession) -> ContextAnalysis {
     let (total_tokens, total_source) = match latest {
         Some(r) => match parsed.usage_by_seq.get(&r.seq) {
             Some(&pt) => (pt, TotalSource::Reported),
-            None => (r.messages.iter().map(message_tokens).sum(), TotalSource::Estimated),
+            None => (
+                r.messages.iter().map(message_tokens).sum(),
+                TotalSource::Estimated,
+            ),
         },
         None => (0, TotalSource::Estimated),
     };
-    let request_body_bytes = latest.and_then(|r| if r.body_bytes > 0 { Some(r.body_bytes) } else { None });
+    let request_body_bytes = latest.and_then(|r| {
+        if r.body_bytes > 0 {
+            Some(r.body_bytes)
+        } else {
+            None
+        }
+    });
 
     let mut system_prompt_tokens = 0u64;
     let mut tool_schema_tokens = 0u64;
@@ -263,14 +279,21 @@ fn analyze(parsed: &ParsedSession) -> ContextAnalysis {
             }
         }
 
-        let later_text: Vec<String> = req.messages.iter().filter_map(|m| m.content.clone()).collect();
+        let later_text: Vec<String> = req
+            .messages
+            .iter()
+            .filter_map(|m| m.content.clone())
+            .collect();
 
         for (i, m) in req.messages.iter().enumerate().skip(history_start) {
             let tokens = message_tokens(m);
             history_tokens += tokens;
             let (label, mut prunable, mut prune_reason) = if m.role == "tool" {
                 let key = m.tool_call_id.clone().unwrap_or_default();
-                let base = labels.get(&key).cloned().unwrap_or_else(|| "tool_result".to_string());
+                let base = labels
+                    .get(&key)
+                    .cloned()
+                    .unwrap_or_else(|| "tool_result".to_string());
                 let label = format!("tool_result ({})", base);
 
                 let mut flag = false;
@@ -279,7 +302,10 @@ fn analyze(parsed: &ParsedSession) -> ContextAnalysis {
                     let id = base.split_whitespace().nth(1).unwrap_or("");
                     if !id.is_empty() {
                         let mentioned_later = req.messages.iter().skip(i + 1).any(|lm| {
-                            lm.content.as_deref().map(|c| c.contains(id)).unwrap_or(false)
+                            lm.content
+                                .as_deref()
+                                .map(|c| c.contains(id))
+                                .unwrap_or(false)
                         });
                         if !mentioned_later {
                             flag = true;
@@ -297,11 +323,24 @@ fn analyze(parsed: &ParsedSession) -> ContextAnalysis {
                     }
                 }
                 (label, flag, reason)
-            } else if m.tool_calls.as_ref().map(|c| !c.is_empty()).unwrap_or(false) {
-                let names: Vec<String> = m.tool_calls.as_ref().unwrap().iter()
+            } else if m
+                .tool_calls
+                .as_ref()
+                .map(|c| !c.is_empty())
+                .unwrap_or(false)
+            {
+                let names: Vec<String> = m
+                    .tool_calls
+                    .as_ref()
+                    .unwrap()
+                    .iter()
                     .map(|c| tool_call_label(&c.function.name, &c.function.arguments))
                     .collect();
-                (format!("assistant (calls: {})", names.join(", ")), false, None)
+                (
+                    format!("assistant (calls: {})", names.join(", ")),
+                    false,
+                    None,
+                )
             } else {
                 (m.role.clone(), false, None)
             };
@@ -311,17 +350,31 @@ fn analyze(parsed: &ParsedSession) -> ContextAnalysis {
                 prune_reason = None;
             }
             let _ = later_text;
-            turns.push(TurnAttribution { index: i, role: m.role.clone(), label, tokens, prunable, prune_reason });
+            turns.push(TurnAttribution {
+                index: i,
+                role: m.role.clone(),
+                label,
+                tokens,
+                prunable,
+                prune_reason,
+            });
         }
     }
 
     let mut compactions: Vec<CompactionInfo> = vec![];
     for s in &parsed.summaries {
-        let before = parsed.requests.iter().rev().find(|r| r.timestamp <= s.timestamp);
+        let before = parsed
+            .requests
+            .iter()
+            .rev()
+            .find(|r| r.timestamp <= s.timestamp);
         let (tokens_before, src) = match before {
             Some(r) => match parsed.usage_by_seq.get(&r.seq) {
                 Some(&pt) => (pt, TotalSource::Reported),
-                None => (r.messages.iter().map(message_tokens).sum(), TotalSource::Estimated),
+                None => (
+                    r.messages.iter().map(message_tokens).sum(),
+                    TotalSource::Estimated,
+                ),
             },
             None => (0, TotalSource::Estimated),
         };
@@ -340,7 +393,9 @@ fn analyze(parsed: &ParsedSession) -> ContextAnalysis {
         consumers.push(ConsumerHint {
             label: "system prompt".to_string(),
             tokens: system_prompt_tokens,
-            suggestion: "Check for verbose custom instructions or appended context that could be trimmed.".to_string(),
+            suggestion:
+                "Check for verbose custom instructions or appended context that could be trimmed."
+                    .to_string(),
         });
     }
     if tool_schema_tokens > 0 {
@@ -361,7 +416,9 @@ fn analyze(parsed: &ParsedSession) -> ContextAnalysis {
             consumers.push(ConsumerHint {
                 label: t.label.clone(),
                 tokens: t.tokens,
-                suggestion: "One of the largest single turns; check whether all of it is still needed.".to_string(),
+                suggestion:
+                    "One of the largest single turns; check whether all of it is still needed."
+                        .to_string(),
             });
         }
     }
@@ -385,7 +442,11 @@ fn analyze(parsed: &ParsedSession) -> ContextAnalysis {
 }
 
 fn pct(part: u64, total: u64) -> f64 {
-    if total == 0 { 0.0 } else { part as f64 * 100.0 / total as f64 }
+    if total == 0 {
+        0.0
+    } else {
+        part as f64 * 100.0 / total as f64
+    }
 }
 
 pub fn render_text(a: &ContextAnalysis) -> String {
@@ -407,17 +468,22 @@ pub fn render_text(a: &ContextAnalysis) -> String {
     let t = a.total_tokens;
     out.push_str(&format!(
         "├── system prompt: {} ({:.1}%)\n",
-        a.system_prompt_tokens, pct(a.system_prompt_tokens, t)
+        a.system_prompt_tokens,
+        pct(a.system_prompt_tokens, t)
     ));
     out.push_str(&format!(
         "├── tool schemas ({}): {} ({:.1}%)\n",
-        a.tool_schemas.len(), a.tool_schema_tokens, pct(a.tool_schema_tokens, t)
+        a.tool_schemas.len(),
+        a.tool_schema_tokens,
+        pct(a.tool_schema_tokens, t)
     ));
     for (i, (name, tok)) in a.tool_schemas.iter().take(5).enumerate() {
         let last = i + 1 == a.tool_schemas.len().min(5);
         out.push_str(&format!(
             "│   {} {}: {}\n",
-            if last { "└──" } else { "├──" }, name, tok
+            if last { "└──" } else { "├──" },
+            name,
+            tok
         ));
     }
     if a.tool_schemas.len() > 5 {
@@ -425,7 +491,9 @@ pub fn render_text(a: &ContextAnalysis) -> String {
     }
     out.push_str(&format!(
         "└── history ({} turns): {} ({:.1}%)\n",
-        a.turns.len(), a.history_tokens, pct(a.history_tokens, t)
+        a.turns.len(),
+        a.history_tokens,
+        pct(a.history_tokens, t)
     ));
     for (i, turn) in a.turns.iter().enumerate() {
         let last = i + 1 == a.turns.len();
@@ -433,12 +501,17 @@ pub fn render_text(a: &ContextAnalysis) -> String {
         out.push_str(&format!(
             "    {} turn {} {} ({}): {}{}\n",
             if last { "└──" } else { "├──" },
-            turn.index, turn.role, turn.label, turn.tokens, flag
+            turn.index,
+            turn.role,
+            turn.label,
+            turn.tokens,
+            flag
         ));
         if let Some(reason) = &turn.prune_reason {
             out.push_str(&format!(
                 "    {}     → {}\n",
-                if last { " " } else { "│" }, reason
+                if last { " " } else { "│" },
+                reason
             ));
         }
     }
@@ -448,7 +521,11 @@ pub fn render_text(a: &ContextAnalysis) -> String {
         for (i, c) in a.compactions.iter().enumerate() {
             out.push_str(&format!(
                 "  {}. {} - {} tokens → {} summary tokens ({} dropped)\n",
-                i + 1, c.timestamp, c.tokens_before, c.summary_tokens, c.dropped_tokens
+                i + 1,
+                c.timestamp,
+                c.tokens_before,
+                c.summary_tokens,
+                c.dropped_tokens
             ));
         }
     }
@@ -458,7 +535,10 @@ pub fn render_text(a: &ContextAnalysis) -> String {
         for (i, c) in a.top_consumers.iter().enumerate() {
             out.push_str(&format!(
                 "  {}. {} - {} tokens\n     → {}\n",
-                i + 1, c.label, c.tokens, c.suggestion
+                i + 1,
+                c.label,
+                c.tokens,
+                c.suggestion
             ));
         }
     } else {
@@ -580,7 +660,10 @@ mod tests {
             path.file_name().unwrap().to_str().unwrap(),
             &[
                 serde_json::json!({"type": "tools", "v": 1, "hash": th, "tools": tools}),
-                r1, r2, resp, summary,
+                r1,
+                r2,
+                resp,
+                summary,
             ],
         );
     }
@@ -641,9 +724,16 @@ mod tests {
         let prunable: Vec<_> = a.turns.iter().filter(|t| t.prunable).collect();
         assert_eq!(prunable.len(), 1);
         assert!(prunable[0].label.contains("read src/main.rs"));
-        assert!(prunable[0].prune_reason.as_ref().unwrap().contains("not referenced"));
+        assert!(prunable[0]
+            .prune_reason
+            .as_ref()
+            .unwrap()
+            .contains("not referenced"));
 
-        assert!(a.top_consumers.iter().any(|c| c.label.contains("read src/main.rs")));
+        assert!(a
+            .top_consumers
+            .iter()
+            .any(|c| c.label.contains("read src/main.rs")));
         std::fs::remove_dir_all(&d).ok();
     }
 

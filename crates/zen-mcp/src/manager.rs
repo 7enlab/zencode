@@ -22,12 +22,22 @@ pub(crate) struct McpTool {
 
 pub(crate) fn sanitize_component(s: &str) -> String {
     s.chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect()
 }
 
 pub(crate) fn mcp_tool_name(server: &str, tool: &str) -> String {
-    format!("mcp__{}__{}", sanitize_component(server), sanitize_component(tool))
+    format!(
+        "mcp__{}__{}",
+        sanitize_component(server),
+        sanitize_component(tool)
+    )
 }
 
 #[async_trait]
@@ -61,7 +71,10 @@ pub(crate) fn render_result(result: Value, ctx: &ToolContext) -> ToolOutput {
     let mut parts: Vec<String> = Vec::new();
     if let Some(arr) = result.get("content").and_then(|v| v.as_array()) {
         for item in arr {
-            let ty = item.get("type").and_then(|v| v.as_str()).unwrap_or("unknown");
+            let ty = item
+                .get("type")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown");
             match ty {
                 "text" => {
                     if let Some(t) = item.get("text").and_then(|v| v.as_str()) {
@@ -102,7 +115,6 @@ pub struct McpManager {
 }
 
 impl McpManager {
-
     pub async fn start(configs: BTreeMap<String, McpServerConfig>, timeout_ms: u64) -> Self {
         let timeout_ms = if timeout_ms == 0 { 30_000 } else { timeout_ms };
 
@@ -111,7 +123,6 @@ impl McpManager {
 
         let mut valid_configs = BTreeMap::new();
         for (name, cfg) in configs {
-
             let expanded_cfg = match cfg.expand_env() {
                 Some(cfg) => cfg,
                 None => {
@@ -124,7 +135,10 @@ impl McpManager {
             };
 
             if let Some(reason) = validate(&expanded_cfg) {
-                skipped.push(SkipReason { server_name: name.clone(), reason: reason.to_string() });
+                skipped.push(SkipReason {
+                    server_name: name.clone(),
+                    reason: reason.to_string(),
+                });
                 continue;
             }
 
@@ -170,7 +184,13 @@ impl McpManager {
             }
         }
 
-        Self { statuses, tools, transports, skipped, failed }
+        Self {
+            statuses,
+            tools,
+            transports,
+            skipped,
+            failed,
+        }
     }
 
     pub fn tools(&self) -> Vec<Arc<dyn Tool>> {

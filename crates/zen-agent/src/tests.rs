@@ -9,7 +9,11 @@ use crate::testutil::*;
 use crate::{AgentConfig, SubAgentExecutor};
 
 fn fake(name: &'static str, read_only: bool, out: &str) -> Arc<dyn Tool> {
-    Arc::new(FakeTool { name, read_only, output: ToolOutput::ok(out) })
+    Arc::new(FakeTool {
+        name,
+        read_only,
+        output: ToolOutput::ok(out),
+    })
 }
 
 fn allow() -> Arc<FakePerms> {
@@ -47,12 +51,15 @@ async fn text_reply_is_the_result_and_system_prompt_is_sent_not_stored() {
     let req = &llm.requests()[0];
     assert_eq!(req.messages[0].role, "system");
     assert_eq!(req.messages[0].content.as_deref(), Some("you are a test"));
-    assert_eq!(agent.messages()[0].role, "user", "system prompt must not be stored in history");
+    assert_eq!(
+        agent.messages()[0].role,
+        "user",
+        "system prompt must not be stored in history"
+    );
 }
 
 #[tokio::test]
 async fn prune_old_tool_results_end_to_end() {
-
     let big = "x".repeat(12_000);
     let mut scripted = vec![];
     for i in 1..=7 {
@@ -83,7 +90,10 @@ async fn prune_old_tool_results_end_to_end() {
         .iter()
         .filter(|m| {
             m.role == "tool"
-                && m.content.as_deref().unwrap_or("").starts_with("[zen: pruned")
+                && m.content
+                    .as_deref()
+                    .unwrap_or("")
+                    .starts_with("[zen: pruned")
         })
         .collect();
     assert!(
@@ -92,7 +102,11 @@ async fn prune_old_tool_results_end_to_end() {
     );
 
     let first = pruned_summaries[0].content.as_deref().unwrap();
-    assert!(first.contains("src/f1.rs"), "identifier preserved: {}", first);
+    assert!(
+        first.contains("src/f1.rs"),
+        "identifier preserved: {}",
+        first
+    );
     assert!(pruned_summaries[0].tool_call_id.is_some());
 
     let events = sink.events.lock().unwrap();
@@ -124,17 +138,12 @@ async fn no_prune_disables_pruning_and_capping() {
     assert_eq!(agent.prune_stats().pruned, 0);
     assert_eq!(agent.prune_stats().capped, 0);
 
-    let tool_msg = agent
-        .messages()
-        .iter()
-        .find(|m| m.role == "tool")
-        .unwrap();
+    let tool_msg = agent.messages().iter().find(|m| m.role == "tool").unwrap();
     assert_eq!(tool_msg.content.as_deref().unwrap().len(), 12_000);
 }
 
 #[tokio::test]
 async fn oversized_tool_result_is_capped_with_reread_hint() {
-
     let huge = "y".repeat(40_000);
     let llm = MockLlm::new(vec![
         resp_tool("Read", r#"{"path": "src/big.rs"}"#, "c1"),
@@ -148,18 +157,18 @@ async fn oversized_tool_result_is_capped_with_reread_hint() {
     assert_eq!(stats.capped, 1);
     assert!(stats.capped_tokens > 0);
 
-    let tool_msg = agent
-        .messages()
-        .iter()
-        .find(|m| m.role == "tool")
-        .unwrap();
+    let tool_msg = agent.messages().iter().find(|m| m.role == "tool").unwrap();
     let content = tool_msg.content.as_deref().unwrap();
     assert!(
         content.starts_with("[zen: truncated"),
         "capped result carries the marker"
     );
     assert!(content.contains("re-read with a narrower query"));
-    assert!(content.contains("src/big.rs"), "label preserved: {}", &content[..120]);
+    assert!(
+        content.contains("src/big.rs"),
+        "label preserved: {}",
+        &content[..120]
+    );
 }
 
 #[tokio::test]
@@ -214,8 +223,11 @@ async fn unknown_tool_and_bad_json_become_tool_errors_not_crashes() {
     let r = agent.run_turn("go").await;
     assert_eq!(r.result, "recovered");
     let msgs = agent.messages();
-    let contents: Vec<&str> =
-        msgs.iter().filter(|m| m.role == "tool").filter_map(|m| m.content.as_deref()).collect();
+    let contents: Vec<&str> = msgs
+        .iter()
+        .filter(|m| m.role == "tool")
+        .filter_map(|m| m.content.as_deref())
+        .collect();
     assert!(contents[0].contains("Unknown tool 'Nope'"));
     assert!(contents[1].contains("Invalid JSON arguments"));
     assert_paired(msgs);
@@ -234,31 +246,50 @@ async fn deny_is_recorded_in_result_and_event() {
     assert_eq!(r.permission_denials[0].tool_input, json!({"p":"a"}));
     let tool_msg = agent.messages().iter().find(|m| m.role == "tool").unwrap();
     assert_eq!(tool_msg.content.as_deref(), Some("rule says no"));
-    assert!(sink.events.lock().unwrap().iter().any(|e| matches!(e, AgentEvent::PermissionDenied(_))));
+    assert!(sink
+        .events
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|e| matches!(e, AgentEvent::PermissionDenied(_))));
 }
 
 #[tokio::test]
 async fn ask_without_prompter_denies_in_headless_mode() {
     let llm = MockLlm::new(vec![resp_tool("Write", "{}", "w1"), resp("ok")]);
     let reg = registry_with(vec![fake("Write", false, "wrote")]);
-    let (mut agent, _s, _h) =
-        build_agent(llm, reg, FakePerms::new(PermissionDecision::Ask), base_cfg());
+    let (mut agent, _s, _h) = build_agent(
+        llm,
+        reg,
+        FakePerms::new(PermissionDecision::Ask),
+        base_cfg(),
+    );
     let r = agent.run_turn("go").await;
     assert_eq!(r.permission_denials.len(), 1);
     let tool_msg = agent.messages().iter().find(|m| m.role == "tool").unwrap();
-    assert!(tool_msg.content.as_deref().unwrap().contains("non-interactive"));
+    assert!(tool_msg
+        .content
+        .as_deref()
+        .unwrap()
+        .contains("non-interactive"));
 }
 
 #[tokio::test]
 async fn plan_mode_hides_mutating_tools_and_returns_plan_text() {
     let llm = MockLlm::new(vec![resp("1. do X\n2. do Y")]);
     let reg = registry_with(vec![fake("Read", true, "r"), fake("Write", false, "w")]);
-    let cfg = AgentConfig { permission_mode: PermissionMode::Plan, ..base_cfg() };
+    let cfg = AgentConfig {
+        permission_mode: PermissionMode::Plan,
+        ..base_cfg()
+    };
     let (mut agent, _s, _h) = build_agent(llm.clone(), reg, allow(), cfg);
     let r = agent.run_turn("plan it").await;
     assert_eq!(r.result, "1. do X\n2. do Y");
-    let names: Vec<String> =
-        llm.requests()[0].tools.iter().map(|t| t.function.name.clone()).collect();
+    let names: Vec<String> = llm.requests()[0]
+        .tools
+        .iter()
+        .map(|t| t.function.name.clone())
+        .collect();
     assert!(names.contains(&"Read".to_string()));
     assert!(!names.contains(&"Write".to_string()));
 }
@@ -271,7 +302,10 @@ async fn max_turns_stops_with_error_subtype() {
         resp("never reached"),
     ]);
     let reg = registry_with(vec![fake("Echo", true, "x")]);
-    let cfg = AgentConfig { max_turns: 2, ..base_cfg() };
+    let cfg = AgentConfig {
+        max_turns: 2,
+        ..base_cfg()
+    };
     let (mut agent, _s, _h) = build_agent(llm, reg, allow(), cfg);
     let r = agent.run_turn("go").await;
     assert_eq!(r.subtype, "error_max_turns");
@@ -291,34 +325,52 @@ async fn model_failure_surfaces_as_error_result() {
 
 #[tokio::test]
 async fn fallback_model_is_used_after_primary_fails() {
-    let llm = MockLlm::with_errors(vec![Err(anyhow::anyhow!("primary down")), Ok(resp("via fb"))]);
-    let cfg = AgentConfig { fallback_models: vec!["fb-model".into()], ..base_cfg() };
+    let llm = MockLlm::with_errors(vec![
+        Err(anyhow::anyhow!("primary down")),
+        Ok(resp("via fb")),
+    ]);
+    let cfg = AgentConfig {
+        fallback_models: vec!["fb-model".into()],
+        ..base_cfg()
+    };
     let (mut agent, _s, _h) = build_agent(llm.clone(), ToolRegistry::new(), allow(), cfg);
     let r = agent.run_turn("go").await;
     assert_eq!(r.result, "via fb");
     let models: Vec<String> = llm.requests().iter().map(|r| r.model.clone()).collect();
-    assert_eq!(models, vec!["mock-model".to_string(), "fb-model".to_string()]);
+    assert_eq!(
+        models,
+        vec!["mock-model".to_string(), "fb-model".to_string()]
+    );
 }
 
 #[tokio::test]
 async fn c3_10_user_prompt_submit_block_skips_model_and_context_is_appended() {
-
     let llm = MockLlm::new(vec![]);
     let (mut agent, _s, hooks) = build_agent(llm.clone(), ToolRegistry::new(), allow(), base_cfg());
     hooks.push(
         HookEvent::UserPromptSubmit,
-        HookOutcome { blocked: true, feedback: Some("no secrets".into()), ..Default::default() },
+        HookOutcome {
+            blocked: true,
+            feedback: Some("no secrets".into()),
+            ..Default::default()
+        },
     );
     let r = agent.run_turn("my password is x").await;
     assert!(r.is_error);
     assert_eq!(r.result, "no secrets");
-    assert!(llm.requests().is_empty(), "blocked prompt must not reach the model");
+    assert!(
+        llm.requests().is_empty(),
+        "blocked prompt must not reach the model"
+    );
 
     let llm = MockLlm::new(vec![resp("ok")]);
     let (mut agent, _s, hooks) = build_agent(llm.clone(), ToolRegistry::new(), allow(), base_cfg());
     hooks.push(
         HookEvent::UserPromptSubmit,
-        HookOutcome { feedback: Some("CTX: branch main".into()), ..Default::default() },
+        HookOutcome {
+            feedback: Some("CTX: branch main".into()),
+            ..Default::default()
+        },
     );
     agent.run_turn("hello").await;
     let user = llm.requests()[0].messages[1].content.clone().unwrap();
@@ -338,11 +390,18 @@ async fn c3_7_pre_tool_use_block_and_updated_input() {
     let (mut agent, _s, hooks) = build_agent(llm, reg, allow(), base_cfg());
     hooks.push(
         HookEvent::PreToolUse,
-        HookOutcome { blocked: true, feedback: Some("blocked by policy".into()), ..Default::default() },
+        HookOutcome {
+            blocked: true,
+            feedback: Some("blocked by policy".into()),
+            ..Default::default()
+        },
     );
     hooks.push(
         HookEvent::PreToolUse,
-        HookOutcome { updated_input: Some(json!({"v":"rewritten"})), ..Default::default() },
+        HookOutcome {
+            updated_input: Some(json!({"v":"rewritten"})),
+            ..Default::default()
+        },
     );
     agent.run_turn("go").await;
     let tools: Vec<String> = agent
@@ -351,14 +410,22 @@ async fn c3_7_pre_tool_use_block_and_updated_input() {
         .filter(|m| m.role == "tool")
         .map(|m| m.content.clone().unwrap())
         .collect();
-    assert_eq!(tools, vec!["blocked by policy".to_string(), "ran".to_string()]);
+    assert_eq!(
+        tools,
+        vec!["blocked by policy".to_string(), "ran".to_string()]
+    );
     let calls = hooks.calls.lock().unwrap();
-    let pre: Vec<&(HookEvent, String, Value)> =
-        calls.iter().filter(|c| c.0 == HookEvent::PreToolUse).collect();
+    let pre: Vec<&(HookEvent, String, Value)> = calls
+        .iter()
+        .filter(|c| c.0 == HookEvent::PreToolUse)
+        .collect();
     assert_eq!(pre[0].1, "Echo", "matcher target is the tool name");
     assert_eq!(pre[0].2["tool_use_id"], "c1");
 
-    let post = calls.iter().find(|c| c.0 == HookEvent::PostToolUse).unwrap();
+    let post = calls
+        .iter()
+        .find(|c| c.0 == HookEvent::PostToolUse)
+        .unwrap();
     assert_eq!(post.2["tool_input"], json!({"v":"rewritten"}));
     assert_eq!(post.2["tool_response"], "ran");
 }
@@ -366,25 +433,48 @@ async fn c3_7_pre_tool_use_block_and_updated_input() {
 #[tokio::test]
 async fn c2_13_hook_allow_cannot_override_rule_deny() {
     assert_eq!(
-        combine_permission(PermissionDecision::Deny("r".into()), Some(PermissionDecision::Allow), false),
+        combine_permission(
+            PermissionDecision::Deny("r".into()),
+            Some(PermissionDecision::Allow),
+            false
+        ),
         PermissionDecision::Deny("r".into())
     );
     assert_eq!(
-        combine_permission(PermissionDecision::Ask, Some(PermissionDecision::Allow), false),
+        combine_permission(
+            PermissionDecision::Ask,
+            Some(PermissionDecision::Allow),
+            false
+        ),
         PermissionDecision::Allow
     );
     assert_eq!(
-        combine_permission(PermissionDecision::Allow, Some(PermissionDecision::Ask), false),
+        combine_permission(
+            PermissionDecision::Allow,
+            Some(PermissionDecision::Ask),
+            false
+        ),
         PermissionDecision::Ask
     );
     assert_eq!(
-        combine_permission(PermissionDecision::Allow, Some(PermissionDecision::Deny("h".into())), false),
+        combine_permission(
+            PermissionDecision::Allow,
+            Some(PermissionDecision::Deny("h".into())),
+            false
+        ),
         PermissionDecision::Deny("h".into())
     );
-    assert_eq!(combine_permission(PermissionDecision::Allow, None, false), PermissionDecision::Allow);
+    assert_eq!(
+        combine_permission(PermissionDecision::Allow, None, false),
+        PermissionDecision::Allow
+    );
 
     assert_eq!(
-        combine_permission(PermissionDecision::Ask, Some(PermissionDecision::Allow), true),
+        combine_permission(
+            PermissionDecision::Ask,
+            Some(PermissionDecision::Allow),
+            true
+        ),
         PermissionDecision::Ask
     );
 
@@ -394,7 +484,10 @@ async fn c2_13_hook_allow_cannot_override_rule_deny() {
     let (mut agent, _s, hooks) = build_agent(llm, reg, perms, base_cfg());
     hooks.push(
         HookEvent::PreToolUse,
-        HookOutcome { permission_override: Some(PermissionDecision::Allow), ..Default::default() },
+        HookOutcome {
+            permission_override: Some(PermissionDecision::Allow),
+            ..Default::default()
+        },
     );
     let r = agent.run_turn("go").await;
     assert_eq!(r.permission_denials.len(), 1);
@@ -422,10 +515,18 @@ async fn c2_13_hook_allow_cannot_override_ask_rule_end_to_end() {
             build_agent(llm, reg, Arc::new(AskPerms { ask_rule }), base_cfg());
         hooks.push(
             HookEvent::PreToolUse,
-            HookOutcome { permission_override: Some(PermissionDecision::Allow), ..Default::default() },
+            HookOutcome {
+                permission_override: Some(PermissionDecision::Allow),
+                ..Default::default()
+            },
         );
         let r = agent.run_turn("go").await;
-        assert_eq!(r.permission_denials.len(), expect_denied, "ask_rule={}", ask_rule);
+        assert_eq!(
+            r.permission_denials.len(),
+            expect_denied,
+            "ask_rule={}",
+            ask_rule
+        );
     }
 }
 
@@ -438,12 +539,18 @@ async fn c3_6_pre_tool_use_continue_false_stops_and_keeps_history_valid() {
                 ToolCall {
                     id: "a".into(),
                     call_type: "function".into(),
-                    function: FunctionCall { name: "Echo".into(), arguments: "{}".into() },
+                    function: FunctionCall {
+                        name: "Echo".into(),
+                        arguments: "{}".into(),
+                    },
                 },
                 ToolCall {
                     id: "b".into(),
                     call_type: "function".into(),
-                    function: FunctionCall { name: "Echo".into(), arguments: "{}".into() },
+                    function: FunctionCall {
+                        name: "Echo".into(),
+                        arguments: "{}".into(),
+                    },
                 },
             ]),
         ),
@@ -480,19 +587,30 @@ async fn c3_8_post_tool_use_updated_output_and_feedback() {
         },
     );
     agent.run_turn("go").await;
-    let tool = llm.requests()[1].messages.iter().find(|m| m.role == "tool").cloned().unwrap();
+    let tool = llm.requests()[1]
+        .messages
+        .iter()
+        .find(|m| m.role == "tool")
+        .cloned()
+        .unwrap();
     assert_eq!(tool.content.as_deref(), Some("redacted\nlint: 2 warnings"));
 }
 
 #[tokio::test]
 async fn c3_2_failed_tool_fires_post_tool_use_failure() {
     let llm = MockLlm::new(vec![resp_tool("Bad", "{}", "c1"), resp("fin")]);
-    let bad: Arc<dyn Tool> =
-        Arc::new(FakeTool { name: "Bad", read_only: true, output: ToolOutput::err("exploded") });
+    let bad: Arc<dyn Tool> = Arc::new(FakeTool {
+        name: "Bad",
+        read_only: true,
+        output: ToolOutput::err("exploded"),
+    });
     let (mut agent, _s, hooks) = build_agent(llm, registry_with(vec![bad]), allow(), base_cfg());
     agent.run_turn("go").await;
     let calls = hooks.calls.lock().unwrap();
-    let f = calls.iter().find(|c| c.0 == HookEvent::PostToolUseFailure).expect("failure hook");
+    let f = calls
+        .iter()
+        .find(|c| c.0 == HookEvent::PostToolUseFailure)
+        .expect("failure hook");
     assert_eq!(f.2["error"], "exploded");
     assert!(!calls.iter().any(|c| c.0 == HookEvent::PostToolUse));
 }
@@ -503,16 +621,26 @@ async fn c3_9_stop_hook_block_continues_with_reason_and_sets_stop_hook_active() 
     let (mut agent, _s, hooks) = build_agent(llm.clone(), ToolRegistry::new(), allow(), base_cfg());
     hooks.push(
         HookEvent::Stop,
-        HookOutcome { blocked: true, feedback: Some("run the tests".into()), ..Default::default() },
+        HookOutcome {
+            blocked: true,
+            feedback: Some("run the tests".into()),
+            ..Default::default()
+        },
     );
     let r = agent.run_turn("go").await;
     assert_eq!(r.result, "second");
     assert_eq!(r.num_turns, 2);
     let second = &llm.requests()[1];
-    assert_eq!(second.messages.last().unwrap().content.as_deref(), Some("run the tests"));
+    assert_eq!(
+        second.messages.last().unwrap().content.as_deref(),
+        Some("run the tests")
+    );
     let calls = hooks.calls.lock().unwrap();
-    let stops: Vec<&Value> =
-        calls.iter().filter(|c| c.0 == HookEvent::Stop).map(|c| &c.2).collect();
+    let stops: Vec<&Value> = calls
+        .iter()
+        .filter(|c| c.0 == HookEvent::Stop)
+        .map(|c| &c.2)
+        .collect();
     assert_eq!(stops[0]["stop_hook_active"], false);
     assert_eq!(stops[0]["last_assistant_message"], "first");
     assert_eq!(stops[1]["stop_hook_active"], true);
@@ -525,27 +653,44 @@ async fn c3_9_stop_hook_loop_guard_caps_continuations() {
     let (mut agent, _s, hooks) = build_agent(llm.clone(), ToolRegistry::new(), allow(), base_cfg());
     agent.set_stop_hook_max_continues(n);
     for _ in 0..10 {
-        hooks.push(HookEvent::Stop, HookOutcome { blocked: true, ..Default::default() });
+        hooks.push(
+            HookEvent::Stop,
+            HookOutcome {
+                blocked: true,
+                ..Default::default()
+            },
+        );
     }
     let r = agent.run_turn("go").await;
     assert_eq!(r.subtype, "success");
-    assert_eq!(llm.requests().len(), n + 1, "initial answer + n continuations");
+    assert_eq!(
+        llm.requests().len(),
+        n + 1,
+        "initial answer + n continuations"
+    );
     assert_eq!(crate::DEFAULT_STOP_HOOK_CONTINUES, 8);
 }
 
 #[tokio::test]
 async fn system_message_from_hook_is_emitted_to_sink_only() {
     let llm = MockLlm::new(vec![resp("ok")]);
-    let (mut agent, sink, hooks) = build_agent(llm.clone(), ToolRegistry::new(), allow(), base_cfg());
+    let (mut agent, sink, hooks) =
+        build_agent(llm.clone(), ToolRegistry::new(), allow(), base_cfg());
     hooks.push(
         HookEvent::UserPromptSubmit,
-        HookOutcome { system_message: Some("heads up".into()), ..Default::default() },
+        HookOutcome {
+            system_message: Some("heads up".into()),
+            ..Default::default()
+        },
     );
     agent.run_turn("hi").await;
     assert!(sink.events.lock().unwrap().iter().any(|e| matches!(e,
         AgentEvent::SystemMessage { event, text } if event == "UserPromptSubmit" && text == "heads up")));
     let sent = serde_json::to_string(&llm.requests()[0].messages).unwrap();
-    assert!(!sent.contains("heads up"), "systemMessage must not reach the model");
+    assert!(
+        !sent.contains("heads up"),
+        "systemMessage must not reach the model"
+    );
 }
 
 #[tokio::test]
@@ -556,19 +701,38 @@ async fn c10_manual_compact_replaces_history_keeps_pairs_and_fires_hooks() {
         resp("SUMMARY TEXT"),
     ]);
     let reg = registry_with(vec![fake("Echo", true, "x")]);
-    let cfg = AgentConfig { keep_after_compact: 2, ..base_cfg() };
+    let cfg = AgentConfig {
+        keep_after_compact: 2,
+        ..base_cfg()
+    };
     let (mut agent, sink, hooks) = build_agent(llm.clone(), reg, allow(), cfg);
     agent.run_turn("first").await;
-    agent.compact(Some("focus on parser"), "manual").await.unwrap();
+    agent
+        .compact(Some("focus on parser"), "manual")
+        .await
+        .unwrap();
     let msgs = agent.messages();
     assert!(msgs[0].content.as_deref().unwrap().contains("SUMMARY TEXT"));
-    assert!(msgs[0].content.as_deref().unwrap().starts_with("[Compaction summary"));
+    assert!(msgs[0]
+        .content
+        .as_deref()
+        .unwrap()
+        .starts_with("[Compaction summary"));
     assert_paired(msgs);
-    assert!(msgs.iter().all(|m| m.role != "tool" || msgs.iter().any(|a| a.tool_calls.is_some())));
+    assert!(msgs
+        .iter()
+        .all(|m| m.role != "tool" || msgs.iter().any(|a| a.tool_calls.is_some())));
 
     let sreq = llm.requests().last().cloned().unwrap();
     assert!(sreq.tools.is_empty());
-    assert!(sreq.messages.last().unwrap().content.as_deref().unwrap().contains("focus on parser"));
+    assert!(sreq
+        .messages
+        .last()
+        .unwrap()
+        .content
+        .as_deref()
+        .unwrap()
+        .contains("focus on parser"));
 
     let calls = hooks.calls.lock().unwrap();
     let pre = calls.iter().find(|c| c.0 == HookEvent::PreCompact).unwrap();
@@ -581,19 +745,27 @@ async fn c10_manual_compact_replaces_history_keeps_pairs_and_fires_hooks() {
 
 #[tokio::test]
 async fn compaction_request_is_one_transcript_message_and_summary_tracks_files() {
-
     let llm = MockLlm::new(vec![
         resp_tool("Read", r#"{"file_path":"src/a.rs"}"#, "c1"),
         resp("answer one"),
         resp("SUMMARY TEXT"),
     ]);
     let reg = registry_with(vec![fake("Read", true, "file body")]);
-    let cfg = AgentConfig { keep_after_compact: 1, system_prompt: "SYSTEM-PROMPT-XYZ".into(), ..base_cfg() };
+    let cfg = AgentConfig {
+        keep_after_compact: 1,
+        system_prompt: "SYSTEM-PROMPT-XYZ".into(),
+        ..base_cfg()
+    };
     let (mut agent, _sink, _hooks) = build_agent(llm.clone(), reg, allow(), cfg);
     agent.run_turn("first").await;
     agent.compact(None, "manual").await.unwrap();
     let sreq = llm.requests().last().cloned().unwrap();
-    assert_eq!(sreq.messages.len(), 1, "one user message: {:?}", sreq.messages);
+    assert_eq!(
+        sreq.messages.len(),
+        1,
+        "one user message: {:?}",
+        sreq.messages
+    );
     assert_eq!(sreq.messages[0].role, "user");
     let body = sreq.messages[0].content.as_deref().unwrap();
     assert!(body.contains("[User]: first"));
@@ -602,7 +774,10 @@ async fn compaction_request_is_one_transcript_message_and_summary_tracks_files()
     assert!(body.contains("Summarize this coding session"));
     assert!(!body.contains("SYSTEM-PROMPT-XYZ"));
     let summary = agent.messages()[0].content.as_deref().unwrap();
-    assert!(summary.contains("SUMMARY TEXT\n\n<read-files>\nsrc/a.rs\n</read-files>"), "{summary}");
+    assert!(
+        summary.contains("SUMMARY TEXT\n\n<read-files>\nsrc/a.rs\n</read-files>"),
+        "{summary}"
+    );
 }
 
 #[tokio::test]
@@ -611,7 +786,13 @@ async fn c10_pre_compact_block_leaves_history_untouched() {
     let (mut agent, _s, hooks) = build_agent(llm.clone(), ToolRegistry::new(), allow(), base_cfg());
     agent.run_turn("x").await;
     let before = agent.messages().to_vec();
-    hooks.push(HookEvent::PreCompact, HookOutcome { blocked: true, ..Default::default() });
+    hooks.push(
+        HookEvent::PreCompact,
+        HookOutcome {
+            blocked: true,
+            ..Default::default()
+        },
+    );
     agent.compact(None, "manual").await.unwrap();
     assert_eq!(agent.messages(), &before[..]);
     assert_eq!(llm.requests().len(), 1, "no summarization call when vetoed");
@@ -619,9 +800,12 @@ async fn c10_pre_compact_block_leaves_history_untouched() {
 
 #[tokio::test]
 async fn c10_auto_compact_triggers_over_threshold() {
-
     let llm = MockLlm::new(vec![resp("one"), resp("SUM"), resp("two")]);
-    let cfg = AgentConfig { auto_compact_threshold: Some(5), keep_after_compact: 1, ..base_cfg() };
+    let cfg = AgentConfig {
+        auto_compact_threshold: Some(5),
+        keep_after_compact: 1,
+        ..base_cfg()
+    };
     let (mut agent, sink, _h) = build_agent(llm.clone(), ToolRegistry::new(), allow(), cfg);
     agent.run_turn("first").await;
     let r = agent.run_turn("second").await;
@@ -631,23 +815,44 @@ async fn c10_auto_compact_triggers_over_threshold() {
     let last = llm.requests().last().cloned().unwrap();
     let joined = serde_json::to_string(&last.messages).unwrap();
     assert!(joined.contains("SUM"));
-    assert!(!joined.contains("\"one\""), "compacted history must not be resent verbatim");
+    assert!(
+        !joined.contains("\"one\""),
+        "compacted history must not be resent verbatim"
+    );
 }
 
 #[tokio::test]
 async fn set_messages_replaces_history_for_resume() {
     let llm = MockLlm::new(vec![resp("cont")]);
     let (mut agent, _s, _h) = build_agent(llm.clone(), ToolRegistry::new(), allow(), base_cfg());
-    agent.set_messages(vec![ChatMessage::user("old q"), ChatMessage::assistant(Some("old a".into()), None)]);
+    agent.set_messages(vec![
+        ChatMessage::user("old q"),
+        ChatMessage::assistant(Some("old a".into()), None),
+    ]);
     agent.run_turn("new q").await;
-    let sent: Vec<String> =
-        llm.requests()[0].messages.iter().filter_map(|m| m.content.clone()).collect();
+    let sent: Vec<String> = llm.requests()[0]
+        .messages
+        .iter()
+        .filter_map(|m| m.content.clone())
+        .collect();
     assert_eq!(sent, vec!["you are a test", "old q", "old a", "new q"]);
 }
 
-fn executor(llm: Arc<MockLlm>, tools: ToolRegistry, hooks: Arc<FakeHooks>) -> (SubAgentExecutor, Arc<CollectSink>) {
+fn executor(
+    llm: Arc<MockLlm>,
+    tools: ToolRegistry,
+    hooks: Arc<FakeHooks>,
+) -> (SubAgentExecutor, Arc<CollectSink>) {
     let sink = Arc::new(CollectSink::default());
-    let ex = SubAgentExecutor::new(llm, tools, allow(), hooks, sink.clone(), temp_ctx(), base_cfg());
+    let ex = SubAgentExecutor::new(
+        llm,
+        tools,
+        allow(),
+        hooks,
+        sink.clone(),
+        temp_ctx(),
+        base_cfg(),
+    );
     (ex, sink)
 }
 
@@ -674,20 +879,37 @@ async fn c6_subagent_fresh_context_tool_filter_and_parent_id() {
     assert_eq!(out, "sub result");
     let req = &llm.requests()[0];
     let names: Vec<String> = req.tools.iter().map(|t| t.function.name.clone()).collect();
-    assert_eq!(names, vec!["Read".to_string()], "allowlist minus disallowed minus Task at max depth");
+    assert_eq!(
+        names,
+        vec!["Read".to_string()],
+        "allowlist minus disallowed minus Task at max depth"
+    );
     assert_eq!(req.messages.len(), 2, "fresh context: system + prompt only");
     assert!(sink.events.lock().unwrap().iter().all(|e| match e {
-        AgentEvent::Assistant { parent_tool_use_id, .. }
-        | AgentEvent::ToolResult { parent_tool_use_id, .. } => parent_tool_use_id.as_deref() == Some("task-1"),
+        AgentEvent::Assistant {
+            parent_tool_use_id, ..
+        }
+        | AgentEvent::ToolResult {
+            parent_tool_use_id, ..
+        } => parent_tool_use_id.as_deref() == Some("task-1"),
         _ => true,
     }));
     let calls = hooks.calls.lock().unwrap();
-    let start = calls.iter().position(|c| c.0 == HookEvent::SubagentStart).unwrap();
-    let stop = calls.iter().position(|c| c.0 == HookEvent::SubagentStop).unwrap();
+    let start = calls
+        .iter()
+        .position(|c| c.0 == HookEvent::SubagentStart)
+        .unwrap();
+    let stop = calls
+        .iter()
+        .position(|c| c.0 == HookEvent::SubagentStop)
+        .unwrap();
     assert!(start < stop);
     assert_eq!(calls[stop].1, "reader");
     assert_eq!(calls[stop].2["last_assistant_message"], "sub result");
-    assert!(!calls.iter().any(|c| c.0 == HookEvent::Stop), "sub-agents fire SubagentStop, not Stop");
+    assert!(
+        !calls.iter().any(|c| c.0 == HookEvent::Stop),
+        "sub-agents fire SubagentStop, not Stop"
+    );
 }
 
 #[tokio::test]
@@ -696,13 +918,29 @@ async fn c6_subagent_stop_block_continues_subagent() {
     let hooks = FakeHooks::new();
     hooks.push(
         HookEvent::SubagentStop,
-        HookOutcome { blocked: true, feedback: Some("add tests".into()), ..Default::default() },
+        HookOutcome {
+            blocked: true,
+            feedback: Some("add tests".into()),
+            ..Default::default()
+        },
     );
     let (ex, _sink) = executor(llm.clone(), ToolRegistry::new(), hooks);
-    let def = AgentDefinition { name: "w".into(), description: "d".into(), ..Default::default() };
+    let def = AgentDefinition {
+        name: "w".into(),
+        description: "d".into(),
+        ..Default::default()
+    };
     let out = ex.run_subagent(&def, "do", "t").await.unwrap();
     assert_eq!(out, "final");
-    assert_eq!(llm.requests()[1].messages.last().unwrap().content.as_deref(), Some("add tests"));
+    assert_eq!(
+        llm.requests()[1]
+            .messages
+            .last()
+            .unwrap()
+            .content
+            .as_deref(),
+        Some("add tests")
+    );
 }
 
 #[tokio::test]
@@ -710,10 +948,29 @@ async fn c6_depth_limit_refuses_nested_spawn() {
     let llm = MockLlm::new(vec![]);
     let hooks = FakeHooks::new();
     let sink = Arc::new(CollectSink::default());
-    let cfg = AgentConfig { depth: 1, ..base_cfg() };
-    let ex = SubAgentExecutor::new(llm, ToolRegistry::new(), allow(), hooks, sink, temp_ctx(), cfg);
-    let def = AgentDefinition { name: "deep".into(), description: "d".into(), ..Default::default() };
-    let err = ex.run_subagent(&def, "x", "t").await.unwrap_err().to_string();
+    let cfg = AgentConfig {
+        depth: 1,
+        ..base_cfg()
+    };
+    let ex = SubAgentExecutor::new(
+        llm,
+        ToolRegistry::new(),
+        allow(),
+        hooks,
+        sink,
+        temp_ctx(),
+        cfg,
+    );
+    let def = AgentDefinition {
+        name: "deep".into(),
+        description: "d".into(),
+        ..Default::default()
+    };
+    let err = ex
+        .run_subagent(&def, "x", "t")
+        .await
+        .unwrap_err()
+        .to_string();
     assert!(err.contains("depth limit"));
 }
 
@@ -724,7 +981,11 @@ async fn c6_1_preloads_skills_into_subagent_system_prompt() {
     let cwd = ex.ctx.cwd.lock().unwrap().clone();
     let skill_dir = cwd.join(".zen/skills/style");
     std::fs::create_dir_all(&skill_dir).unwrap();
-    std::fs::write(skill_dir.join("SKILL.md"), "---\nname: style\ndescription: S\n---\nUse tabs. See ${ZEN_SKILL_DIR}/x\n").unwrap();
+    std::fs::write(
+        skill_dir.join("SKILL.md"),
+        "---\nname: style\ndescription: S\n---\nUse tabs. See ${ZEN_SKILL_DIR}/x\n",
+    )
+    .unwrap();
     ex.skills = vec![SkillInfo {
         name: "known".into(),
         description: "k".into(),
@@ -754,7 +1015,6 @@ async fn c6_1_preloads_skills_into_subagent_system_prompt() {
 
 #[tokio::test]
 async fn c6_3_builtin_read_only_agent_and_no_nested_task_by_default() {
-
     let llm = MockLlm::new(vec![resp_tool("Grep", "{}", "g1"), resp("only this")]);
     let reg = registry_with(vec![
         fake("Read", true, "r"),
@@ -771,9 +1031,19 @@ async fn c6_3_builtin_read_only_agent_and_no_nested_task_by_default() {
         permission_mode: Some("plan".into()),
         ..Default::default()
     };
-    let out = ex.run_subagent(&def, "investigate", "task-9").await.unwrap();
-    assert_eq!(out, "only this", "intermediate tool output is not returned to the parent");
-    let names: Vec<String> = llm.requests()[0].tools.iter().map(|t| t.function.name.clone()).collect();
+    let out = ex
+        .run_subagent(&def, "investigate", "task-9")
+        .await
+        .unwrap();
+    assert_eq!(
+        out, "only this",
+        "intermediate tool output is not returned to the parent"
+    );
+    let names: Vec<String> = llm.requests()[0]
+        .tools
+        .iter()
+        .map(|t| t.function.name.clone())
+        .collect();
 
     assert_eq!(names, vec!["Grep".to_string(), "Read".to_string()]);
 
@@ -781,9 +1051,17 @@ async fn c6_3_builtin_read_only_agent_and_no_nested_task_by_default() {
     let reg2 = registry_with(vec![fake("Read", true, "r"), fake("Task", true, "t")]);
     let (mut ex2, _s) = executor(llm2.clone(), reg2, FakeHooks::new());
     ex2.set_max_depth(2);
-    let gp = AgentDefinition { name: "gp".into(), description: "d".into(), ..Default::default() };
+    let gp = AgentDefinition {
+        name: "gp".into(),
+        description: "d".into(),
+        ..Default::default()
+    };
     ex2.run_subagent(&gp, "x", "t").await.unwrap();
-    let names2: Vec<String> = llm2.requests()[0].tools.iter().map(|t| t.function.name.clone()).collect();
+    let names2: Vec<String> = llm2.requests()[0]
+        .tools
+        .iter()
+        .map(|t| t.function.name.clone())
+        .collect();
     assert!(names2.contains(&"Task".to_string()));
 }
 
@@ -794,7 +1072,10 @@ fn c6_subagent_mode_cannot_escalate() {
     assert_eq!(subagent_mode(Default, Some("acceptEdits")), Default);
     assert_eq!(subagent_mode(Default, Some("plan")), Plan);
     assert_eq!(subagent_mode(AcceptEdits, Some("acceptEdits")), AcceptEdits);
-    assert_eq!(subagent_mode(BypassPermissions, Some("bypassPermissions")), BypassPermissions);
+    assert_eq!(
+        subagent_mode(BypassPermissions, Some("bypassPermissions")),
+        BypassPermissions
+    );
     assert_eq!(subagent_mode(Plan, Some("garbage")), Plan);
     assert_eq!(subagent_mode(Default, None), Default);
 }
@@ -810,13 +1091,20 @@ impl Prompter for YesPrompter {
 async fn c3_2_notification_hook_fires_before_permission_prompt() {
     let llm = MockLlm::new(vec![resp_tool("Write", "{}", "w1"), resp("ok")]);
     let reg = registry_with(vec![fake("Write", false, "wrote")]);
-    let (mut agent, _s, hooks) =
-        build_agent(llm, reg, FakePerms::new(PermissionDecision::Ask), base_cfg());
+    let (mut agent, _s, hooks) = build_agent(
+        llm,
+        reg,
+        FakePerms::new(PermissionDecision::Ask),
+        base_cfg(),
+    );
     agent.prompter = Some(Arc::new(YesPrompter));
     let r = agent.run_turn("go").await;
     assert!(r.permission_denials.is_empty());
     let calls = hooks.calls.lock().unwrap();
-    let n = calls.iter().find(|c| c.0 == HookEvent::Notification).expect("Notification fired");
+    let n = calls
+        .iter()
+        .find(|c| c.0 == HookEvent::Notification)
+        .expect("Notification fired");
     assert_eq!(n.1, "permission_prompt");
     assert_eq!(n.2["notification_type"], "permission_prompt");
     assert!(n.2["message"].as_str().unwrap().contains("Write"));
@@ -849,7 +1137,10 @@ async fn c2_12_always_allow_persists_one_rule_per_line() {
     assert!(r.permission_denials.is_empty());
     assert_eq!(
         *perms.always.lock().unwrap(),
-        vec!["Bash(git add *)".to_string(), "Bash(git commit *)".to_string()]
+        vec![
+            "Bash(git add *)".to_string(),
+            "Bash(git commit *)".to_string()
+        ]
     );
 }
 
@@ -891,7 +1182,9 @@ impl Tool for RecordingTool {
 async fn r7_fenced_args_and_lowercase_name_are_repaired_and_run() {
     let raw = "```json{\"file_path\":\"a.rs\",\"old_string\":\"x\",\"new_string\":\"y\",\"replace_all\":\"true\",}```";
     let llm = MockLlm::new(vec![resp_tool("str_replace", raw, "e1"), resp("done")]);
-    let tool = Arc::new(RecordingTool { calls: Default::default() });
+    let tool = Arc::new(RecordingTool {
+        calls: Default::default(),
+    });
     let reg = registry_with(vec![tool.clone() as Arc<dyn Tool>]);
     let (mut agent, _s, hooks) = build_agent(llm.clone(), reg, allow(), base_cfg());
     let r = agent.run_turn("go").await;
@@ -905,37 +1198,64 @@ async fn r7_fenced_args_and_lowercase_name_are_repaired_and_run() {
     let tool_msg = second.messages.iter().find(|m| m.role == "tool").unwrap();
     let content = tool_msg.content.as_deref().unwrap();
     assert!(content.starts_with("edited"), "{}", content);
-    assert!(content.contains("mapped to 'Edit'") && content.contains("code fence"), "{}", content);
-    let call = &second.messages.iter().find_map(|m| m.tool_calls.clone()).unwrap()[0];
+    assert!(
+        content.contains("mapped to 'Edit'") && content.contains("code fence"),
+        "{}",
+        content
+    );
+    let call = &second
+        .messages
+        .iter()
+        .find_map(|m| m.tool_calls.clone())
+        .unwrap()[0];
     assert_eq!(call.function.name, "Edit");
-    assert_eq!(serde_json::from_str::<Value>(&call.function.arguments).unwrap()["replace_all"], json!(true));
+    assert_eq!(
+        serde_json::from_str::<Value>(&call.function.arguments).unwrap()["replace_all"],
+        json!(true)
+    );
 
-    assert!(hooks.calls.lock().unwrap().iter().any(|(ev, target, _)| *ev == HookEvent::PreToolUse && target == "Edit"));
+    assert!(hooks
+        .calls
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|(ev, target, _)| *ev == HookEvent::PreToolUse && target == "Edit"));
 }
 
 #[tokio::test]
 async fn c4_leaked_template_tokens_in_tool_name_are_cut_and_not_echoed() {
-
     let llm = MockLlm::new(vec![
-        resp_tool("Edit<\u{200B}|channel|>commentary", r#"{"file_path":"a","old_string":"x","new_string":"y"}"#, "e1"),
+        resp_tool(
+            "Edit<\u{200B}|channel|>commentary",
+            r#"{"file_path":"a","old_string":"x","new_string":"y"}"#,
+            "e1",
+        ),
         resp("done"),
     ]);
-    let tool = Arc::new(RecordingTool { calls: Default::default() });
+    let tool = Arc::new(RecordingTool {
+        calls: Default::default(),
+    });
     let reg = registry_with(vec![tool.clone() as Arc<dyn Tool>]);
     let (mut agent, _s, _h) = build_agent(llm.clone(), reg, allow(), base_cfg());
     let r = agent.run_turn("go").await;
     assert_eq!(r.result, "done");
     assert_eq!(tool.calls.lock().unwrap().len(), 1, "the call runs as Edit");
     let second = &llm.requests()[1];
-    let call = &second.messages.iter().find_map(|m| m.tool_calls.clone()).unwrap()[0];
+    let call = &second
+        .messages
+        .iter()
+        .find_map(|m| m.tool_calls.clone())
+        .unwrap()[0];
     assert_eq!(call.function.name, "Edit", "history carries the clean name");
     let body = serde_json::to_string(&second.messages).unwrap();
-    assert!(!body.contains("|channel|"), "no leaked tokens anywhere in the next request: {body}");
+    assert!(
+        !body.contains("|channel|"),
+        "no leaked tokens anywhere in the next request: {body}"
+    );
 }
 
 #[tokio::test]
 async fn c5_empty_reply_is_requeried_then_accepted_after_two() {
-
     let llm = MockLlm::new(vec![resp(""), resp("done")]);
     let (mut agent, _s, _h) = build_agent(llm.clone(), registry_with(vec![]), allow(), base_cfg());
     let r = agent.run_turn("go").await;
@@ -945,7 +1265,9 @@ async fn c5_empty_reply_is_requeried_then_accepted_after_two() {
     assert_eq!(last.role, "user");
     assert!(last.content.as_deref().unwrap().contains("reply was empty"));
     assert!(
-        !second.messages.iter().any(|m| m.role == "assistant" && m.content.as_deref().unwrap_or("").is_empty() && m.tool_calls.is_none()),
+        !second.messages.iter().any(|m| m.role == "assistant"
+            && m.content.as_deref().unwrap_or("").is_empty()
+            && m.tool_calls.is_none()),
         "the empty reply is not kept in history"
     );
 
@@ -966,9 +1288,15 @@ async fn c7_unparsed_sample_error_is_requeried_but_other_errors_end_the_run() {
     let r = agent.run_turn("go").await;
     assert_eq!(r.result, "done");
     let last = llm.requests()[1].messages.last().unwrap().clone();
-    assert!(last.content.unwrap().contains("could not parse your last reply"));
+    assert!(last
+        .content
+        .unwrap()
+        .contains("could not parse your last reply"));
 
-    let llm = MockLlm::with_errors(vec![Err(anyhow::anyhow!("HTTP 401: bad key")), Ok(resp("never"))]);
+    let llm = MockLlm::with_errors(vec![
+        Err(anyhow::anyhow!("HTTP 401: bad key")),
+        Ok(resp("never")),
+    ]);
     let (mut agent, _s, _h) = build_agent(llm.clone(), registry_with(vec![]), allow(), base_cfg());
     let r = agent.run_turn("go").await;
     assert!(r.is_error && r.result.contains("401"), "{}", r.result);
@@ -978,97 +1306,166 @@ async fn c7_unparsed_sample_error_is_requeried_but_other_errors_end_the_run() {
 #[tokio::test]
 async fn r7_well_formed_call_gets_no_repair_note_and_bad_call_lists_fields() {
     let llm = MockLlm::new(vec![
-        resp_tool("Edit", r#"{"file_path":"a","old_string":"x","new_string":"y"}"#, "ok1"),
+        resp_tool(
+            "Edit",
+            r#"{"file_path":"a","old_string":"x","new_string":"y"}"#,
+            "ok1",
+        ),
         resp_tool("Edit", "{file_path: a", "bad1"),
         resp("done"),
     ]);
-    let tool = Arc::new(RecordingTool { calls: Default::default() });
+    let tool = Arc::new(RecordingTool {
+        calls: Default::default(),
+    });
     let reg = registry_with(vec![tool.clone() as Arc<dyn Tool>]);
     let (mut agent, _s, _h) = build_agent(llm, reg, allow(), base_cfg());
     agent.run_turn("go").await;
-    let tools: Vec<String> =
-        agent.messages().iter().filter(|m| m.role == "tool").filter_map(|m| m.content.clone()).collect();
+    let tools: Vec<String> = agent
+        .messages()
+        .iter()
+        .filter(|m| m.role == "tool")
+        .filter_map(|m| m.content.clone())
+        .collect();
     assert_eq!(tools[0], "edited");
-    assert!(tools[1].contains("Invalid JSON arguments") && tools[1].contains("file_path (string, required)"), "{}", tools[1]);
-    assert_eq!(tool.calls.lock().unwrap().len(), 1, "the unrepairable call must not run");
+    assert!(
+        tools[1].contains("Invalid JSON arguments")
+            && tools[1].contains("file_path (string, required)"),
+        "{}",
+        tools[1]
+    );
+    assert_eq!(
+        tool.calls.lock().unwrap().len(),
+        1,
+        "the unrepairable call must not run"
+    );
 }
 
 fn tool_contents(msgs: &[ChatMessage]) -> Vec<String> {
-    msgs.iter().filter(|m| m.role == "tool").filter_map(|m| m.content.clone()).collect()
+    msgs.iter()
+        .filter(|m| m.role == "tool")
+        .filter_map(|m| m.content.clone())
+        .collect()
 }
 
 #[tokio::test]
 async fn r7_fifth_edit_turn_gets_exactly_one_guard_note() {
-    let mut script: Vec<ChatResponse> =
-        (0..5).map(|i| resp_tool("Edit", r#"{"file_path":"a.rs"}"#, &format!("e{}", i))).collect();
+    let mut script: Vec<ChatResponse> = (0..5)
+        .map(|i| resp_tool("Edit", r#"{"file_path":"a.rs"}"#, &format!("e{}", i)))
+        .collect();
     script.push(resp("done"));
     let llm = MockLlm::new(script);
     let reg = registry_with(vec![fake("Edit", false, "edited")]);
     let (mut agent, _s, _h) = build_agent(llm, reg, allow(), base_cfg());
     agent.run_turn("go").await;
     let tools = tool_contents(agent.messages());
-    let noted: Vec<usize> =
-        tools.iter().enumerate().filter(|(_, c)| c.contains("changed a.rs 4 times")).map(|(i, _)| i).collect();
+    let noted: Vec<usize> = tools
+        .iter()
+        .enumerate()
+        .filter(|(_, c)| c.contains("changed a.rs 4 times"))
+        .map(|(i, _)| i)
+        .collect();
     assert_eq!(noted, vec![3], "{:#?}", tools);
 
-    let mut script: Vec<ChatResponse> =
-        (0..3).map(|i| resp_tool("Edit", r#"{"file_path":"a.rs"}"#, &format!("f{}", i))).collect();
+    let mut script: Vec<ChatResponse> = (0..3)
+        .map(|i| resp_tool("Edit", r#"{"file_path":"a.rs"}"#, &format!("f{}", i)))
+        .collect();
     script.push(resp("done"));
     agent.llm = MockLlm::new(script);
     agent.run_turn("again").await;
-    assert_eq!(tool_contents(agent.messages()).iter().filter(|c| c.contains("[zen:")).count(), 1);
+    assert_eq!(
+        tool_contents(agent.messages())
+            .iter()
+            .filter(|c| c.contains("[zen:"))
+            .count(),
+        1
+    );
 }
 
 #[tokio::test]
 async fn r7_three_identical_failures_nudge() {
-    let failing: Arc<dyn Tool> =
-        Arc::new(FakeTool { name: "Bash", read_only: false, output: ToolOutput::err("exit 1") });
-    let mut script: Vec<ChatResponse> =
-        (0..3).map(|i| resp_tool("Bash", r#"{"command":"make"}"#, &format!("b{}", i))).collect();
+    let failing: Arc<dyn Tool> = Arc::new(FakeTool {
+        name: "Bash",
+        read_only: false,
+        output: ToolOutput::err("exit 1"),
+    });
+    let mut script: Vec<ChatResponse> = (0..3)
+        .map(|i| resp_tool("Bash", r#"{"command":"make"}"#, &format!("b{}", i)))
+        .collect();
     script.push(resp("done"));
-    let (mut agent, _s, _h) = build_agent(MockLlm::new(script), registry_with(vec![failing]), allow(), base_cfg());
+    let (mut agent, _s, _h) = build_agent(
+        MockLlm::new(script),
+        registry_with(vec![failing]),
+        allow(),
+        base_cfg(),
+    );
     agent.run_turn("go").await;
     let tools = tool_contents(agent.messages());
-    assert!(!tools[1].contains("[zen:") && tools[2].contains("failed 3 times"), "{:#?}", tools);
+    assert!(
+        !tools[1].contains("[zen:") && tools[2].contains("failed 3 times"),
+        "{:#?}",
+        tools
+    );
 }
 
 #[tokio::test]
 async fn r7_todos_reinjected_every_sixth_call_and_after_compaction() {
-
-    let mut script: Vec<ChatResponse> =
-        (0..12).map(|i| resp_tool("Echo", "{}", &format!("c{}", i))).collect();
+    let mut script: Vec<ChatResponse> = (0..12)
+        .map(|i| resp_tool("Echo", "{}", &format!("c{}", i)))
+        .collect();
     script.push(resp("done"));
     script.push(resp("SUMMARY TEXT"));
     let llm = MockLlm::new(script);
     let reg = registry_with(vec![fake("Echo", true, "ok")]);
     let (mut agent, _s, _h) = build_agent(llm.clone(), reg, allow(), base_cfg());
-    *agent.ctx.todos.lock().unwrap() =
-        vec![TodoItem { content: "fix the parser".into(), status: "in_progress".into(), active_form: None }];
+    *agent.ctx.todos.lock().unwrap() = vec![TodoItem {
+        content: "fix the parser".into(),
+        status: "in_progress".into(),
+        active_form: None,
+    }];
     agent.run_turn("go").await;
 
     let reqs = llm.requests();
     let with_todo: Vec<usize> = reqs
         .iter()
         .enumerate()
-        .filter(|(_, r)| r.messages.last().and_then(|m| m.content.as_deref()).is_some_and(|c| c.contains("[~] fix the parser")))
+        .filter(|(_, r)| {
+            r.messages
+                .last()
+                .and_then(|m| m.content.as_deref())
+                .is_some_and(|c| c.contains("[~] fix the parser"))
+        })
         .map(|(i, _)| i + 1)
         .collect();
     assert_eq!(with_todo, vec![6, 12]);
 
     agent.compact(None, "manual").await.unwrap();
     let summary = agent.messages()[0].content.clone().unwrap();
-    assert!(summary.contains("SUMMARY TEXT") && summary.contains("[~] fix the parser"), "{}", summary);
+    assert!(
+        summary.contains("SUMMARY TEXT") && summary.contains("[~] fix the parser"),
+        "{}",
+        summary
+    );
 }
 
 #[tokio::test]
 async fn r7_short_turn_and_empty_todo_list_get_no_notes() {
-    let mut script: Vec<ChatResponse> =
-        (0..7).map(|i| resp_tool("Edit", &format!(r#"{{"file_path":"f{}.rs"}}"#, i), &format!("c{}", i))).collect();
+    let mut script: Vec<ChatResponse> = (0..7)
+        .map(|i| {
+            resp_tool(
+                "Edit",
+                &format!(r#"{{"file_path":"f{}.rs"}}"#, i),
+                &format!("c{}", i),
+            )
+        })
+        .collect();
     script.push(resp("done"));
     let reg = registry_with(vec![fake("Edit", false, "edited")]);
     let (mut agent, _s, _h) = build_agent(MockLlm::new(script), reg, allow(), base_cfg());
     agent.run_turn("go").await;
-    assert!(agent.messages().iter().all(|m| !m.content.as_deref().unwrap_or("").contains("[zen:")));
+    assert!(agent
+        .messages()
+        .iter()
+        .all(|m| !m.content.as_deref().unwrap_or("").contains("[zen:")));
 }
 
 #[tokio::test]
@@ -1079,8 +1476,14 @@ async fn r7_edit_then_answer_gets_one_reminder_then_bash_then_success() {
         resp_tool("Bash", r#"{"command":"cargo test"}"#, "b1"),
         resp("tests pass"),
     ]);
-    let reg = registry_with(vec![fake("Edit", false, "edited"), fake("Bash", false, "ok")]);
-    let cfg = AgentConfig { verify_reminder: true, ..base_cfg() };
+    let reg = registry_with(vec![
+        fake("Edit", false, "edited"),
+        fake("Bash", false, "ok"),
+    ]);
+    let cfg = AgentConfig {
+        verify_reminder: true,
+        ..base_cfg()
+    };
     let (mut agent, _s, _h) = build_agent(llm.clone(), reg, allow(), cfg);
     let r = agent.run_turn("fix it").await;
     assert_eq!(r.result, "tests pass");
@@ -1088,19 +1491,44 @@ async fn r7_edit_then_answer_gets_one_reminder_then_bash_then_success() {
     let reminders: Vec<&ChatMessage> = agent
         .messages()
         .iter()
-        .filter(|m| m.role == "user" && m.content.as_deref().unwrap_or("").contains("have not run any command"))
+        .filter(|m| {
+            m.role == "user"
+                && m.content
+                    .as_deref()
+                    .unwrap_or("")
+                    .contains("have not run any command")
+        })
         .collect();
     assert_eq!(reminders.len(), 1);
-    assert!(reminders[0].content.as_deref().unwrap().contains("src/a.rs"));
+    assert!(reminders[0]
+        .content
+        .as_deref()
+        .unwrap()
+        .contains("src/a.rs"));
 }
 
 #[tokio::test]
 async fn r7_no_reminder_without_edits_or_when_disabled() {
     for (cfg, script) in [
-        (AgentConfig { verify_reminder: true, ..base_cfg() }, vec![resp_tool("Read", "{}", "r1"), resp("answer")]),
-        (base_cfg(), vec![resp_tool("Edit", r#"{"file_path":"a"}"#, "e1"), resp("answer")]),
+        (
+            AgentConfig {
+                verify_reminder: true,
+                ..base_cfg()
+            },
+            vec![resp_tool("Read", "{}", "r1"), resp("answer")],
+        ),
+        (
+            base_cfg(),
+            vec![
+                resp_tool("Edit", r#"{"file_path":"a"}"#, "e1"),
+                resp("answer"),
+            ],
+        ),
     ] {
-        let reg = registry_with(vec![fake("Read", true, "text"), fake("Edit", false, "edited")]);
+        let reg = registry_with(vec![
+            fake("Read", true, "text"),
+            fake("Edit", false, "edited"),
+        ]);
         let (mut agent, _s, _h) = build_agent(MockLlm::new(script), reg, allow(), cfg);
         let r = agent.run_turn("q").await;
         assert_eq!((r.result.as_str(), r.num_turns), ("answer", 2));
@@ -1111,7 +1539,11 @@ async fn r7_no_reminder_without_edits_or_when_disabled() {
 async fn r7_failing_verify_command_stops_after_two_rounds() {
     let mut script = Vec::new();
     for i in 0..3 {
-        script.push(resp_tool("Edit", r#"{"file_path":"a.rs"}"#, &format!("e{}", i)));
+        script.push(resp_tool(
+            "Edit",
+            r#"{"file_path":"a.rs"}"#,
+            &format!("e{}", i),
+        ));
         script.push(resp(&format!("attempt {}", i)));
     }
     let llm = MockLlm::new(script);
@@ -1124,12 +1556,17 @@ async fn r7_failing_verify_command_stops_after_two_rounds() {
     let (mut agent, sink, _h) = build_agent(llm.clone(), reg, allow(), cfg);
     let r = agent.run_turn("fix").await;
     assert!(!r.is_error);
-    assert_eq!(r.result, "attempt 2", "the turn ends after two automatic rounds");
+    assert_eq!(
+        r.result, "attempt 2",
+        "the turn ends after two automatic rounds"
+    );
     assert_eq!(llm.requests().len(), 6);
     let feedback = agent
         .messages()
         .iter()
-        .filter(|m| m.role == "user" && m.content.as_deref().unwrap_or("").contains("FAILING-CHECK"))
+        .filter(|m| {
+            m.role == "user" && m.content.as_deref().unwrap_or("").contains("FAILING-CHECK")
+        })
         .count();
     assert_eq!(feedback, 2);
     assert!(sink.events.lock().unwrap().iter().any(|e| matches!(e,
@@ -1139,10 +1576,14 @@ async fn r7_failing_verify_command_stops_after_two_rounds() {
 #[tokio::test]
 async fn r7_tool_call_written_as_text_runs_as_a_call() {
     let llm = MockLlm::new(vec![
-        resp(r#"{"name": "Edit", "parameters": {"file_path": "a.rs", "old_string": "x", "new_string": "y"}}"#),
+        resp(
+            r#"{"name": "Edit", "parameters": {"file_path": "a.rs", "old_string": "x", "new_string": "y"}}"#,
+        ),
         resp("done"),
     ]);
-    let tool = Arc::new(RecordingTool { calls: Default::default() });
+    let tool = Arc::new(RecordingTool {
+        calls: Default::default(),
+    });
     let reg = registry_with(vec![tool.clone() as Arc<dyn Tool>]);
     let (mut agent, _s, _h) = build_agent(llm.clone(), reg, allow(), base_cfg());
     let r = agent.run_turn("go").await;
@@ -1150,7 +1591,11 @@ async fn r7_tool_call_written_as_text_runs_as_a_call() {
     assert_eq!(tool.calls.lock().unwrap().len(), 1);
     let second = &llm.requests()[1];
     let tool_msg = second.messages.iter().find(|m| m.role == "tool").unwrap();
-    assert!(tool_msg.content.as_deref().unwrap().contains("written as message text"));
+    assert!(tool_msg
+        .content
+        .as_deref()
+        .unwrap()
+        .contains("written as message text"));
     assert_paired(agent.messages());
 }
 
@@ -1200,9 +1645,11 @@ async fn tool_progress_heartbeat_emitted_for_slow_tool() {
     let progress: Vec<_> = events
         .iter()
         .filter_map(|e| match e {
-            AgentEvent::ToolProgress { tool_use_id, tool_name, elapsed_ms } => {
-                Some((tool_use_id.clone(), tool_name.clone(), *elapsed_ms))
-            }
+            AgentEvent::ToolProgress {
+                tool_use_id,
+                tool_name,
+                elapsed_ms,
+            } => Some((tool_use_id.clone(), tool_name.clone(), *elapsed_ms)),
             _ => None,
         })
         .collect();
@@ -1213,7 +1660,11 @@ async fn tool_progress_heartbeat_emitted_for_slow_tool() {
     }
 
     let elapsed: Vec<u64> = progress.iter().map(|(_, _, ms)| *ms).collect();
-    assert!(elapsed.windows(2).all(|w| w[1] > w[0]), "elapsed not increasing: {:?}", elapsed);
+    assert!(
+        elapsed.windows(2).all(|w| w[1] > w[0]),
+        "elapsed not increasing: {:?}",
+        elapsed
+    );
 }
 
 #[tokio::test]
@@ -1236,7 +1687,9 @@ async fn tool_progress_no_heartbeat_for_fast_tool() {
     assert_eq!(out.content, "slow done");
     let events = sink.events.lock().unwrap();
     assert!(
-        !events.iter().any(|e| matches!(e, AgentEvent::ToolProgress { .. })),
+        !events
+            .iter()
+            .any(|e| matches!(e, AgentEvent::ToolProgress { .. })),
         "fast tool should emit no heartbeat"
     );
 }
@@ -1247,7 +1700,10 @@ async fn budget_cap_blocks_before_first_call_when_tiny() {
     let llm = MockLlm::new(vec![resp("hello")]);
     let mut cfg = base_cfg();
     cfg.model = "gpt-4o".into();
-    cfg.budget = Some(BudgetPolicy { max_budget_usd: 0.0001, warn_at: 0.8 });
+    cfg.budget = Some(BudgetPolicy {
+        max_budget_usd: 0.0001,
+        warn_at: 0.8,
+    });
     let (mut agent, _sink, _h) = build_agent(llm.clone(), ToolRegistry::new(), allow(), cfg);
     let r = agent.run_turn("hi").await;
     assert_eq!(r.subtype, "error_budget_exceeded");
@@ -1266,10 +1722,17 @@ async fn budget_warns_once_at_threshold_then_stays_quiet() {
     let llm = MockLlm::new(vec![resp("hello"), resp("world")]);
     let mut cfg = base_cfg();
     cfg.model = "gpt-4o".into();
-    cfg.budget = Some(BudgetPolicy { max_budget_usd: 1.0, warn_at: 0.5 });
+    cfg.budget = Some(BudgetPolicy {
+        max_budget_usd: 1.0,
+        warn_at: 0.5,
+    });
     let (mut agent, sink, _h) = build_agent(llm.clone(), ToolRegistry::new(), allow(), cfg);
 
-    agent.usage = UsageStats { input_tokens: 200_000, output_tokens: 0, ..Default::default() };
+    agent.usage = UsageStats {
+        input_tokens: 200_000,
+        output_tokens: 0,
+        ..Default::default()
+    };
     let r = agent.run_turn("hi").await;
     assert_eq!(r.subtype, "success");
     assert!(agent.budget_warned, "warn-once flag must be set");
@@ -1300,7 +1763,10 @@ async fn budget_is_noop_for_free_models() {
     let llm = MockLlm::new(vec![resp("hello")]);
     let mut cfg = base_cfg();
     cfg.model = "qwen/qwen3-coder:free".into();
-    cfg.budget = Some(BudgetPolicy { max_budget_usd: 0.000_001, warn_at: 0.8 });
+    cfg.budget = Some(BudgetPolicy {
+        max_budget_usd: 0.000_001,
+        warn_at: 0.8,
+    });
     let (mut agent, _sink, _h) = build_agent(llm.clone(), ToolRegistry::new(), allow(), cfg);
     let r = agent.run_turn("hi").await;
     assert_eq!(r.subtype, "success", "free models never trip the cap");
@@ -1314,7 +1780,10 @@ async fn budget_allows_unknown_pricing() {
     let llm = MockLlm::new(vec![resp("hello")]);
     let mut cfg = base_cfg();
     cfg.model = "mystery-model-9999".into();
-    cfg.budget = Some(BudgetPolicy { max_budget_usd: 0.000_001, warn_at: 0.8 });
+    cfg.budget = Some(BudgetPolicy {
+        max_budget_usd: 0.000_001,
+        warn_at: 0.8,
+    });
     let (mut agent, _sink, _h) = build_agent(llm.clone(), ToolRegistry::new(), allow(), cfg);
     let r = agent.run_turn("hi").await;
 
@@ -1336,10 +1805,18 @@ async fn no_budget_config_means_no_checks() {
 
 #[tokio::test]
 async fn plan_mode_rejects_hallucinated_mutating_call_by_the_harness() {
-
-    let llm = MockLlm::new(vec![resp_tool("Write", r#"{"path":"x"}"#, "w1"), resp("plan done")]);
-    let reg = registry_with(vec![fake("Read", true, "r"), fake("Write", false, "MUTATED")]);
-    let cfg = AgentConfig { permission_mode: PermissionMode::Plan, ..base_cfg() };
+    let llm = MockLlm::new(vec![
+        resp_tool("Write", r#"{"path":"x"}"#, "w1"),
+        resp("plan done"),
+    ]);
+    let reg = registry_with(vec![
+        fake("Read", true, "r"),
+        fake("Write", false, "MUTATED"),
+    ]);
+    let cfg = AgentConfig {
+        permission_mode: PermissionMode::Plan,
+        ..base_cfg()
+    };
     let (mut agent, _s, _h) = build_agent(llm, reg, allow(), cfg);
     let r = agent.run_turn("go").await;
     let tool_contents: Vec<&str> = agent
@@ -1389,7 +1866,11 @@ async fn parallel_reads_run_concurrently_and_keep_order() {
     assert_eq!(r.result, "done");
     assert_eq!(r.num_turns, 2);
 
-    assert_eq!(max.load(Ordering::SeqCst), 4, "expected all 4 reads to run concurrently");
+    assert_eq!(
+        max.load(Ordering::SeqCst),
+        4,
+        "expected all 4 reads to run concurrently"
+    );
 
     let ids: Vec<&str> = agent
         .messages()
@@ -1400,19 +1881,30 @@ async fn parallel_reads_run_concurrently_and_keep_order() {
     assert_eq!(ids, vec!["r1", "r2", "r3", "r4"]);
 
     let second = &llm.requests()[1];
-    let tool_msgs: Vec<_> = second.messages.iter().filter(|m| m.role == "tool").collect();
+    let tool_msgs: Vec<_> = second
+        .messages
+        .iter()
+        .filter(|m| m.role == "tool")
+        .collect();
     assert_eq!(tool_msgs.len(), 4);
 
     let events = sink.events.lock().unwrap();
     let results: Vec<_> = events
         .iter()
         .filter_map(|e| match e {
-            AgentEvent::ToolResult { tool_use_id, parallel, .. } => Some((tool_use_id.clone(), *parallel)),
+            AgentEvent::ToolResult {
+                tool_use_id,
+                parallel,
+                ..
+            } => Some((tool_use_id.clone(), *parallel)),
             _ => None,
         })
         .collect();
     assert_eq!(results.len(), 4);
-    assert!(results.iter().all(|(_, p)| *p), "all four ran in a parallel batch: {results:?}");
+    assert!(
+        results.iter().all(|(_, p)| *p),
+        "all four ran in a parallel batch: {results:?}"
+    );
     assert_paired(agent.messages());
 }
 
@@ -1429,13 +1921,19 @@ async fn max_parallel_tool_calls_caps_concurrency() {
         resp("done"),
     ]);
     let reg = registry_with(vec![tool as Arc<dyn Tool>]);
-    let cfg = AgentConfig { max_parallel_tool_calls: 2, ..base_cfg() };
+    let cfg = AgentConfig {
+        max_parallel_tool_calls: 2,
+        ..base_cfg()
+    };
     let (mut agent, _sink, _h) = build_agent(llm.clone(), reg, allow(), cfg);
     let r = agent.run_turn("go").await;
     assert_eq!(r.result, "done");
     let observed = max.load(Ordering::SeqCst);
     assert!(observed <= 2, "cap of 2 exceeded: observed {observed}");
-    assert!(observed >= 2, "expected some overlap with cap 2, observed {observed}");
+    assert!(
+        observed >= 2,
+        "expected some overlap with cap 2, observed {observed}"
+    );
     let ids: Vec<&str> = agent
         .messages()
         .iter()
@@ -1458,16 +1956,26 @@ async fn max_parallel_tool_calls_one_is_sequential() {
         resp("done"),
     ]);
     let reg = registry_with(vec![tool as Arc<dyn Tool>]);
-    let cfg = AgentConfig { max_parallel_tool_calls: 1, ..base_cfg() };
+    let cfg = AgentConfig {
+        max_parallel_tool_calls: 1,
+        ..base_cfg()
+    };
     let (mut agent, sink, _h) = build_agent(llm.clone(), reg, allow(), cfg);
     let r = agent.run_turn("go").await;
     assert_eq!(r.result, "done");
-    assert_eq!(max.load(Ordering::SeqCst), 1, "calls must not overlap with cap 1");
+    assert_eq!(
+        max.load(Ordering::SeqCst),
+        1,
+        "calls must not overlap with cap 1"
+    );
     let events = sink.events.lock().unwrap();
-    assert!(events.iter().filter_map(|e| match e {
-        AgentEvent::ToolResult { parallel, .. } => Some(*parallel),
-        _ => None,
-    }).all(|p| !p));
+    assert!(events
+        .iter()
+        .filter_map(|e| match e {
+            AgentEvent::ToolResult { parallel, .. } => Some(*parallel),
+            _ => None,
+        })
+        .all(|p| !p));
     assert_paired(agent.messages());
 }
 
@@ -1495,7 +2003,12 @@ async fn error_in_one_parallel_call_does_not_block_others() {
         .messages()
         .iter()
         .filter(|m| m.role == "tool")
-        .map(|m| (m.tool_call_id.as_deref().unwrap(), m.content.as_deref().unwrap()))
+        .map(|m| {
+            (
+                m.tool_call_id.as_deref().unwrap(),
+                m.content.as_deref().unwrap(),
+            )
+        })
         .collect();
     assert_eq!(tool_msgs.len(), 3);
     assert_eq!(tool_msgs[0].0, "r1");
@@ -1508,7 +2021,11 @@ async fn error_in_one_parallel_call_does_not_block_others() {
 #[tokio::test]
 async fn write_flushes_parallel_batch_and_runs_alone() {
     let (reads, max) = ConcurrencyTool::read(50);
-    let write = Arc::new(FakeTool { name: "Write", read_only: false, output: ToolOutput::ok("wrote") });
+    let write = Arc::new(FakeTool {
+        name: "Write",
+        read_only: false,
+        output: ToolOutput::ok("wrote"),
+    });
     let llm = MockLlm::new(vec![
         resp_multi_tool(vec![
             ("Read", r#"{"p":"a"}"#, "r1"),
@@ -1535,13 +2052,19 @@ async fn write_flushes_parallel_batch_and_runs_alone() {
     let by_id: std::collections::HashMap<String, bool> = events
         .iter()
         .filter_map(|e| match e {
-            AgentEvent::ToolResult { tool_use_id, parallel, .. } => {
-                Some((tool_use_id.clone(), *parallel))
-            }
+            AgentEvent::ToolResult {
+                tool_use_id,
+                parallel,
+                ..
+            } => Some((tool_use_id.clone(), *parallel)),
             _ => None,
         })
         .collect();
-    assert_eq!(by_id.get("w1"), Some(&false), "the write must not be marked parallel");
+    assert_eq!(
+        by_id.get("w1"),
+        Some(&false),
+        "the write must not be marked parallel"
+    );
     assert_eq!(by_id.get("r3"), Some(&false), "a lone call is not parallel");
     assert_paired(agent.messages());
 }

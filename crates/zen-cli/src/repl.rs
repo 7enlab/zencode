@@ -3,8 +3,8 @@ use crate::commands;
 use crate::repl_polish;
 use anyhow::Result;
 use std::io::Write;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use zen_core::{EventSink, RunResult};
 
@@ -80,18 +80,18 @@ pub async fn run_repl(cli: &Cli, cwd: &Path, home: Option<&Path>) -> Result<()> 
     )
     .await?;
 
-    let llm = crate::eventlog::wrap(cfg.gated_llm_client(Arc::new(zen_core::NullSink), home), assembly.recorder.as_ref());
+    let llm = crate::eventlog::wrap(
+        cfg.gated_llm_client(Arc::new(zen_core::NullSink), home),
+        assembly.recorder.as_ref(),
+    );
 
     let mut config = build_repl_config(cli, &cfg, cwd);
     let _ = &mut config;
 
     let base_system_prompt = config.system_prompt.clone();
     if config.permission_mode == zen_core::PermissionMode::Plan {
-
-        config.system_prompt = zen_agent::plan::system_prompt_for_mode(
-            &base_system_prompt,
-            config.permission_mode,
-        );
+        config.system_prompt =
+            zen_agent::plan::system_prompt_for_mode(&base_system_prompt, config.permission_mode);
     }
 
     let checkpoints = Arc::new(zen_tools::checkpoint::Checkpoints::new(
@@ -120,7 +120,10 @@ pub async fn run_repl(cli: &Cli, cwd: &Path, home: Option<&Path>) -> Result<()> 
         },
         config,
     );
-    agent.journal = assembly.recorder.clone().map(|r| r as Arc<dyn zen_core::ToolJournal>);
+    agent.journal = assembly
+        .recorder
+        .clone()
+        .map(|r| r as Arc<dyn zen_core::ToolJournal>);
 
     if agent.config.permission_mode == zen_core::PermissionMode::Plan {
         println!("Plan mode is ON (read-only). Research, then present a plan. /plan toggles it.");
@@ -152,8 +155,8 @@ pub async fn run_repl(cli: &Cli, cwd: &Path, home: Option<&Path>) -> Result<()> 
         {
             let mut p = repl_polish::prompt_text(repl.theme, &repl.goal);
 
-            let badge = crate::planmode::prompt_for(agent.config.permission_mode)
-                .trim_end_matches("> ");
+            let badge =
+                crate::planmode::prompt_for(agent.config.permission_mode).trim_end_matches("> ");
             let at = p.rfind('\n').map_or(0, |i| i + 1);
             p.insert_str(at, badge);
             print!("{}", p);
@@ -194,9 +197,10 @@ async fn repl_session_start(
     if let Some(ctx) =
         crate::agent_run::run_session_start(&hooks, session_id, cwd, cfg, source).await
     {
-        agent
-            .messages
-            .push(zen_core::ChatMessage::user(format!("[SessionStart hook context]\n{}", ctx)));
+        agent.messages.push(zen_core::ChatMessage::user(format!(
+            "[SessionStart hook context]\n{}",
+            ctx
+        )));
     }
 }
 
@@ -251,7 +255,10 @@ impl ReplInterrupts {
                         last = None;
                         continue;
                     }
-                    if last.map(|t| t.elapsed() < std::time::Duration::from_secs(2)).unwrap_or(false) {
+                    if last
+                        .map(|t| t.elapsed() < std::time::Duration::from_secs(2))
+                        .unwrap_or(false)
+                    {
                         eprintln!();
                         std::process::exit(130);
                     }
@@ -273,7 +280,6 @@ async fn run_turn_interruptible(
     prompt: &str,
     interrupts: Option<&mut ReplInterrupts>,
 ) -> Option<RunResult> {
-
     if let Some(c) = &agent.ctx.checkpoints {
         c.begin_turn(prompt);
     }
@@ -378,9 +384,12 @@ async fn handle_line(
     repl: &mut ReplState<'_>,
     agent: &mut zen_agent::Agent,
 ) -> Result<LineAction> {
-
     let clearing = line == "/clear" || line.starts_with("/clear ");
-    let before = if clearing { vec![] } else { agent.messages().to_vec() };
+    let before = if clearing {
+        vec![]
+    } else {
+        agent.messages().to_vec()
+    };
     if let Some(rest) = line.strip_prefix('!') {
         run_shell_passthrough(rest, cwd, cfg, agent);
         persist(repl.writer, &before, agent);
@@ -505,7 +514,9 @@ async fn offer_fix_turn(
             if std::io::stdin().read_line(&mut answer).is_ok()
                 && matches!(answer.trim().to_ascii_lowercase().as_str(), "y" | "yes")
             {
-                print_turn(run_turn_interruptible(agent, prompt, repl.interrupts.as_deref_mut()).await);
+                print_turn(
+                    run_turn_interruptible(agent, prompt, repl.interrupts.as_deref_mut()).await,
+                );
             }
         }
     }
@@ -530,7 +541,10 @@ async fn handle_slash(
         "/exit" | "/quit" => return Ok(LineAction::Exit),
         "/help" => {
             println!("Built-in commands:");
-            for c in commands::BUILTIN_COMMANDS.iter().chain(commands::REPL_ONLY_COMMANDS) {
+            for c in commands::BUILTIN_COMMANDS
+                .iter()
+                .chain(commands::REPL_ONLY_COMMANDS)
+            {
                 println!("  {}", c);
             }
 
@@ -551,7 +565,6 @@ async fn handle_slash(
 
             let new_id = crate::session::new_session_id();
             if cli.ephemeral {
-
                 agent.ctx.session_dir = None;
                 *repl.writer = crate::session::TranscriptWriter::ephemeral(&new_id, cwd);
             } else {
@@ -574,7 +587,11 @@ async fn handle_slash(
             println!("context cleared, new session: {}", new_id);
         }
         "/compact" => {
-            let focus = if arg.is_empty() { None } else { Some(arg.as_str()) };
+            let focus = if arg.is_empty() {
+                None
+            } else {
+                Some(arg.as_str())
+            };
             match agent.compact(focus, "manual").await {
                 Ok(()) => {
                     println!("context compacted");
@@ -595,7 +612,6 @@ async fn handle_slash(
             if arg.is_empty() {
                 println!("usage: /btw <question> \u{2014} ask a quick side question; the main conversation is untouched");
             } else {
-
                 let model = cfg
                     .btw_model
                     .clone()
@@ -612,19 +628,25 @@ async fn handle_slash(
                 }
             }
         }
-        "/cost" => println!("{}", commands::cost_report(&agent.usage, &agent.config.model, &cfg.base_url)),
+        "/cost" => println!(
+            "{}",
+            commands::cost_report(&agent.usage, &agent.config.model, &cfg.base_url)
+        ),
         "/quota" => {
-
             let store = home.map(zen_agent::RateGate::default_store_path);
             let key_url = zen_agent::rategate::openrouter_key_url(&cfg.base_url);
             let key = cfg.api_key();
             println!(
                 "{}",
-                zen_agent::rategate::quota_command_report(key_url.as_deref(), key, store.as_deref()).await
+                zen_agent::rategate::quota_command_report(
+                    key_url.as_deref(),
+                    key,
+                    store.as_deref()
+                )
+                .await
             );
         }
         "/commit" => {
-
             let files = crate::git::changed_files(cwd);
             if files.is_empty() {
                 println!("nothing to commit (working tree clean)");
@@ -657,7 +679,6 @@ async fn handle_slash(
             }
         }
         "/worktree" => {
-
             let parts: Vec<&str> = arg.split_whitespace().collect();
             match parts.as_slice() {
                 [] => {
@@ -671,7 +692,11 @@ async fn handle_slash(
                     }
                 }
                 ["rm", name] if crate::git::valid_worktree_name(name) => {
-                    let wt_path = cwd.join(format!("../{}-{}", cwd.file_name().and_then(|n| n.to_str()).unwrap_or("repo"), name));
+                    let wt_path = cwd.join(format!(
+                        "../{}-{}",
+                        cwd.file_name().and_then(|n| n.to_str()).unwrap_or("repo"),
+                        name
+                    ));
                     match crate::git::remove_worktree(cwd, &wt_path) {
                         Ok(()) => println!("removed worktree {}", wt_path.display()),
                         Err(e) => eprintln!("failed: {}", e),
@@ -685,7 +710,9 @@ async fn handle_slash(
                         Err(e) => eprintln!("failed: {}", e),
                     }
                 }
-                _ => eprintln!("usage: /worktree [name] | /worktree rm <name>  (name: letters, digits, - _ .)"),
+                _ => eprintln!(
+                    "usage: /worktree [name] | /worktree rm <name>  (name: letters, digits, - _ .)"
+                ),
             }
         }
         "/context" => println!(
@@ -698,15 +725,11 @@ async fn handle_slash(
                 agent.last_prompt_tokens,
             )
         ),
-        "/undo" => {
-
-            match arg.as_str() {
-                "" | "--force" => undo_last_turn(repl, agent, arg == "--force"),
-                _ => eprintln!("usage: /undo [--force]"),
-            }
-        }
+        "/undo" => match arg.as_str() {
+            "" | "--force" => undo_last_turn(repl, agent, arg == "--force"),
+            _ => eprintln!("usage: /undo [--force]"),
+        },
         "/diff" => {
-
             let mut staged = false;
             let mut stat = false;
             let mut turn = false;
@@ -722,8 +745,10 @@ async fn handle_slash(
             if let Some(flag) = unknown {
                 eprintln!("unknown flag '{flag}'; usage: /diff [--staged] [--stat] [--turn]");
             } else if turn {
-
-                match repl.checkpoints.diff_last_turn(&zen_tools::canonicalize_lenient(cwd)) {
+                match repl
+                    .checkpoints
+                    .diff_last_turn(&zen_tools::canonicalize_lenient(cwd))
+                {
                     None => println!("(no turn has changed files with Write/Edit/MultiEdit yet)"),
                     Some((t, diff)) => {
                         println!("Turn {} ({}): {} file(s)", t.id, t.label, t.entries.len());
@@ -816,7 +841,9 @@ async fn handle_slash(
                 println!("scope cleared");
             } else if arg.is_empty() {
                 if repl.scope.declared.is_empty() {
-                    println!("(no declared scope - /scope <glob>... to set one, e.g. /scope src/**)");
+                    println!(
+                        "(no declared scope - /scope <glob>... to set one, e.g. /scope src/**)"
+                    );
                 } else {
                     println!("scope: {}", repl.scope.declared.join(" "));
                     let changed = crate::doneguard::changed_files(cwd);
@@ -828,16 +855,24 @@ async fn handle_slash(
                     }
                 }
             } else {
-                repl.scope.set(arg.split_whitespace().map(|s| s.to_string()).collect());
+                repl.scope
+                    .set(arg.split_whitespace().map(|s| s.to_string()).collect());
                 repl.scope_seeded = true;
                 agent.config.done_scope = repl.scope.declared.clone();
                 println!("scope set: {}", repl.scope.declared.join(" "));
             }
         }
         "/export" => {
-            let file = if arg.is_empty() { format!("zen-session-{}.md", session_id) } else { arg.clone() };
+            let file = if arg.is_empty() {
+                format!("zen-session-{}.md", session_id)
+            } else {
+                arg.clone()
+            };
             let path = cwd.join(&file);
-            match std::fs::write(&path, commands::transcript_markdown(session_id, agent.messages())) {
+            match std::fs::write(
+                &path,
+                commands::transcript_markdown(session_id, agent.messages()),
+            ) {
                 Ok(()) => println!("conversation exported to {}", path.display()),
                 Err(e) => eprintln!("export failed: {}", e),
             }
@@ -855,34 +890,27 @@ async fn handle_slash(
                 }
             }
         }
-        "/loop" => {
-            match repl_polish::parse_loop_args(&arg) {
-                Ok((n, prompt)) => {
-                    for i in 1..=n {
-                        println!(
-                            "{}",
-                            repl.theme.paint(
-                                repl_polish::ColorRole::Accent,
-                                &format!("[loop {i}/{n}]")
-                            )
-                        );
-                        let result = run_turn_interruptible(
-                            agent,
-                            &prompt,
-                            repl.interrupts.as_deref_mut(),
-                        )
-                        .await;
-                        let failed = result.as_ref().map(|r| r.is_error).unwrap_or(true);
-                        print_turn(result);
-                        if failed {
-                            eprintln!("loop stopped: iteration {i} failed");
-                            break;
-                        }
+        "/loop" => match repl_polish::parse_loop_args(&arg) {
+            Ok((n, prompt)) => {
+                for i in 1..=n {
+                    println!(
+                        "{}",
+                        repl.theme
+                            .paint(repl_polish::ColorRole::Accent, &format!("[loop {i}/{n}]"))
+                    );
+                    let result =
+                        run_turn_interruptible(agent, &prompt, repl.interrupts.as_deref_mut())
+                            .await;
+                    let failed = result.as_ref().map(|r| r.is_error).unwrap_or(true);
+                    print_turn(result);
+                    if failed {
+                        eprintln!("loop stopped: iteration {i} failed");
+                        break;
                     }
                 }
-                Err(e) => eprintln!("{e}"),
             }
-        }
+            Err(e) => eprintln!("{e}"),
+        },
         "/goal" => {
             if arg.is_empty() {
                 match &repl.goal {
@@ -935,9 +963,7 @@ async fn handle_slash(
                 match repl_polish::Theme::parse(&arg) {
                     Some(t) => {
                         repl.theme = t;
-                        if repl_polish::Theme::colors_disabled()
-                            && t != repl_polish::Theme::None
-                        {
+                        if repl_polish::Theme::colors_disabled() && t != repl_polish::Theme::None {
                             println!(
                                 "theme set to {}; note: NO_COLOR is set, colors stay disabled",
                                 t.name()
@@ -957,29 +983,24 @@ async fn handle_slash(
                 init_prompt_with_import_offer(cwd)
             };
             let usage_before = agent.usage.clone();
-            let result = run_turn_interruptible(agent, &prompt, repl.interrupts.as_deref_mut()).await;
+            let result =
+                run_turn_interruptible(agent, &prompt, repl.interrupts.as_deref_mut()).await;
             record_turn_cost(home, repl.session_id.as_str(), cfg, agent, &usage_before);
             print_turn(result);
         }
-        "/map" => {
-
-            match crate::repomap::repo_map(cwd, cli.map_tokens) {
-                Some(map) => println!("{}", map.text()),
-                None => println!("no repo map (no Rust files found, or --repomap-budget 0)"),
-            }
-        }
-        "/map-refresh" => {
-
-            match crate::repomap::repo_map(cwd, cli.map_tokens) {
-                Some(map) => {
-                    println!("{}", map.text());
-                    if map.truncated {
-                        println!("[increase --repomap-budget to see more]");
-                    }
+        "/map" => match crate::repomap::repo_map(cwd, cli.map_tokens) {
+            Some(map) => println!("{}", map.text()),
+            None => println!("no repo map (no Rust files found, or --repomap-budget 0)"),
+        },
+        "/map-refresh" => match crate::repomap::repo_map(cwd, cli.map_tokens) {
+            Some(map) => {
+                println!("{}", map.text());
+                if map.truncated {
+                    println!("[increase --repomap-budget to see more]");
                 }
-                None => println!("no repo map (no Rust files found, or --repomap-budget 0)"),
             }
-        }
+            None => println!("no repo map (no Rust files found, or --repomap-budget 0)"),
+        },
         "/deep-research" => {
             use crate::deep_research as dr;
             match dr::parse_deep_research_args(&arg) {
@@ -1053,7 +1074,11 @@ async fn handle_slash(
             }
         }
         "/pr_comments" => {
-            let pr_arg = if arg.is_empty() { None } else { Some(arg.as_str()) };
+            let pr_arg = if arg.is_empty() {
+                None
+            } else {
+                Some(arg.as_str())
+            };
             match crate::github::fetch_pr_comments(cwd, pr_arg) {
                 Ok(fetched) => {
                     println!("{}", crate::github::format_comments_text(&fetched));
@@ -1071,26 +1096,24 @@ async fn handle_slash(
                 Err(e) => eprintln!("pr_comments failed: {:#}", e),
             }
         }
-        "/ci-fix" => {
-            match crate::github::fetch_ci_status(cwd) {
-                Ok(status) => {
-                    if status.failing.is_empty() {
-                        println!("all CI checks passing on branch {}", status.branch);
-                    } else {
-                        println!("{}", crate::github::format_ci_text(&status));
-                        offer_fix_turn(
-                            &crate::github::ci_fix_prompt(&status),
-                            "these failures",
-                            cfg,
-                            repl,
-                            agent,
-                        )
-                        .await;
-                    }
+        "/ci-fix" => match crate::github::fetch_ci_status(cwd) {
+            Ok(status) => {
+                if status.failing.is_empty() {
+                    println!("all CI checks passing on branch {}", status.branch);
+                } else {
+                    println!("{}", crate::github::format_ci_text(&status));
+                    offer_fix_turn(
+                        &crate::github::ci_fix_prompt(&status),
+                        "these failures",
+                        cfg,
+                        repl,
+                        agent,
+                    )
+                    .await;
                 }
-                Err(e) => eprintln!("ci-fix failed: {:#}", e),
             }
-        }
+            Err(e) => eprintln!("ci-fix failed: {:#}", e),
+        },
         "/status" => {
             println!("model: {}", agent.config.model);
             println!("base_url: {}", cfg.base_url);
@@ -1146,7 +1169,10 @@ async fn handle_slash(
                 println!("base_url: {}", cfg.base_url);
                 println!(
                     "autoCompact: {}",
-                    cfg.auto_compact.as_ref().map(|v| v.to_string()).unwrap_or_else(|| "true".into())
+                    cfg.auto_compact
+                        .as_ref()
+                        .map(|v| v.to_string())
+                        .unwrap_or_else(|| "true".into())
                 );
                 println!("set a value with /config key=value (saved to .zen/settings.local.json)");
             } else if let Some((k, v)) = arg.split_once('=') {
@@ -1210,7 +1236,9 @@ async fn handle_slash(
                 println!("cannot resume sessions in ephemeral mode (nothing is persisted)");
                 return Ok(LineAction::Continue);
             }
-            let home_dir = home.map(Path::to_path_buf).unwrap_or_else(std::env::temp_dir);
+            let home_dir = home
+                .map(Path::to_path_buf)
+                .unwrap_or_else(std::env::temp_dir);
             let sessions = crate::session::list_sessions_for_cwd(&home_dir, cwd);
             if arg.is_empty() {
                 if sessions.is_empty() {
@@ -1225,11 +1253,12 @@ async fn handle_slash(
                     }
                 }
             } else {
-
                 let found = crate::session::find_session_path(&home_dir, &arg).or_else(|| {
                     sessions
                         .into_iter()
-                        .find(|(_, p)| crate::session::session_title(p).as_deref() == Some(arg.as_str()))
+                        .find(|(_, p)| {
+                            crate::session::session_title(p).as_deref() == Some(arg.as_str())
+                        })
                         .map(|(_, p)| p)
                 });
                 match found {
@@ -1253,14 +1282,17 @@ async fn handle_slash(
                         agent.set_messages(history);
                         *repl.session_id = id.clone();
                         agent.ctx.session_id = id.clone();
-                        println!("resumed session {} ({} messages)", id, agent.messages().len());
+                        println!(
+                            "resumed session {} ({} messages)",
+                            id,
+                            agent.messages().len()
+                        );
                     }
                     None => eprintln!("no session found: {}", arg),
                 }
             }
         }
         other => {
-
             let name = other.trim_start_matches('/');
 
             if zen_ext::find_slash_command(cwd, home, name).is_some() {
@@ -1271,12 +1303,20 @@ async fn handle_slash(
                 let saved_model = agent.config.model.clone();
                 let saved_perms = agent.permissions.clone();
                 if let Some(c) = &slash_cmd {
-                    if let Some(m) = c.model.as_ref().filter(|m| !m.is_empty() && *m != "inherit") {
+                    if let Some(m) = c
+                        .model
+                        .as_ref()
+                        .filter(|m| !m.is_empty() && *m != "inherit")
+                    {
                         agent.config.model = m.clone();
                     }
                     if !c.allowed_tools.is_empty() {
-                        agent.permissions =
-                            crate::agent_run::build_permissions_with(cwd, cfg, cli, &c.allowed_tools);
+                        agent.permissions = crate::agent_run::build_permissions_with(
+                            cwd,
+                            cfg,
+                            cli,
+                            &c.allowed_tools,
+                        );
                     }
                 }
                 let usage_before = agent.usage.clone();
@@ -1307,7 +1347,8 @@ fn save_local_setting(cwd: &Path, key: &str, value: &str) -> Result<std::path::P
     let map = obj
         .as_object_mut()
         .ok_or_else(|| anyhow::anyhow!("{} is not a JSON object", path.display()))?;
-    let parsed = serde_json::from_str(value).unwrap_or_else(|_| serde_json::Value::String(value.into()));
+    let parsed =
+        serde_json::from_str(value).unwrap_or_else(|_| serde_json::Value::String(value.into()));
     map.insert(key.to_string(), parsed);
     std::fs::create_dir_all(path.parent().unwrap())?;
     std::fs::write(&path, serde_json::to_string_pretty(&obj)? + "\n")?;
@@ -1404,7 +1445,11 @@ fn undo_last_turn(repl: &mut ReplState<'_>, agent: &mut zen_agent::Agent, force:
             agent.messages.push(zen_core::ChatMessage::user(format!(
                 "[/undo] The user undid the file changes of an earlier turn ({}). Files are back \
                  to their content before that turn; read them again before editing:\n{}",
-                if r.label.is_empty() { format!("turn {}", r.turn_id) } else { format!("\"{}\"", r.label) },
+                if r.label.is_empty() {
+                    format!("turn {}", r.turn_id)
+                } else {
+                    format!("\"{}\"", r.label)
+                },
                 lines.join("\n")
             )));
         }
@@ -1433,7 +1478,10 @@ fn record_turn_cost(
     before: &zen_core::UsageStats,
 ) {
     let delta_in = agent.usage.input_tokens.saturating_sub(before.input_tokens);
-    let delta_out = agent.usage.output_tokens.saturating_sub(before.output_tokens);
+    let delta_out = agent
+        .usage
+        .output_tokens
+        .saturating_sub(before.output_tokens);
     crate::cost::record(
         home,
         session_id,

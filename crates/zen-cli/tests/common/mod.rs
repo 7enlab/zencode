@@ -21,12 +21,8 @@ impl TempDir {
         use std::sync::atomic::{AtomicU64, Ordering};
         static COUNTER: AtomicU64 = AtomicU64::new(0);
         let n = COUNTER.fetch_add(1, Ordering::SeqCst);
-        let path = std::env::temp_dir().join(format!(
-            "zen_e2e_{}_{}_{}",
-            tag,
-            std::process::id(),
-            n
-        ));
+        let path =
+            std::env::temp_dir().join(format!("zen_e2e_{}_{}_{}", tag, std::process::id(), n));
         let _ = std::fs::remove_dir_all(&path);
         std::fs::create_dir_all(&path).expect("create temp dir");
         Self { path }
@@ -66,14 +62,17 @@ pub struct Reply {
 }
 
 impl Reply {
-
     pub fn text(content: &str) -> Self {
         Self::with_tool_calls(content, None)
     }
 
     pub fn with_tool_calls(content: &str, tool_calls: Option<serde_json::Value>) -> Self {
         let mut message = serde_json::json!({"role": "assistant", "content": content});
-        let finish_reason = if tool_calls.is_some() { "tool_calls" } else { "stop" };
+        let finish_reason = if tool_calls.is_some() {
+            "tool_calls"
+        } else {
+            "stop"
+        };
         if let Some(tc) = tool_calls {
             message["tool_calls"] = tc;
 
@@ -94,7 +93,11 @@ impl Reply {
             "usage": {"prompt_tokens": 7, "completion_tokens": 3, "total_tokens": 10}
         })
         .to_string();
-        Self { status: 200, body, abrupt: false }
+        Self {
+            status: 200,
+            body,
+            abrupt: false,
+        }
     }
 
     pub fn status(status: u16, message: &str) -> Self {
@@ -106,11 +109,19 @@ impl Reply {
     }
 
     pub fn malformed() -> Self {
-        Self { status: 200, body: "<html>not json</html>".to_string(), abrupt: false }
+        Self {
+            status: 200,
+            body: "<html>not json</html>".to_string(),
+            abrupt: false,
+        }
     }
 
     pub fn abrupt() -> Self {
-        Self { status: 200, body: String::new(), abrupt: true }
+        Self {
+            status: 200,
+            body: String::new(),
+            abrupt: true,
+        }
     }
 }
 
@@ -128,7 +139,6 @@ pub struct MockServer {
 }
 
 impl MockServer {
-
     pub async fn start(replies: Vec<Reply>) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind mock");
         let addr = listener.local_addr().unwrap();
@@ -140,14 +150,15 @@ impl MockServer {
         let st = state.clone();
         let handle = tokio::spawn(async move {
             loop {
-                let Ok((mut sock, _)) = listener.accept().await else { break };
+                let Ok((mut sock, _)) = listener.accept().await else {
+                    break;
+                };
                 let req = read_request(&mut sock).await;
                 let selected = {
                     let mut g = st.lock().await;
                     g.requests.push(req);
                     let idx = g.requests.len() - 1;
                     if idx >= g.replies.len() {
-
                         g.overflow += 1;
                     }
                     let i = idx.min(g.replies.len().saturating_sub(1));
@@ -168,7 +179,11 @@ impl MockServer {
                 let _ = sock.shutdown().await;
             }
         });
-        Self { addr, state, handle }
+        Self {
+            addr,
+            state,
+            handle,
+        }
     }
 
     pub async fn single_text(text: &str) -> Self {
@@ -206,7 +221,11 @@ struct ReplySnapshot {
 
 impl From<&Reply> for ReplySnapshot {
     fn from(r: &Reply) -> Self {
-        Self { status: r.status, body: r.body.clone(), abrupt: r.abrupt }
+        Self {
+            status: r.status,
+            body: r.body.clone(),
+            abrupt: r.abrupt,
+        }
     }
 }
 
@@ -253,9 +272,8 @@ pub async fn read_request(sock: &mut tokio::net::TcpStream) -> String {
 
 pub fn request_json(raw: &str) -> serde_json::Value {
     let body = raw.split("\r\n\r\n").nth(1).unwrap_or("");
-    serde_json::from_str(body).unwrap_or_else(|e| {
-        panic!("request body is not JSON ({}):\n{}", e, raw)
-    })
+    serde_json::from_str(body)
+        .unwrap_or_else(|e| panic!("request body is not JSON ({}):\n{}", e, raw))
 }
 
 pub fn request_messages(raw: &str) -> Vec<serde_json::Value> {
@@ -342,7 +360,8 @@ impl ZenRun {
     }
 
     pub fn env(mut self, key: &str, value: Option<&str>) -> Self {
-        self.env_extra.push((key.to_string(), value.map(|v| v.to_string())));
+        self.env_extra
+            .push((key.to_string(), value.map(|v| v.to_string())));
         self
     }
 
@@ -352,23 +371,28 @@ impl ZenRun {
     }
 
     pub fn mock(self, model: &str, server: &MockServer) -> Self {
-        self.arg("--model").arg(model).arg("--base-url").arg(server.base_url())
+        self.arg("--model")
+            .arg(model)
+            .arg("--base-url")
+            .arg(server.base_url())
     }
 
     fn command(&self) -> Command {
         let mut cmd = Command::new(zen_bin());
         cmd.current_dir(&self.cwd)
             .env("HOME", &self.home)
-
             .env("USERPROFILE", &self.home)
             .env("ZEN_API_KEY", "dummy")
             .env_remove("ZEN_MODEL")
             .env_remove("ZEN_BASE_URL")
             .env_remove("OPENAI_API_KEY")
             .env_remove("ZEN_SETTINGS")
-
             .env("ZEN_TRUST_FOLDER", "1")
-            .stdin(if self.stdin.is_some() { Stdio::piped() } else { Stdio::null() })
+            .stdin(if self.stdin.is_some() {
+                Stdio::piped()
+            } else {
+                Stdio::null()
+            })
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         for (k, v) in &self.env_extra {
@@ -455,13 +479,21 @@ pub fn ndjson(stdout: &str) -> Vec<serde_json::Value> {
 
 pub fn last_result(stdout: &str) -> serde_json::Value {
     let lines = ndjson(stdout);
-    let last = lines.last().unwrap_or_else(|| panic!("no output lines:\n{}", stdout));
-    assert_eq!(last["type"], "result", "last line is not a result:\n{}", stdout);
+    let last = lines
+        .last()
+        .unwrap_or_else(|| panic!("no output lines:\n{}", stdout));
+    assert_eq!(
+        last["type"], "result",
+        "last line is not a result:\n{}",
+        stdout
+    );
     last.clone()
 }
 
 pub fn assert_fields(v: &serde_json::Value, expected: &[&str], what: &str) {
-    let obj = v.as_object().unwrap_or_else(|| panic!("{} is not an object: {}", what, v));
+    let obj = v
+        .as_object()
+        .unwrap_or_else(|| panic!("{} is not an object: {}", what, v));
     let mut got: Vec<&str> = obj.keys().map(|s| s.as_str()).collect();
     got.sort_unstable();
     let mut want: Vec<&str> = expected.to_vec();
@@ -474,9 +506,9 @@ pub fn find_line<'a>(
     ty: &str,
     subtype: Option<&str>,
 ) -> Option<&'a serde_json::Value> {
-    lines.iter().find(|l| {
-        l["type"] == ty && subtype.map(|s| l["subtype"] == s).unwrap_or(true)
-    })
+    lines
+        .iter()
+        .find(|l| l["type"] == ty && subtype.map(|s| l["subtype"] == s).unwrap_or(true))
 }
 
 pub fn write_settings(root: &Path, name: &str, json: &str) -> PathBuf {

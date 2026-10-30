@@ -16,7 +16,6 @@ pub struct MockLlm {
 }
 
 impl MockLlm {
-
     pub fn new(responses: Vec<ChatResponse>) -> Arc<Self> {
         Arc::new(Self {
             queue: Mutex::new(responses.into_iter().map(Ok).collect()),
@@ -49,7 +48,13 @@ impl LlmBackend for MockLlm {
 pub fn resp(text: &str) -> ChatResponse {
     ChatResponse {
         message: ChatMessage::assistant(Some(text.into()), None),
-        usage: Usage { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+        usage: Usage {
+            prompt_tokens: 10,
+            completion_tokens: 5,
+            total_tokens: 15,
+            cache_read_input_tokens: 0,
+            cache_creation_input_tokens: 0,
+        },
         finish_reason: Some("stop".into()),
     }
 }
@@ -61,10 +66,19 @@ pub fn resp_tool(name: &str, args: &str, id: &str) -> ChatResponse {
             Some(vec![ToolCall {
                 id: id.into(),
                 call_type: "function".into(),
-                function: FunctionCall { name: name.into(), arguments: args.into() },
+                function: FunctionCall {
+                    name: name.into(),
+                    arguments: args.into(),
+                },
             }]),
         ),
-        usage: Usage { prompt_tokens: 20, completion_tokens: 8, total_tokens: 28, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+        usage: Usage {
+            prompt_tokens: 20,
+            completion_tokens: 8,
+            total_tokens: 28,
+            cache_read_input_tokens: 0,
+            cache_creation_input_tokens: 0,
+        },
         finish_reason: Some("tool_calls".into()),
     }
 }
@@ -75,12 +89,20 @@ pub fn resp_multi_tool(calls: Vec<(&str, &str, &str)>) -> ChatResponse {
         .map(|(name, args, id)| ToolCall {
             id: id.into(),
             call_type: "function".into(),
-            function: FunctionCall { name: name.into(), arguments: args.into() },
+            function: FunctionCall {
+                name: name.into(),
+                arguments: args.into(),
+            },
         })
         .collect();
     ChatResponse {
         message: ChatMessage::assistant(None, Some(tool_calls)),
-        usage: Usage { prompt_tokens: 20, completion_tokens: 8, total_tokens: 28, ..Default::default() },
+        usage: Usage {
+            prompt_tokens: 20,
+            completion_tokens: 8,
+            total_tokens: 28,
+            ..Default::default()
+        },
         finish_reason: Some("tool_calls".into()),
     }
 }
@@ -161,12 +183,21 @@ pub struct FakePerms {
 
 impl FakePerms {
     pub fn new(d: PermissionDecision) -> Arc<Self> {
-        Arc::new(Self { decision: d, always: Mutex::new(vec![]) })
+        Arc::new(Self {
+            decision: d,
+            always: Mutex::new(vec![]),
+        })
     }
 }
 
 impl PermissionChecker for FakePerms {
-    fn check(&self, _name: &str, _input: &Value, _ro: bool, _ctx: &ToolContext) -> PermissionDecision {
+    fn check(
+        &self,
+        _name: &str,
+        _input: &Value,
+        _ro: bool,
+        _ctx: &ToolContext,
+    ) -> PermissionDecision {
         self.decision.clone()
     }
     fn add_allow_rule(&self, rule: &str) {
@@ -186,16 +217,26 @@ impl FakeHooks {
         Arc::new(Self::default())
     }
     pub fn push(&self, ev: HookEvent, out: HookOutcome) {
-        self.queues.lock().unwrap().entry(ev).or_default().push_back(out);
+        self.queues
+            .lock()
+            .unwrap()
+            .entry(ev)
+            .or_default()
+            .push_back(out);
     }
 }
 
 #[async_trait::async_trait]
 impl HookRunner for FakeHooks {
     async fn run(&self, ev: HookEvent, target: &str, payload: Value) -> HookOutcome {
-        self.calls.lock().unwrap().push((ev, target.to_string(), payload));
+        self.calls
+            .lock()
+            .unwrap()
+            .push((ev, target.to_string(), payload));
         let mut q = self.queues.lock().unwrap();
-        q.get_mut(&ev).and_then(|v| v.pop_front()).unwrap_or_default()
+        q.get_mut(&ev)
+            .and_then(|v| v.pop_front())
+            .unwrap_or_default()
     }
 }
 

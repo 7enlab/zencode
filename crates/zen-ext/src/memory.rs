@@ -45,13 +45,16 @@ pub fn memory_files_with_managed(
     let cwd_abs = abs_path(cwd);
     let dirs = ancestors_root_first(&cwd_abs);
     for dir in &dirs {
-        let zen_files = [dir.join("ZEN.md"), dir.join(".zen").join("ZEN.md"), dir.join("ZEN.local.md")];
+        let zen_files = [
+            dir.join("ZEN.md"),
+            dir.join(".zen").join("ZEN.md"),
+            dir.join("ZEN.local.md"),
+        ];
         if zen_files.iter().any(|f| f.is_file()) {
             for f in &zen_files {
                 loader.push_file(f, false);
             }
         } else {
-
             loader.push_file(&dir.join("AGENTS.md"), false);
             loader.push_file(&dir.join(".zen").join("AGENTS.md"), false);
         }
@@ -77,7 +80,9 @@ impl Loader {
         if self.seen.contains(&path) || !path.is_file() {
             return;
         }
-        let Ok(raw) = std::fs::read_to_string(&path) else { return };
+        let Ok(raw) = std::fs::read_to_string(&path) else {
+            return;
+        };
         let body = if is_rule {
             match split_rule_frontmatter(&raw) {
                 (true, _) => return,
@@ -92,13 +97,15 @@ impl Loader {
     }
 
     fn expand(&mut self, content: &str, file: &Path, depth: usize) -> String {
-        let base_dir = file.parent().unwrap_or_else(|| Path::new(".")).to_path_buf();
+        let base_dir = file
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .to_path_buf();
         let mut out = String::with_capacity(content.len());
         let mut fence: Option<(char, usize)> = None;
         let mut in_comment = false;
 
         for raw_line in content.lines() {
-
             if let Some((ch, len)) = fence {
                 out.push_str(raw_line);
                 out.push('\n');
@@ -220,7 +227,6 @@ fn import_tokens(line: &str) -> Vec<String> {
     while i < chars.len() {
         let c = chars[i];
         if c == '`' {
-
             let start = i;
             while i < chars.len() && chars[i] == '`' {
                 i += 1;
@@ -290,7 +296,10 @@ fn closes_fence(line: &str, ch: char, len: usize) -> bool {
 }
 
 fn split_rule_frontmatter(raw: &str) -> (bool, &str) {
-    let Some(rest) = raw.strip_prefix("---\n").or_else(|| raw.strip_prefix("---\r\n")) else {
+    let Some(rest) = raw
+        .strip_prefix("---\n")
+        .or_else(|| raw.strip_prefix("---\r\n"))
+    else {
         return (false, raw);
     };
     let mut offset = 0;
@@ -312,7 +321,9 @@ fn rule_files(dir: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
     let mut stack = vec![dir.to_path_buf()];
     while let Some(d) = stack.pop() {
-        let Ok(entries) = std::fs::read_dir(&d) else { continue };
+        let Ok(entries) = std::fs::read_dir(&d) else {
+            continue;
+        };
         for entry in entries.flatten() {
             let p = entry.path();
             if p.is_dir() {
@@ -461,8 +472,8 @@ pub fn detect_import_candidates(cwd: &Path) -> Vec<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
     use crate::testutil::TempDir;
+    use std::fs;
 
     #[test]
     fn test_memory_order_root_to_cwd() {
@@ -480,7 +491,10 @@ mod tests {
         fs::write(sub.join("ZEN.md"), "sub memory").unwrap();
 
         let files = memory_files(&sub, Some(&home));
-        let names: Vec<String> = files.iter().map(|(p, _)| p.file_name().unwrap().to_string_lossy().to_string()).collect();
+        let names: Vec<String> = files
+            .iter()
+            .map(|(p, _)| p.file_name().unwrap().to_string_lossy().to_string())
+            .collect();
 
         assert_eq!(files[0].1.trim(), "user memory");
         let contents: Vec<&str> = files.iter().map(|(_, c)| c.trim()).collect();
@@ -543,7 +557,11 @@ mod tests {
 
         let files = memory_files(&proj, None);
 
-        let joined = files.iter().map(|(_, c)| c.clone()).collect::<Vec<_>>().join("\n");
+        let joined = files
+            .iter()
+            .map(|(_, c)| c.clone())
+            .collect::<Vec<_>>()
+            .join("\n");
         assert!(joined.contains('b'));
     }
 
@@ -561,7 +579,11 @@ mod tests {
         fs::write(proj.join("l6.md"), "l6-deepest").unwrap();
 
         let files = memory_files(&proj, None);
-        let joined = files.iter().map(|(_, c)| c.clone()).collect::<Vec<_>>().join("\n");
+        let joined = files
+            .iter()
+            .map(|(_, c)| c.clone())
+            .collect::<Vec<_>>()
+            .join("\n");
 
         assert!(joined.contains("l4\n"));
         assert!(!joined.contains("l5\n"));
@@ -636,7 +658,10 @@ mod tests {
         fs::write(sub.join("ZEN.md"), "sub-zen").unwrap();
         fs::write(sub.join("AGENTS.md"), "sub-agents").unwrap();
         let got: Vec<String> = mem(&sub, &home).into_iter().map(|(_, c)| c).collect();
-        assert_eq!(got, vec!["user-agents", "proj-agents", "proj-dot-agents", "sub-zen"]);
+        assert_eq!(
+            got,
+            vec!["user-agents", "proj-agents", "proj-dot-agents", "sub-zen"]
+        );
     }
 
     #[test]
@@ -674,14 +699,32 @@ mod tests {
         fs::write(proj.join(".zen/ZEN.md"), "proj-dot").unwrap();
         fs::write(proj.join("ZEN.local.md"), "proj-local").unwrap();
         fs::write(sub.join("ZEN.md"), "sub").unwrap();
-        fs::write(proj.join(".zen/rules/style.md"), "---\ndescription: style\n---\nproj-rule").unwrap();
-        fs::write(proj.join(".zen/rules/api.md"), "---\npaths:\n  - \"src/api/**\"\n---\nscoped-rule").unwrap();
+        fs::write(
+            proj.join(".zen/rules/style.md"),
+            "---\ndescription: style\n---\nproj-rule",
+        )
+        .unwrap();
+        fs::write(
+            proj.join(".zen/rules/api.md"),
+            "---\npaths:\n  - \"src/api/**\"\n---\nscoped-rule",
+        )
+        .unwrap();
 
         let files = memory_files_with_managed(&sub, Some(&home), Some(&managed));
         let contents: Vec<&str> = files.iter().map(|(_, c)| c.trim()).collect();
         assert_eq!(
             contents,
-            vec!["managed", "user", "user-rule-a", "user-rule-b", "proj", "proj-dot", "proj-local", "sub", "proj-rule"]
+            vec![
+                "managed",
+                "user",
+                "user-rule-a",
+                "user-rule-b",
+                "proj",
+                "proj-dot",
+                "proj-local",
+                "sub",
+                "proj-rule"
+            ]
         );
     }
 
@@ -712,11 +755,18 @@ mod tests {
         fs::write(proj.join("my docs/guide.md"), "GUIDE").unwrap();
         fs::write(
             proj.join("ZEN.md"),
-            format!("@{}\n@~/notes/prefs.md\n@my\\ docs/guide.md\n", abs.display()),
+            format!(
+                "@{}\n@~/notes/prefs.md\n@my\\ docs/guide.md\n",
+                abs.display()
+            ),
         )
         .unwrap();
         let files = mem(&proj, &home);
-        let top = &files.iter().find(|(p, _)| p.ends_with("proj/ZEN.md")).unwrap().1;
+        let top = &files
+            .iter()
+            .find(|(p, _)| p.ends_with("proj/ZEN.md"))
+            .unwrap()
+            .1;
         assert_eq!(top, "ABS\nHOME-PREFS\nGUIDE\n");
     }
 
@@ -726,7 +776,11 @@ mod tests {
         let proj = tmp.path().join("proj");
         fs::create_dir_all(&proj).unwrap();
         fs::write(proj.join("README.md"), "readme body").unwrap();
-        fs::write(proj.join("ZEN.md"), "See @README.md for an overview. Mail me@example.com\n").unwrap();
+        fs::write(
+            proj.join("ZEN.md"),
+            "See @README.md for an overview. Mail me@example.com\n",
+        )
+        .unwrap();
         let files = mem(&proj, &tmp.path().join("nohome"));
         assert_eq!(
             files[0].1,
@@ -817,12 +871,31 @@ mod tests {
         let lines: Vec<&str> = report.lines().collect();
 
         assert_eq!(lines.len(), 3, "report:\n{}", report);
-        assert!(lines[0].contains('~') && lines[0].contains("tokens"), "line0: {}", lines[0]);
-        assert!(lines[1].contains('~') && lines[1].contains("tokens"), "line1: {}", lines[1]);
-        assert!(lines[2].starts_with("total: 2 file(s), ~"), "total: {}", lines[2]);
+        assert!(
+            lines[0].contains('~') && lines[0].contains("tokens"),
+            "line0: {}",
+            lines[0]
+        );
+        assert!(
+            lines[1].contains('~') && lines[1].contains("tokens"),
+            "line1: {}",
+            lines[1]
+        );
+        assert!(
+            lines[2].starts_with("total: 2 file(s), ~"),
+            "total: {}",
+            lines[2]
+        );
 
         let parse = |l: &str| -> u64 {
-            l.rsplit('~').next().unwrap().split_whitespace().next().unwrap().parse().unwrap()
+            l.rsplit('~')
+                .next()
+                .unwrap()
+                .split_whitespace()
+                .next()
+                .unwrap()
+                .parse()
+                .unwrap()
         };
         let sum: u64 = lines[..2].iter().map(|l| parse(l)).sum();
         let total: u64 = parse(lines[2]);
@@ -852,8 +925,16 @@ mod tests {
         let cands = detect_import_candidates(&sub);
         assert_eq!(cands.len(), 2, "candidates: {:?}", cands);
 
-        assert!(cands[0].ends_with("proj/CLAUDE.md"), "first: {:?}", cands[0]);
-        assert!(cands[1].ends_with("sub/AGENTS.md"), "second: {:?}", cands[1]);
+        assert!(
+            cands[0].ends_with("proj/CLAUDE.md"),
+            "first: {:?}",
+            cands[0]
+        );
+        assert!(
+            cands[1].ends_with("sub/AGENTS.md"),
+            "second: {:?}",
+            cands[1]
+        );
     }
 
     #[test]

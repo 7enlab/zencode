@@ -80,12 +80,13 @@ fn parse_gitignore(text: &str, base: &Path, out: &mut Vec<IgnoreRule>) {
 pub fn is_ignored(rules: &[IgnoreRule], path: &Path, is_dir: bool) -> bool {
     let mut ignored = false;
     for rule in rules {
-        let Ok(rel) = path.strip_prefix(&rule.base) else { continue };
+        let Ok(rel) = path.strip_prefix(&rule.base) else {
+            continue;
+        };
         if rel.as_os_str().is_empty() {
             continue;
         }
         if rule.dir_only && !is_dir {
-
             continue;
         }
         if rule.matcher.is_match(rel) {
@@ -105,7 +106,11 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("zen-gi-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(dir.join("sub")).unwrap();
-        fs::write(dir.join(".gitignore"), "target/\n*.log\n!keep.log\n/rootonly.txt\n").unwrap();
+        fs::write(
+            dir.join(".gitignore"),
+            "target/\n*.log\n!keep.log\n/rootonly.txt\n",
+        )
+        .unwrap();
         fs::write(dir.join("a.log"), "x").unwrap();
         fs::write(dir.join("keep.log"), "x").unwrap();
         fs::write(dir.join("rootonly.txt"), "x").unwrap();

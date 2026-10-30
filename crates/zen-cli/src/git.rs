@@ -43,7 +43,9 @@ fn finish_probe(probe: Option<Probe>, deadline: Instant) -> Option<String> {
         match child.try_wait() {
             Ok(Some(status)) => {
                 let out = reader.join().ok()?;
-                return status.success().then(|| String::from_utf8_lossy(&out).into_owned());
+                return status
+                    .success()
+                    .then(|| String::from_utf8_lossy(&out).into_owned());
             }
             Ok(None) => {
                 if Instant::now() < deadline {
@@ -89,7 +91,11 @@ fn parse_status(out: &str) -> String {
     }
 }
 
-pub fn git_info_with(program: &str, cwd: &Path, timeout: Duration) -> (Option<String>, Option<String>) {
+pub fn git_info_with(
+    program: &str,
+    cwd: &Path,
+    timeout: Duration,
+) -> (Option<String>, Option<String>) {
     let deadline = Instant::now() + timeout;
     let branch = spawn_probe(program, cwd, &["rev-parse", "--abbrev-ref", "HEAD"]);
     let status = spawn_probe(program, cwd, &["status", "--porcelain"]);
@@ -103,7 +109,6 @@ pub fn git_info(cwd: &Path) -> (Option<String>, Option<String>) {
 }
 
 pub fn current_branch(cwd: &Path) -> Option<String> {
-
     let deadline = Instant::now() + GIT_TIMEOUT;
     let p = spawn_probe("git", cwd, &["rev-parse", "--abbrev-ref", "HEAD"]);
     finish_probe(p, deadline).and_then(|o| parse_branch(&o))
@@ -124,7 +129,6 @@ pub fn is_git_repo(cwd: &Path) -> bool {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DiffMode {
-
     WorkingTree,
 
     Staged,
@@ -133,7 +137,11 @@ pub enum DiffMode {
 }
 
 pub fn git_diff(cwd: &Path, mode: DiffMode, color: bool) -> Option<String> {
-    let color_arg = if color { "--color=always" } else { "--color=never" };
+    let color_arg = if color {
+        "--color=always"
+    } else {
+        "--color=never"
+    };
     let args: Vec<&str> = match mode {
         DiffMode::WorkingTree => vec!["diff", color_arg, "HEAD", "--"],
         DiffMode::Staged => vec!["diff", color_arg, "--cached", "--"],
@@ -147,7 +155,6 @@ fn parse_untracked(porcelain: &str) -> Vec<String> {
         .lines()
         .filter_map(|l| l.strip_prefix("?? "))
         .map(|p| {
-
             let p = p.trim();
             if p.len() >= 2 && p.starts_with('"') && p.ends_with('"') {
                 p[1..p.len() - 1].to_string()
@@ -196,7 +203,11 @@ fn parse_worktree_porcelain(out: &str) -> Vec<(String, String, String)> {
     for line in out.lines().chain(std::iter::once("")) {
         if line.is_empty() {
             if !path.is_empty() {
-                let b = if branch.is_empty() { "detached".to_string() } else { branch.clone() };
+                let b = if branch.is_empty() {
+                    "detached".to_string()
+                } else {
+                    branch.clone()
+                };
                 result.push((path.clone(), b, head.clone()));
             }
             path.clear();
@@ -218,7 +229,9 @@ pub fn valid_worktree_name(name: &str) -> bool {
         && !name.starts_with('-')
         && !name.starts_with('.')
         && !name.contains("..")
-        && name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
 }
 
 pub fn remove_worktree(cwd: &Path, path: &Path) -> Result<(), String> {
@@ -289,16 +302,33 @@ pub fn suggest_commit_message(files: &[(String, String)]) -> String {
     }
     let paths: Vec<&str> = files.iter().map(|(_, p)| p.as_str()).collect();
 
-    let prefix = if paths.iter().all(|p| p.ends_with(".md") || p.contains("CHANGELOG")) {
+    let prefix = if paths
+        .iter()
+        .all(|p| p.ends_with(".md") || p.contains("CHANGELOG"))
+    {
         "docs"
-    } else if paths.iter().all(|p| p.contains("test") || p.contains("spec")) {
+    } else if paths
+        .iter()
+        .all(|p| p.contains("test") || p.contains("spec"))
+    {
         "test"
-    } else if paths.iter().any(|p| p.contains("Cargo.toml") || p.contains("package.json")) {
+    } else if paths
+        .iter()
+        .any(|p| p.contains("Cargo.toml") || p.contains("package.json"))
+    {
         "chore"
-    } else if paths.iter().any(|p| p.ends_with(".rs") || p.ends_with(".ts") || p.ends_with(".py")) {
-
-        let added = files.iter().any(|(s, _)| s.trim_start().starts_with('A') || s == "??");
-        if added { "feat" } else { "fix" }
+    } else if paths
+        .iter()
+        .any(|p| p.ends_with(".rs") || p.ends_with(".ts") || p.ends_with(".py"))
+    {
+        let added = files
+            .iter()
+            .any(|(s, _)| s.trim_start().starts_with('A') || s == "??");
+        if added {
+            "feat"
+        } else {
+            "fix"
+        }
     } else {
         "chore"
     };
@@ -306,10 +336,7 @@ pub fn suggest_commit_message(files: &[(String, String)]) -> String {
     let scope = if paths.len() == 1 {
         paths[0].to_string()
     } else {
-        let dirs: Vec<&str> = paths
-            .iter()
-            .filter_map(|p| p.split('/').next())
-            .collect();
+        let dirs: Vec<&str> = paths.iter().filter_map(|p| p.split('/').next()).collect();
         let first = dirs.first().copied().unwrap_or("");
         if !first.is_empty() && dirs.iter().all(|d| *d == first) {
             format!("{} ({} files)", first, paths.len())
@@ -331,7 +358,10 @@ mod tests {
         let v = parse_worktree_porcelain(out);
         assert_eq!(v.len(), 2);
         assert_eq!(v[0], ("/r".into(), "main".into(), "1111111aaaa".into()));
-        assert_eq!(v[1], ("/r-x".into(), "detached".into(), "2222222bbbb".into()));
+        assert_eq!(
+            v[1],
+            ("/r-x".into(), "detached".into(), "2222222bbbb".into())
+        );
     }
 
     #[test]
@@ -360,11 +390,28 @@ mod tests {
         if !git(&["init", "-q", "-b", "main"]) {
             return None;
         }
-        git(&["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "init"]);
+        git(&[
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "user.name=t",
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "init",
+        ]);
         std::fs::write(dir.join("a.txt"), "one\n").ok()?;
         git(&["add", "a.txt"]);
         git(&[
-            "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "add a",
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "user.name=t",
+            "commit",
+            "-q",
+            "-m",
+            "add a",
         ]);
         Some(dir)
     }
@@ -376,7 +423,6 @@ mod tests {
 
     #[test]
     fn branch_in_non_repo_is_none_or_some() {
-
         let _ = current_branch(&std::env::temp_dir());
     }
 
@@ -437,7 +483,6 @@ mod tests {
 
     #[test]
     fn changed_files_no_panic_outside_repo() {
-
         let _ = changed_files(&std::env::temp_dir());
     }
 
@@ -496,7 +541,10 @@ mod tests {
         let Some(dir) = init_repo() else { return };
         std::fs::write(dir.join("a.txt"), "one\ntwo\n").unwrap();
         let d = git_diff(&dir, DiffMode::WorkingTree, false).expect("diff should run");
-        assert!(d.contains("diff --git a/a.txt b/a.txt"), "diff header missing:\n{d}");
+        assert!(
+            d.contains("diff --git a/a.txt b/a.txt"),
+            "diff header missing:\n{d}"
+        );
         assert!(d.contains("+two"), "added line missing:\n{d}");
 
         let s = git_diff(&dir, DiffMode::Staged, false).expect("staged diff should run");
@@ -542,8 +590,10 @@ mod tests {
 
     #[test]
     fn untracked_files_none_outside_repo() {
-        assert!(untracked_files(&std::env::temp_dir()).is_none()
-            || untracked_files(&std::env::temp_dir()).unwrap().is_empty());
+        assert!(
+            untracked_files(&std::env::temp_dir()).is_none()
+                || untracked_files(&std::env::temp_dir()).unwrap().is_empty()
+        );
     }
 
     #[test]
@@ -560,8 +610,14 @@ mod tests {
         let Some(dir) = init_repo() else { return };
         std::fs::write(dir.join("a.txt"), "one\ntwo\n").unwrap();
         let plain = git_diff(&dir, DiffMode::WorkingTree, false).unwrap();
-        assert!(!plain.contains("\x1b["), "plain diff must not have ANSI codes");
+        assert!(
+            !plain.contains("\x1b["),
+            "plain diff must not have ANSI codes"
+        );
         let colored = git_diff(&dir, DiffMode::WorkingTree, true).unwrap();
-        assert!(colored.contains("\x1b["), "colored diff should have ANSI codes");
+        assert!(
+            colored.contains("\x1b["),
+            "colored diff should have ANSI codes"
+        );
     }
 }

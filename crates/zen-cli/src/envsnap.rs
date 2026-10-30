@@ -6,7 +6,15 @@ const MAX_TREE_LINES: usize = 40;
 const MAX_CHILDREN: usize = 8;
 
 const SKIP_DIRS: &[&str] = &[
-    "node_modules", "target", "dist", "build", "out", "__pycache__", "venv", "vendor", "coverage",
+    "node_modules",
+    "target",
+    "dist",
+    "build",
+    "out",
+    "__pycache__",
+    "venv",
+    "vendor",
+    "coverage",
 ];
 
 struct Kind {
@@ -31,7 +39,11 @@ pub fn project_snapshot(cwd: &Path) -> Option<String> {
         s.push_str("Project type: not detected from the usual manifest files.\n");
     }
     for k in &kinds {
-        s.push_str(&format!("Project type: {}. Commands: {}\n", k.label, k.commands.join("; ")));
+        s.push_str(&format!(
+            "Project type: {}. Commands: {}\n",
+            k.label,
+            k.commands.join("; ")
+        ));
     }
     let mut versions: Vec<String> = Vec::new();
     for k in &kinds {
@@ -64,16 +76,33 @@ fn ignored_names(cwd: &Path) -> Vec<String> {
     std::fs::read_to_string(cwd.join(".gitignore"))
         .unwrap_or_default()
         .lines()
-        .map(|l| l.trim().trim_start_matches('/').trim_end_matches('/').to_string())
-        .filter(|l| !l.is_empty() && !l.starts_with('#') && !l.starts_with('!') && !l.contains(['*', '?', '[', '/']))
+        .map(|l| {
+            l.trim()
+                .trim_start_matches('/')
+                .trim_end_matches('/')
+                .to_string()
+        })
+        .filter(|l| {
+            !l.is_empty()
+                && !l.starts_with('#')
+                && !l.starts_with('!')
+                && !l.contains(['*', '?', '[', '/'])
+        })
         .collect()
 }
 
 fn visible_entries(dir: &Path, ignored: &[String]) -> Vec<(String, bool)> {
-    let Ok(rd) = std::fs::read_dir(dir) else { return vec![] };
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return vec![];
+    };
     let mut v: Vec<(String, bool)> = rd
         .filter_map(|e| e.ok())
-        .map(|e| (e.file_name().to_string_lossy().to_string(), e.path().is_dir()))
+        .map(|e| {
+            (
+                e.file_name().to_string_lossy().to_string(),
+                e.path().is_dir(),
+            )
+        })
         .filter(|(name, is_dir)| {
             !name.starts_with('.')
                 && !ignored.iter().any(|i| i == name)
@@ -116,7 +145,11 @@ fn detect_kinds(cwd: &Path) -> Vec<Kind> {
     if has("Cargo.toml") {
         kinds.push(Kind {
             label: "Rust (Cargo)",
-            commands: vec!["build `cargo build`".into(), "test `cargo test`".into(), "lint `cargo clippy`".into()],
+            commands: vec![
+                "build `cargo build`".into(),
+                "test `cargo test`".into(),
+                "lint `cargo clippy`".into(),
+            ],
             probes: &[&["rustc", "--version"], &["cargo", "--version"]],
         });
     }
@@ -125,7 +158,11 @@ fn detect_kinds(cwd: &Path) -> Vec<Kind> {
     }
     if has("pyproject.toml") || has("setup.py") || has("requirements.txt") {
         let pyproject = std::fs::read_to_string(cwd.join("pyproject.toml")).unwrap_or_default();
-        let test = if pyproject.contains("pytest") || has("pytest.ini") || has("tests") || has("conftest.py") {
+        let test = if pyproject.contains("pytest")
+            || has("pytest.ini")
+            || has("tests")
+            || has("conftest.py")
+        {
             "test `python3 -m pytest`"
         } else {
             "test `python3 -m unittest`"
@@ -134,28 +171,55 @@ fn detect_kinds(cwd: &Path) -> Vec<Kind> {
         if pyproject.contains("ruff") {
             commands.push("lint `ruff check .`".into());
         }
-        kinds.push(Kind { label: "Python", commands, probes: &[&["python3", "--version"]] });
+        kinds.push(Kind {
+            label: "Python",
+            commands,
+            probes: &[&["python3", "--version"]],
+        });
     }
     if has("go.mod") {
         kinds.push(Kind {
             label: "Go",
-            commands: vec!["build `go build ./...`".into(), "test `go test ./...`".into(), "lint `go vet ./...`".into()],
+            commands: vec![
+                "build `go build ./...`".into(),
+                "test `go test ./...`".into(),
+                "lint `go vet ./...`".into(),
+            ],
             probes: &[&["go", "version"]],
         });
     }
     if has("pom.xml") {
-        kinds.push(Kind { label: "Java (Maven)", commands: vec!["test `mvn -q test`".into()], probes: &[&["mvn", "-v"]] });
+        kinds.push(Kind {
+            label: "Java (Maven)",
+            commands: vec!["test `mvn -q test`".into()],
+            probes: &[&["mvn", "-v"]],
+        });
     }
     if has("build.gradle") || has("build.gradle.kts") {
-        let gw = if has("gradlew") { "./gradlew" } else { "gradle" };
-        kinds.push(Kind { label: "JVM (Gradle)", commands: vec![format!("test `{} test`", gw)], probes: &[] });
+        let gw = if has("gradlew") {
+            "./gradlew"
+        } else {
+            "gradle"
+        };
+        kinds.push(Kind {
+            label: "JVM (Gradle)",
+            commands: vec![format!("test `{} test`", gw)],
+            probes: &[],
+        });
     }
     if has("Makefile") || has("makefile") {
         let targets = make_targets(cwd);
         if !targets.is_empty() {
             kinds.push(Kind {
                 label: "Makefile",
-                commands: vec![format!("targets: {}", targets.iter().map(|t| format!("`make {}`", t)).collect::<Vec<_>>().join(", "))],
+                commands: vec![format!(
+                    "targets: {}",
+                    targets
+                        .iter()
+                        .map(|t| format!("`make {}`", t))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )],
                 probes: &[&["make", "--version"]],
             });
         }
@@ -181,7 +245,19 @@ fn node_kind(cwd: &Path) -> Kind {
     if let Some(scripts) = pkg.get("scripts").and_then(|s| s.as_object()) {
         for name in ["build", "test", "lint", "typecheck", "check"] {
             if scripts.contains_key(name) {
-                let run = if pm == "npm" && name != "test" { format!("npm run {}", name) } else { format!("{} {}", pm, if name == "test" { "test".to_string() } else { format!("run {}", name) }) };
+                let run = if pm == "npm" && name != "test" {
+                    format!("npm run {}", name)
+                } else {
+                    format!(
+                        "{} {}",
+                        pm,
+                        if name == "test" {
+                            "test".to_string()
+                        } else {
+                            format!("run {}", name)
+                        }
+                    )
+                };
                 commands.push(format!("{} `{}`", name, run));
             }
         }
@@ -189,7 +265,11 @@ fn node_kind(cwd: &Path) -> Kind {
     if commands.is_empty() {
         commands.push("no build/test scripts in package.json".into());
     }
-    Kind { label: "JavaScript/TypeScript (package.json)", commands, probes: &[&["node", "--version"]] }
+    Kind {
+        label: "JavaScript/TypeScript (package.json)",
+        commands,
+        probes: &[&["node", "--version"]],
+    }
 }
 
 fn make_targets(cwd: &Path) -> Vec<String> {
@@ -201,8 +281,15 @@ fn make_targets(cwd: &Path) -> Vec<String> {
         if line.starts_with(['\t', ' ', '.', '#']) {
             continue;
         }
-        let Some((name, rest)) = line.split_once(':') else { continue };
-        if rest.starts_with('=') || name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+        let Some((name, rest)) = line.split_once(':') else {
+            continue;
+        };
+        if rest.starts_with('=')
+            || name.is_empty()
+            || !name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+        {
             continue;
         }
         if !out.iter().any(|t| t == name) {
@@ -260,7 +347,11 @@ fn tool_version(cmd: &[&str]) -> Option<String> {
     }
 
     let text = if out.is_empty() { err } else { out };
-    let line = String::from_utf8_lossy(&text).lines().next()?.trim().to_string();
+    let line = String::from_utf8_lossy(&text)
+        .lines()
+        .next()?
+        .trim()
+        .to_string();
     (!line.is_empty()).then(|| line.chars().take(80).collect())
 }
 
@@ -293,7 +384,8 @@ mod tests {
     use super::*;
 
     fn fixture(tag: &str, files: &[(&str, &str)]) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!("zen-envsnap-{}-{}", tag, uuid::Uuid::new_v4()));
+        let dir =
+            std::env::temp_dir().join(format!("zen-envsnap-{}-{}", tag, uuid::Uuid::new_v4()));
         for (path, body) in files {
             let p = dir.join(path);
             std::fs::create_dir_all(p.parent().unwrap()).unwrap();
@@ -318,10 +410,18 @@ mod tests {
             ],
         );
         let s = project_snapshot(&dir).unwrap();
-        assert!(s.contains("Rust (Cargo)") && s.contains("`cargo test`"), "{}", s);
+        assert!(
+            s.contains("Rust (Cargo)") && s.contains("`cargo test`"),
+            "{}",
+            s
+        );
         assert!(s.contains("  src/\n    main.rs"), "{}", s);
         assert!(s.contains("Tests live in: tests/"), "{}", s);
-        assert!(!s.contains("target") && !s.contains("generated") && !s.contains(".git"), "{}", s);
+        assert!(
+            !s.contains("target") && !s.contains("generated") && !s.contains(".git"),
+            "{}",
+            s
+        );
         assert!(s.contains("judged by whether these checks pass"), "{}", s);
     }
 
@@ -330,13 +430,20 @@ mod tests {
         let dir = fixture(
             "npm",
             &[
-                ("package.json", r#"{"scripts":{"test":"vitest","build":"tsc","dev":"vite"}}"#),
+                (
+                    "package.json",
+                    r#"{"scripts":{"test":"vitest","build":"tsc","dev":"vite"}}"#,
+                ),
                 ("pnpm-lock.yaml", ""),
                 ("node_modules/left-pad/index.js", ""),
             ],
         );
         let s = project_snapshot(&dir).unwrap();
-        assert!(s.contains("build `pnpm run build`") && s.contains("test `pnpm test`"), "{}", s);
+        assert!(
+            s.contains("build `pnpm run build`") && s.contains("test `pnpm test`"),
+            "{}",
+            s
+        );
         assert!(!s.contains("dev `") && !s.contains("node_modules"), "{}", s);
     }
 
@@ -346,12 +453,19 @@ mod tests {
             "py",
             &[
                 ("pyproject.toml", "[tool.pytest.ini_options]\n[tool.ruff]\n"),
-                ("Makefile", "VAR := 1\n.PHONY: test\ntest:\n\tpytest\nlint: test\n\truff .\n"),
+                (
+                    "Makefile",
+                    "VAR := 1\n.PHONY: test\ntest:\n\tpytest\nlint: test\n\truff .\n",
+                ),
                 ("pkg/mod.py", ""),
             ],
         );
         let s = project_snapshot(&dir).unwrap();
-        assert!(s.contains("Python. Commands: test `python3 -m pytest`; lint `ruff check .`"), "{}", s);
+        assert!(
+            s.contains("Python. Commands: test `python3 -m pytest`; lint `ruff check .`"),
+            "{}",
+            s
+        );
         assert!(s.contains("targets: `make test`, `make lint`"), "{}", s);
         assert!(!s.contains("make VAR"), "{}", s);
     }
@@ -361,11 +475,17 @@ mod tests {
         let empty = fixture("empty", &[]);
         assert_eq!(project_snapshot(&empty), None);
 
-        let names: Vec<(String, &str)> = (0..300).map(|i| (format!("d{:03}/f{:03}.txt", i, i), "")).collect();
+        let names: Vec<(String, &str)> = (0..300)
+            .map(|i| (format!("d{:03}/f{:03}.txt", i, i), ""))
+            .collect();
         let refs: Vec<(&str, &str)> = names.iter().map(|(a, b)| (a.as_str(), *b)).collect();
         let big = fixture("big", &refs);
         let s = project_snapshot(&big).unwrap();
-        assert!(s.chars().count() <= MAX_CHARS + 30, "{} chars", s.chars().count());
+        assert!(
+            s.chars().count() <= MAX_CHARS + 30,
+            "{} chars",
+            s.chars().count()
+        );
         assert!(s.contains("more top-level entries"), "{}", s);
         assert!(s.lines().count() < 60, "{} lines", s.lines().count());
     }

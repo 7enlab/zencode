@@ -12,8 +12,14 @@ async fn resume_session_replays_transcript() {
     let (stdout1, _, code1) = tokio::time::timeout(TEST_TIMEOUT, async {
         ZenRun::new("resume1", &home, &cwd)
             .args([
-                "-p", "--output-format", "json", "--bare", "--setting-sources", "",
-                "--session-id", "00000000-0000-4000-8000-000000000004"
+                "-p",
+                "--output-format",
+                "json",
+                "--bare",
+                "--setting-sources",
+                "",
+                "--session-id",
+                "00000000-0000-4000-8000-000000000004",
             ])
             .mock("mock-model", &server1)
             .arg("remember alpha")
@@ -31,8 +37,14 @@ async fn resume_session_replays_transcript() {
     let (_stdout2, _, code2) = tokio::time::timeout(TEST_TIMEOUT, async {
         ZenRun::new("resume2", &home, &cwd)
             .args([
-                "-p", "--output-format", "json", "--bare", "--setting-sources", "",
-                "--resume", &session_id
+                "-p",
+                "--output-format",
+                "json",
+                "--bare",
+                "--setting-sources",
+                "",
+                "--resume",
+                &session_id,
             ])
             .mock("mock-model", &server2)
             .arg("what did I say?")
@@ -45,10 +57,26 @@ async fn resume_session_replays_transcript() {
     let requests = server2.requests().await;
     assert_eq!(requests.len(), 1);
     let msgs_text = request_messages_text(&requests[0]);
-    assert!(msgs_text.contains("remember alpha"), "prior user msg missing: {}", msgs_text);
-    assert!(msgs_text.contains("first reply"), "prior assistant msg missing: {}", msgs_text);
-    assert!(msgs_text.contains("what did I say?"), "new prompt missing: {}", msgs_text);
-    assert_eq!(msgs_text.matches("what did I say?").count(), 1, "duplicate prompt");
+    assert!(
+        msgs_text.contains("remember alpha"),
+        "prior user msg missing: {}",
+        msgs_text
+    );
+    assert!(
+        msgs_text.contains("first reply"),
+        "prior assistant msg missing: {}",
+        msgs_text
+    );
+    assert!(
+        msgs_text.contains("what did I say?"),
+        "new prompt missing: {}",
+        msgs_text
+    );
+    assert_eq!(
+        msgs_text.matches("what did I say?").count(),
+        1,
+        "duplicate prompt"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -56,22 +84,37 @@ async fn continue_picks_latest_session() {
     let home = TempDir::new("continue_home");
     let cwd = TempDir::new("continue_cwd");
 
-    let proj_dir = home.path().join(".zen").join("projects").join(session::encode_cwd(cwd.path()));
+    let proj_dir = home
+        .path()
+        .join(".zen")
+        .join("projects")
+        .join(session::encode_cwd(cwd.path()));
     fs::create_dir_all(&proj_dir).unwrap();
 
     let p1 = proj_dir.join("first.jsonl");
-    let _ = fs::write(&p1, r#"{"type":"user","uuid":"u1","parent_uuid":null,"session_id":"first","timestamp":"2024-01-01T00:00:00Z","cwd":"/tmp","message":{"role":"user","content":"first"}}"#);
+    let _ = fs::write(
+        &p1,
+        r#"{"type":"user","uuid":"u1","parent_uuid":null,"session_id":"first","timestamp":"2024-01-01T00:00:00Z","cwd":"/tmp","message":{"role":"user","content":"first"}}"#,
+    );
 
     std::thread::sleep(std::time::Duration::from_millis(50));
     let p2 = proj_dir.join("second.jsonl");
-    let _ = fs::write(&p2, r#"{"type":"user","uuid":"u2","parent_uuid":null,"session_id":"second","timestamp":"2024-01-01T00:00:01Z","cwd":"/tmp","message":{"role":"user","content":"second"}}"#);
+    let _ = fs::write(
+        &p2,
+        r#"{"type":"user","uuid":"u2","parent_uuid":null,"session_id":"second","timestamp":"2024-01-01T00:00:01Z","cwd":"/tmp","message":{"role":"user","content":"second"}}"#,
+    );
 
     let server = MockServer::single_text("continued").await;
     let (stdout, _, code) = tokio::time::timeout(TEST_TIMEOUT, async {
         ZenRun::new("continue", &home, &cwd)
             .args([
-                "-p", "--output-format", "json", "--bare", "--setting-sources", "",
-                "--continue"
+                "-p",
+                "--output-format",
+                "json",
+                "--bare",
+                "--setting-sources",
+                "",
+                "--continue",
             ])
             .mock("mock-model", &server)
             .arg("continue")
@@ -82,10 +125,17 @@ async fn continue_picks_latest_session() {
 
     assert_eq!(code, 0);
     let v = last_result(&stdout);
-    assert_eq!(v["session_id"], "second", "--continue should pick latest session");
+    assert_eq!(
+        v["session_id"], "second",
+        "--continue should pick latest session"
+    );
     let requests = server.requests().await;
     let msgs_text = request_messages_text(&requests[0]);
-    assert!(msgs_text.contains("second"), "should replay latest session: {}", msgs_text);
+    assert!(
+        msgs_text.contains("second"),
+        "should replay latest session: {}",
+        msgs_text
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -97,8 +147,14 @@ async fn fork_session_creates_new_id() {
     let (stdout1, _, code1) = tokio::time::timeout(TEST_TIMEOUT, async {
         ZenRun::new("fork1", &home, &cwd)
             .args([
-                "-p", "--output-format", "json", "--bare", "--setting-sources", "",
-                "--session-id", "00000000-0000-4000-8000-000000000005"
+                "-p",
+                "--output-format",
+                "json",
+                "--bare",
+                "--setting-sources",
+                "",
+                "--session-id",
+                "00000000-0000-4000-8000-000000000005",
             ])
             .mock("mock-model", &server1)
             .arg("original prompt")
@@ -115,9 +171,15 @@ async fn fork_session_creates_new_id() {
     let (stdout2, _, code2) = tokio::time::timeout(TEST_TIMEOUT, async {
         ZenRun::new("fork2", &home, &cwd)
             .args([
-                "-p", "--output-format", "json", "--bare", "--setting-sources", "",
-                "--resume", "00000000-0000-4000-8000-000000000005",
-                "--fork-session"
+                "-p",
+                "--output-format",
+                "json",
+                "--bare",
+                "--setting-sources",
+                "",
+                "--resume",
+                "00000000-0000-4000-8000-000000000005",
+                "--fork-session",
             ])
             .mock("mock-model", &server2)
             .arg("forked prompt")
@@ -129,12 +191,23 @@ async fn fork_session_creates_new_id() {
     assert_eq!(code2, 0);
     let v2 = last_result(&stdout2);
     let new_session_id = v2["session_id"].as_str().unwrap();
-    assert_ne!(new_session_id, "00000000-0000-4000-8000-000000000005", "fork should create new session id");
+    assert_ne!(
+        new_session_id, "00000000-0000-4000-8000-000000000005",
+        "fork should create new session id"
+    );
 
     let requests = server2.requests().await;
     let msgs_text = request_messages_text(&requests[0]);
-    assert!(msgs_text.contains("original prompt"), "fork should replay transcript: {}", msgs_text);
-    assert!(msgs_text.contains("forked prompt"), "new prompt should be present: {}", msgs_text);
+    assert!(
+        msgs_text.contains("original prompt"),
+        "fork should replay transcript: {}",
+        msgs_text
+    );
+    assert!(
+        msgs_text.contains("forked prompt"),
+        "new prompt should be present: {}",
+        msgs_text
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -146,9 +219,15 @@ async fn no_session_persistence_writes_no_file() {
     let (_, _, code) = tokio::time::timeout(TEST_TIMEOUT, async {
         ZenRun::new("nopersist", &home, &cwd)
             .args([
-                "-p", "--output-format", "json", "--bare", "--setting-sources", "",
+                "-p",
+                "--output-format",
+                "json",
+                "--bare",
+                "--setting-sources",
+                "",
                 "--no-session-persistence",
-                "--session-id", "00000000-0000-4000-8000-000000000006"
+                "--session-id",
+                "00000000-0000-4000-8000-000000000006",
             ])
             .mock("mock-model", &server)
             .arg("hi")
@@ -159,9 +238,15 @@ async fn no_session_persistence_writes_no_file() {
 
     assert_eq!(code, 0);
 
-    let proj_dir = home.path().join(".zen").join("projects").join(session::encode_cwd(cwd.path()));
-    assert!(!proj_dir.exists() || fs::read_dir(&proj_dir).unwrap().count() == 0,
-        "no transcript file should exist with --no-session-persistence");
+    let proj_dir = home
+        .path()
+        .join(".zen")
+        .join("projects")
+        .join(session::encode_cwd(cwd.path()));
+    assert!(
+        !proj_dir.exists() || fs::read_dir(&proj_dir).unwrap().count() == 0,
+        "no transcript file should exist with --no-session-persistence"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -173,13 +258,20 @@ async fn session_id_consistent_across_turns() {
         Reply::text("reply 1"),
         Reply::text("reply 2"),
         Reply::text("reply 3"),
-    ]).await;
+    ])
+    .await;
 
     let (stdout1, _, code1) = tokio::time::timeout(TEST_TIMEOUT, async {
         ZenRun::new("cons1", &home, &cwd)
             .args([
-                "-p", "--output-format", "json", "--bare", "--setting-sources", "",
-                "--session-id", "00000000-0000-4000-8000-000000000007"
+                "-p",
+                "--output-format",
+                "json",
+                "--bare",
+                "--setting-sources",
+                "",
+                "--session-id",
+                "00000000-0000-4000-8000-000000000007",
             ])
             .mock("mock-model", &server)
             .arg("turn 1")
@@ -192,8 +284,14 @@ async fn session_id_consistent_across_turns() {
     let (stdout2, _, code2) = tokio::time::timeout(TEST_TIMEOUT, async {
         ZenRun::new("cons2", &home, &cwd)
             .args([
-                "-p", "--output-format", "json", "--bare", "--setting-sources", "",
-                "--resume", "00000000-0000-4000-8000-000000000007"
+                "-p",
+                "--output-format",
+                "json",
+                "--bare",
+                "--setting-sources",
+                "",
+                "--resume",
+                "00000000-0000-4000-8000-000000000007",
             ])
             .mock("mock-model", &server)
             .arg("turn 2")
@@ -206,8 +304,14 @@ async fn session_id_consistent_across_turns() {
     let (stdout3, _, code3) = tokio::time::timeout(TEST_TIMEOUT, async {
         ZenRun::new("cons3", &home, &cwd)
             .args([
-                "-p", "--output-format", "json", "--bare", "--setting-sources", "",
-                "--resume", "00000000-0000-4000-8000-000000000007"
+                "-p",
+                "--output-format",
+                "json",
+                "--bare",
+                "--setting-sources",
+                "",
+                "--resume",
+                "00000000-0000-4000-8000-000000000007",
             ])
             .mock("mock-model", &server)
             .arg("turn 3")
@@ -234,8 +338,14 @@ async fn resume_nonexistent_session_errors() {
     let (_, stderr, code) = tokio::time::timeout(TEST_TIMEOUT, async {
         ZenRun::new("resume_new", &home, &cwd)
             .args([
-                "-p", "--output-format", "json", "--bare", "--setting-sources", "",
-                "--resume", "nonexistent-session-id"
+                "-p",
+                "--output-format",
+                "json",
+                "--bare",
+                "--setting-sources",
+                "",
+                "--resume",
+                "nonexistent-session-id",
             ])
             .mock("mock-model", &server)
             .arg("hi")
@@ -269,8 +379,16 @@ async fn c9_2_session_id_rejects_non_uuid() {
     let server = MockServer::single_text("should not be reached").await;
     let (stdout, stderr, code) = tokio::time::timeout(TEST_TIMEOUT, async {
         ZenRun::new("baduuid", &home, &cwd)
-            .args(["-p", "--output-format", "json", "--bare", "--setting-sources", "",
-                "--session-id", "not-a-uuid"])
+            .args([
+                "-p",
+                "--output-format",
+                "json",
+                "--bare",
+                "--setting-sources",
+                "",
+                "--session-id",
+                "not-a-uuid",
+            ])
             .mock("mock-model", &server)
             .arg("hi")
             .run_output()
@@ -278,9 +396,16 @@ async fn c9_2_session_id_rejects_non_uuid() {
     .await
     .expect("timed out");
     assert_ne!(code, 0, "stdout: {}", stdout);
-    assert!(stdout.trim().is_empty(), "no result line expected: {}", stdout);
+    assert!(
+        stdout.trim().is_empty(),
+        "no result line expected: {}",
+        stdout
+    );
     assert!(stderr.contains("UUID"), "stderr: {}", stderr);
-    assert!(server.requests().await.is_empty(), "no model request expected");
+    assert!(
+        server.requests().await.is_empty(),
+        "no model request expected"
+    );
     assert!(!home.path().join(".zen").join("projects").exists());
 }
 
@@ -291,17 +416,38 @@ async fn c9_3_usage_accumulates_across_resume() {
     let server = MockServer::start(vec![Reply::text("one"), Reply::text("two")]).await;
     let run = |tag: &str, extra: &[&str], prompt: &str| {
         ZenRun::new(tag, &home, &cwd)
-            .args(["-p", "--output-format", "json", "--bare", "--setting-sources", ""])
+            .args([
+                "-p",
+                "--output-format",
+                "json",
+                "--bare",
+                "--setting-sources",
+                "",
+            ])
             .args(extra.iter().map(|s| s.to_string()))
             .mock("mock-model", &server)
             .arg(prompt)
             .run_output()
     };
-    let (o1, _, _) = run("u1", &["--session-id", "00000000-0000-4000-8000-0000000000c9"], "a");
-    assert_eq!(last_result(&o1)["usage"], serde_json::json!({"input_tokens": 7, "output_tokens": 3, "cache_read_input_tokens": 0}));
-    let (o2, e2, c2) = run("u2", &["--resume", "00000000-0000-4000-8000-0000000000c9"], "b");
+    let (o1, _, _) = run(
+        "u1",
+        &["--session-id", "00000000-0000-4000-8000-0000000000c9"],
+        "a",
+    );
+    assert_eq!(
+        last_result(&o1)["usage"],
+        serde_json::json!({"input_tokens": 7, "output_tokens": 3, "cache_read_input_tokens": 0})
+    );
+    let (o2, e2, c2) = run(
+        "u2",
+        &["--resume", "00000000-0000-4000-8000-0000000000c9"],
+        "b",
+    );
     assert_eq!(c2, 0, "{}", e2);
-    assert_eq!(last_result(&o2)["usage"], serde_json::json!({"input_tokens": 14, "output_tokens": 6, "cache_read_input_tokens": 0}));
+    assert_eq!(
+        last_result(&o2)["usage"],
+        serde_json::json!({"input_tokens": 14, "output_tokens": 6, "cache_read_input_tokens": 0})
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -310,10 +456,25 @@ async fn p0b_3_session_file_rebuilds_last_request_byte_identical() {
     let cwd = TempDir::new("p0b3_cwd");
     let id = "00000000-0000-4000-8000-0000000000b3";
     let server = MockServer::start(vec![Reply::text("reply one"), Reply::text("reply two")]).await;
-    for (i, (flag, prompt)) in [("--session-id", "first prompt"), ("--resume", "second prompt")].iter().enumerate() {
+    for (i, (flag, prompt)) in [
+        ("--session-id", "first prompt"),
+        ("--resume", "second prompt"),
+    ]
+    .iter()
+    .enumerate()
+    {
         let (_, stderr, code) = tokio::time::timeout(TEST_TIMEOUT, async {
             ZenRun::new(&format!("p0b3_{i}"), &home, &cwd)
-                .args(["-p", "--output-format", "json", "--bare", "--setting-sources", "", flag, id])
+                .args([
+                    "-p",
+                    "--output-format",
+                    "json",
+                    "--bare",
+                    "--setting-sources",
+                    "",
+                    flag,
+                    id,
+                ])
                 .mock("mock-model", &server)
                 .arg(*prompt)
                 .run_output()
@@ -368,10 +529,22 @@ async fn dtr_killed_mid_turn_resume_keeps_finished_tool_result() {
     let slow = format!("sleep 20 & echo $! > '{}'; wait", pid_file.display());
     let server = MockServer::start(vec![Reply::with_tool_calls(
         "",
-        Some(serde_json::json!([call("call_1", "echo first-done-d7"), call("call_2", &slow)])),
+        Some(serde_json::json!([
+            call("call_1", "echo first-done-d7"),
+            call("call_2", &slow)
+        ])),
     )])
     .await;
-    let flags = ["-p", "--output-format", "json", "--bare", "--setting-sources", "", "--permission-mode", "bypassPermissions"];
+    let flags = [
+        "-p",
+        "--output-format",
+        "json",
+        "--bare",
+        "--setting-sources",
+        "",
+        "--permission-mode",
+        "bypassPermissions",
+    ];
     let mut child = ZenRun::new("dtr_1", &home, &cwd)
         .args(flags)
         .args(["--session-id", id])
@@ -385,15 +558,23 @@ async fn dtr_killed_mid_turn_resume_keeps_finished_tool_result() {
                 break s.trim().to_string();
             }
         }
-        assert!(start.elapsed() < std::time::Duration::from_secs(20), "second tool never started");
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(20),
+            "second tool never started"
+        );
         std::thread::sleep(std::time::Duration::from_millis(50));
     };
     child.kill().unwrap();
     let _ = child.wait();
-    let _ = std::process::Command::new("kill").args(["-9", &sleep_pid]).status();
+    let _ = std::process::Command::new("kill")
+        .args(["-9", &sleep_pid])
+        .status();
 
     let file = walk_find(&home.path().join(".zen"), &format!("{id}.jsonl")).expect("session file");
-    assert!(zen_cli::session::load_messages(&file).unwrap().is_empty(), "the turn itself was never persisted");
+    assert!(
+        zen_cli::session::load_messages(&file).unwrap().is_empty(),
+        "the turn itself was never persisted"
+    );
 
     let server2 = MockServer::start(vec![Reply::text("resumed")]).await;
     let (_, stderr, code) = tokio::time::timeout(TEST_TIMEOUT, async {
@@ -412,12 +593,27 @@ async fn dtr_killed_mid_turn_resume_keeps_finished_tool_result() {
     let tool_msgs: Vec<&serde_json::Value> = msgs.iter().filter(|m| m["role"] == "tool").collect();
     assert_eq!(tool_msgs.len(), 2, "{msgs:#?}");
     assert_eq!(tool_msgs[0]["tool_call_id"], "call_1");
-    assert!(tool_msgs[0]["content"].as_str().unwrap().contains("first-done-d7"), "{msgs:#?}");
-    assert!(tool_msgs[1]["content"].as_str().unwrap().contains("interrupted"), "{msgs:#?}");
+    assert!(
+        tool_msgs[0]["content"]
+            .as_str()
+            .unwrap()
+            .contains("first-done-d7"),
+        "{msgs:#?}"
+    );
+    assert!(
+        tool_msgs[1]["content"]
+            .as_str()
+            .unwrap()
+            .contains("interrupted"),
+        "{msgs:#?}"
+    );
 
     assert_eq!(zen_cli::session::load_messages(&file).unwrap().len(), 6);
 
     let rebuilt = zen_cli::eventlog::rebuild_requests(&file).unwrap();
     assert_eq!(rebuilt.len(), 2);
-    assert_eq!(rebuilt[1].1.as_bytes(), requests[0].split("\r\n\r\n").nth(1).unwrap().as_bytes());
+    assert_eq!(
+        rebuilt[1].1.as_bytes(),
+        requests[0].split("\r\n\r\n").nth(1).unwrap().as_bytes()
+    );
 }

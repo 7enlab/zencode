@@ -39,9 +39,16 @@ async fn r7_snapshot_in_system_prompt_and_stable_across_requests() {
     let reqs = server.finish().await;
     assert_eq!(reqs.len(), 3);
     let systems: Vec<String> = reqs.iter().map(|r| system_message(r)).collect();
-    assert!(systems[0].contains("Project snapshot") && systems[0].contains("`cargo test`"), "{}", systems[0]);
+    assert!(
+        systems[0].contains("Project snapshot") && systems[0].contains("`cargo test`"),
+        "{}",
+        systems[0]
+    );
     assert!(systems[0].contains("src/\n    lib.rs"), "{}", systems[0]);
-    assert!(systems.iter().all(|s| s == &systems[0]), "system prompt changed mid-session");
+    assert!(
+        systems.iter().all(|s| s == &systems[0]),
+        "system prompt changed mid-session"
+    );
 
     let server = MockServer::start(vec![Reply::text("bare done")]).await;
     let (_o, stderr, code) = tokio::time::timeout(TEST_TIMEOUT, async {
@@ -62,16 +69,31 @@ async fn r7_snapshot_in_system_prompt_and_stable_across_requests() {
 async fn r7_verify_command_from_settings_feeds_failure_back() {
     let home = TempDir::new("r7_verify_home");
     let cwd = TempDir::new("r7_verify_cwd");
-    cwd.write(".zen/settings.json", r#"{"verify": {"command": "echo VERIFY-RAN-IN-$(basename $PWD); exit 1"}}"#);
+    cwd.write(
+        ".zen/settings.json",
+        r#"{"verify": {"command": "echo VERIFY-RAN-IN-$(basename $PWD); exit 1"}}"#,
+    );
     let server = MockServer::start(vec![
-        tool_call("w1", "Write", serde_json::json!({"file_path": "new.txt", "content": "x"})),
+        tool_call(
+            "w1",
+            "Write",
+            serde_json::json!({"file_path": "new.txt", "content": "x"}),
+        ),
         Reply::text("done1"),
         Reply::text("final answer"),
     ])
     .await;
     let (stdout, stderr, code) = tokio::time::timeout(TEST_TIMEOUT, async {
         ZenRun::new("r7_verify", &home, &cwd)
-            .args(["-p", "--output-format", "json", "--setting-sources", "project", "--permission-mode", "acceptEdits"])
+            .args([
+                "-p",
+                "--output-format",
+                "json",
+                "--setting-sources",
+                "project",
+                "--permission-mode",
+                "acceptEdits",
+            ])
             .mock("mock-model", &server)
             .arg("make a file")
             .run_output()
@@ -83,17 +105,33 @@ async fn r7_verify_command_from_settings_feeds_failure_back() {
     let reqs = server.finish().await;
     assert_eq!(reqs.len(), 3);
     let last = request_messages_text(&reqs[2]);
-    assert!(last.contains("VERIFY-RAN-IN-") && last.contains("exit 1"), "{}", last);
+    assert!(
+        last.contains("VERIFY-RAN-IN-") && last.contains("exit 1"),
+        "{}",
+        last
+    );
 
     let cwd2 = TempDir::new("r7_verify_cwd2");
     let server = MockServer::start(vec![
-        tool_call("w1", "Write", serde_json::json!({"file_path": "new.txt", "content": "x"})),
+        tool_call(
+            "w1",
+            "Write",
+            serde_json::json!({"file_path": "new.txt", "content": "x"}),
+        ),
         Reply::text("done1"),
     ])
     .await;
     let (stdout, stderr, code) = tokio::time::timeout(TEST_TIMEOUT, async {
         ZenRun::new("r7_verify2", &home, &cwd2)
-            .args(["-p", "--output-format", "json", "--setting-sources", "project", "--permission-mode", "acceptEdits"])
+            .args([
+                "-p",
+                "--output-format",
+                "json",
+                "--setting-sources",
+                "project",
+                "--permission-mode",
+                "acceptEdits",
+            ])
             .mock("mock-model", &server)
             .arg("make a file")
             .run_output()

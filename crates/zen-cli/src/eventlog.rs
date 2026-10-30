@@ -19,7 +19,6 @@ pub fn fnv1a_hex(bytes: &[u8]) -> String {
 
 #[derive(Default)]
 struct State {
-
     path: PathBuf,
 
     scanned: bool,
@@ -35,11 +34,19 @@ pub struct Recorder {
 
 impl Recorder {
     pub fn new(path: PathBuf) -> Arc<Self> {
-        Arc::new(Self { state: Mutex::new(State { path, ..Default::default() }) })
+        Arc::new(Self {
+            state: Mutex::new(State {
+                path,
+                ..Default::default()
+            }),
+        })
     }
 
     pub fn set_path(&self, path: PathBuf) {
-        *self.state.lock().unwrap() = State { path, ..Default::default() };
+        *self.state.lock().unwrap() = State {
+            path,
+            ..Default::default()
+        };
     }
 
     fn record_request(&self, req: &ChatRequest) -> Result<u64> {
@@ -59,7 +66,9 @@ impl Recorder {
         } else {
             let h = fnv1a_hex(serde_json::to_string(&req.tools)?.as_bytes());
             if !st.tool_hashes.contains(&h) {
-                lines.push(json!({"type": "tools", "v": EVENT_LOG_VERSION, "hash": h, "tools": req.tools}));
+                lines.push(
+                    json!({"type": "tools", "v": EVENT_LOG_VERSION, "hash": h, "tools": req.tools}),
+                );
             }
             Some(h)
         };
@@ -69,7 +78,11 @@ impl Recorder {
         };
         let (base, keep) = match st.chains.get(&key) {
             Some((s, prev)) => {
-                let k = prev.iter().zip(&req.messages).take_while(|(a, b)| a == b).count();
+                let k = prev
+                    .iter()
+                    .zip(&req.messages)
+                    .take_while(|(a, b)| a == b)
+                    .count();
                 (Some(*s), k)
             }
             None => (None, 0),
@@ -128,13 +141,16 @@ impl Recorder {
             }
         };
         if let Err(e) = crate::session::append_record(&path, &rec) {
-            eprintln!("warning: could not record model response in {}: {}", path.display(), e);
+            eprintln!(
+                "warning: could not record model response in {}: {}",
+                path.display(),
+                e
+            );
         }
     }
 }
 
 impl Recorder {
-
     fn journal(&self, rec: Value) {
         let st = self.state.lock().unwrap();
         let res = (|| -> Result<()> {
@@ -142,7 +158,10 @@ impl Recorder {
             if let Some(parent) = st.path.parent() {
                 std::fs::create_dir_all(parent)?;
             }
-            let mut f = std::fs::OpenOptions::new().create(true).append(true).open(&st.path)?;
+            let mut f = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&st.path)?;
             let mut line = serde_json::to_string(&rec)?;
             line.push('\n');
             f.write_all(line.as_bytes())?;
@@ -150,7 +169,11 @@ impl Recorder {
             Ok(())
         })();
         if let Err(e) = res {
-            eprintln!("warning: could not record tool result in {}: {}", st.path.display(), e);
+            eprintln!(
+                "warning: could not record tool result in {}: {}",
+                st.path.display(),
+                e
+            );
         }
     }
 }
@@ -181,9 +204,13 @@ impl ToolJournal for Recorder {
 fn scan(path: &Path) -> (u64, HashSet<String>) {
     let mut next = 0;
     let mut hashes = HashSet::new();
-    let Ok(text) = std::fs::read_to_string(path) else { return (next, hashes) };
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return (next, hashes);
+    };
     for line in text.lines() {
-        let Ok(v) = serde_json::from_str::<Value>(line) else { continue };
+        let Ok(v) = serde_json::from_str::<Value>(line) else {
+            continue;
+        };
         match v.get("type").and_then(|t| t.as_str()) {
             Some("request") => {
                 if let Some(s) = v.get("seq").and_then(|s| s.as_u64()) {
@@ -209,7 +236,6 @@ pub struct RecordingBackend {
 #[async_trait]
 impl LlmBackend for RecordingBackend {
     async fn chat(&self, req: ChatRequest) -> Result<ChatResponse> {
-
         let seq = match self.recorder.record_request(&req) {
             Ok(s) => Some(s),
             Err(e) => {
@@ -227,13 +253,19 @@ impl LlmBackend for RecordingBackend {
 
 pub fn wrap(inner: Arc<dyn LlmBackend>, recorder: Option<&Arc<Recorder>>) -> Arc<dyn LlmBackend> {
     match recorder {
-        Some(r) => Arc::new(RecordingBackend { inner, recorder: r.clone() }),
+        Some(r) => Arc::new(RecordingBackend {
+            inner,
+            recorder: r.clone(),
+        }),
         None => inner,
     }
 }
 
 pub fn rebuild_requests(path: &Path) -> Result<Vec<(u64, String)>> {
-    Ok(rebuild(path)?.into_iter().map(|(seq, _, body)| (seq, body)).collect())
+    Ok(rebuild(path)?
+        .into_iter()
+        .map(|(seq, _, body)| (seq, body))
+        .collect())
 }
 
 fn rebuild(path: &Path) -> Result<Vec<(u64, Vec<ChatMessage>, String)>> {
@@ -246,25 +278,37 @@ fn rebuild(path: &Path) -> Result<Vec<(u64, Vec<ChatMessage>, String)>> {
         if line.is_empty() {
             continue;
         }
-        let v: Value = serde_json::from_str(line).map_err(|e| anyhow!("{}:{}: {}", path.display(), n + 1, e))?;
+        let v: Value = serde_json::from_str(line)
+            .map_err(|e| anyhow!("{}:{}: {}", path.display(), n + 1, e))?;
         match v.get("type").and_then(|t| t.as_str()) {
             Some("tools") => {
                 let h = v["hash"].as_str().unwrap_or_default().to_string();
                 tools.insert(h, serde_json::from_value(v["tools"].clone())?);
             }
             Some("request") => {
-                let seq = v["seq"].as_u64().ok_or_else(|| anyhow!("line {}: request without seq", n + 1))?;
+                let seq = v["seq"]
+                    .as_u64()
+                    .ok_or_else(|| anyhow!("line {}: request without seq", n + 1))?;
                 let mut messages: Vec<ChatMessage> = match v["base"].as_u64() {
                     Some(b) => {
-                        let prev = seen.get(&b).ok_or_else(|| anyhow!("request {seq}: unknown base {b}"))?;
+                        let prev = seen
+                            .get(&b)
+                            .ok_or_else(|| anyhow!("request {seq}: unknown base {b}"))?;
                         let keep = v["keep"].as_u64().unwrap_or(0) as usize;
-                        prev.get(..keep).ok_or_else(|| anyhow!("request {seq}: keep {keep} > base length"))?.to_vec()
+                        prev.get(..keep)
+                            .ok_or_else(|| anyhow!("request {seq}: keep {keep} > base length"))?
+                            .to_vec()
                     }
                     None => vec![],
                 };
-                messages.extend(serde_json::from_value::<Vec<ChatMessage>>(v["append"].clone())?);
+                messages.extend(serde_json::from_value::<Vec<ChatMessage>>(
+                    v["append"].clone(),
+                )?);
                 let tool_defs = match v["tools_hash"].as_str() {
-                    Some(h) => tools.get(h).cloned().ok_or_else(|| anyhow!("request {seq}: unknown tools {h}"))?,
+                    Some(h) => tools
+                        .get(h)
+                        .cloned()
+                        .ok_or_else(|| anyhow!("request {seq}: unknown tools {h}"))?,
                     None => vec![],
                 };
                 let req = ChatRequest {
@@ -276,7 +320,9 @@ fn rebuild(path: &Path) -> Result<Vec<(u64, Vec<ChatMessage>, String)>> {
                 let body = serde_json::to_string(&req)?;
                 let want = v["body_hash"].as_str().unwrap_or_default();
                 if fnv1a_hex(body.as_bytes()) != want {
-                    return Err(anyhow!("request {seq}: rebuilt body does not match body_hash"));
+                    return Err(anyhow!(
+                        "request {seq}: rebuilt body does not match body_hash"
+                    ));
                 }
                 seen.insert(seq, req.messages.clone());
                 out.push((seq, req.messages, body));
@@ -296,7 +342,11 @@ pub fn resume_history(path: &Path) -> Result<(Vec<ChatMessage>, Vec<ChatMessage>
         Ok(Some(h)) => h,
         Ok(None) => committed.clone(),
         Err(e) => {
-            eprintln!("warning: could not recover the interrupted turn of {}: {}", path.display(), e);
+            eprintln!(
+                "warning: could not recover the interrupted turn of {}: {}",
+                path.display(),
+                e
+            );
             committed.clone()
         }
     };
@@ -308,17 +358,38 @@ fn interrupted_turn(path: &Path) -> Result<Option<Vec<ChatMessage>>> {
         return Ok(None);
     }
     let text = std::fs::read_to_string(path)?;
-    let recs: Vec<Value> = text.lines().filter_map(|l| serde_json::from_str(l.trim()).ok()).collect();
-    let kind = |v: &Value| v.get("type").and_then(|t| t.as_str()).unwrap_or("").to_string();
-    let committed_at = recs.iter().rposition(|v| v.get("message").is_some() || kind(v) == "summary");
+    let recs: Vec<Value> = text
+        .lines()
+        .filter_map(|l| serde_json::from_str(l.trim()).ok())
+        .collect();
+    let kind = |v: &Value| {
+        v.get("type")
+            .and_then(|t| t.as_str())
+            .unwrap_or("")
+            .to_string()
+    };
+    let committed_at = recs
+        .iter()
+        .rposition(|v| v.get("message").is_some() || kind(v) == "summary");
     let tail = &recs[committed_at.map_or(0, |i| i + 1)..];
 
-    let Some(ai) = tail.iter().rposition(|v| kind(v) == "turn_assistant") else { return Ok(None) };
-    let Some(ri) = tail[..ai].iter().rposition(|v| kind(v) == "request") else { return Ok(None) };
+    let Some(ai) = tail.iter().rposition(|v| kind(v) == "turn_assistant") else {
+        return Ok(None);
+    };
+    let Some(ri) = tail[..ai].iter().rposition(|v| kind(v) == "request") else {
+        return Ok(None);
+    };
     let seq_of = |v: &Value| v["seq"].as_u64();
     let requests = rebuild(path)?;
-    let msgs_of = |seq: Option<u64>| requests.iter().find(|(s, _, _)| Some(*s) == seq).map(|(_, m, _)| m.clone());
-    let Some(main) = msgs_of(seq_of(&tail[ri])) else { return Ok(None) };
+    let msgs_of = |seq: Option<u64>| {
+        requests
+            .iter()
+            .find(|(s, _, _)| Some(*s) == seq)
+            .map(|(_, m, _)| m.clone())
+    };
+    let Some(main) = msgs_of(seq_of(&tail[ri])) else {
+        return Ok(None);
+    };
 
     let later = tail[ai + 1..]
         .iter()
@@ -334,7 +405,9 @@ fn interrupted_turn(path: &Path) -> Result<Option<Vec<ChatMessage>>> {
             for call in assistant.tool_calls.iter().flatten() {
                 let mut found: Option<String> = None;
                 for v in &tail[ai + 1..] {
-                    if kind(v) == "tool_result" && v["tool_use_id"].as_str() == Some(call.id.as_str()) {
+                    if kind(v) == "tool_result"
+                        && v["tool_use_id"].as_str() == Some(call.id.as_str())
+                    {
                         let is_final = v["final"].as_bool().unwrap_or(false);
                         if is_final || found.is_none() {
                             found = v["content"].as_str().map(String::from);
@@ -344,7 +417,10 @@ fn interrupted_turn(path: &Path) -> Result<Option<Vec<ChatMessage>>> {
                         }
                     }
                 }
-                m.push(ChatMessage::tool(call.id.clone(), found.unwrap_or_else(|| INTERRUPTED_TOOL_RESULT.to_string())));
+                m.push(ChatMessage::tool(
+                    call.id.clone(),
+                    found.unwrap_or_else(|| INTERRUPTED_TOOL_RESULT.to_string()),
+                ));
             }
             m
         }
@@ -371,7 +447,10 @@ mod tests {
     #[async_trait]
     impl LlmBackend for Scripted {
         async fn chat(&self, req: ChatRequest) -> Result<ChatResponse> {
-            self.bodies.lock().unwrap().push(serde_json::to_string(&req).unwrap());
+            self.bodies
+                .lock()
+                .unwrap()
+                .push(serde_json::to_string(&req).unwrap());
             let mut r = self.replies.lock().unwrap();
             if r.is_empty() {
                 return Err(anyhow!("script exhausted"));
@@ -388,11 +467,20 @@ mod tests {
                     vec![ToolCall {
                         id: id.into(),
                         call_type: "function".into(),
-                        function: FunctionCall { name: name.into(), arguments: args.into() },
+                        function: FunctionCall {
+                            name: name.into(),
+                            arguments: args.into(),
+                        },
                     }]
                 }),
             ),
-            usage: Usage { prompt_tokens: 10, completion_tokens: 2, total_tokens: 12, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+            usage: Usage {
+                prompt_tokens: 10,
+                completion_tokens: 2,
+                total_tokens: 12,
+                cache_read_input_tokens: 0,
+                cache_creation_input_tokens: 0,
+            },
             finish_reason: Some("stop".into()),
         }
     }
@@ -426,7 +514,11 @@ mod tests {
                     let done = txt.find("\r\n\r\n").is_some_and(|h| {
                         let len = txt[..h]
                             .lines()
-                            .find_map(|l| l.to_ascii_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse::<usize>().unwrap_or(0)))
+                            .find_map(|l| {
+                                l.to_ascii_lowercase()
+                                    .strip_prefix("content-length:")
+                                    .map(|v| v.trim().parse::<usize>().unwrap_or(0))
+                            })
                             .unwrap_or(0);
                         got.len() >= h + 4 + len
                     });
@@ -453,7 +545,12 @@ mod tests {
             Arc::new(NullSink),
         ));
         let backend = wrap(client, Some(&recorder));
-        let req = ChatRequest { model: "m".into(), messages: vec![ChatMessage::user("hi")], tools: vec![], max_tokens: None };
+        let req = ChatRequest {
+            model: "m".into(),
+            messages: vec![ChatMessage::user("hi")],
+            tools: vec![],
+            max_tokens: None,
+        };
         let err = backend.chat(req).await.unwrap_err().to_string();
         assert!(err.contains("[request id: abc]"), "{err}");
         let text = std::fs::read_to_string(&transcript).unwrap();
@@ -464,7 +561,10 @@ mod tests {
             .expect("response_error record");
         assert_eq!(rec["request_id"], "abc");
         assert!(rec["error"].as_str().unwrap().contains("request id: abc"));
-        assert!(!text.contains("TOPSECRET") && !text.to_ascii_lowercase().contains("authorization"), "{text}");
+        assert!(
+            !text.contains("TOPSECRET") && !text.to_ascii_lowercase().contains("authorization"),
+            "{text}"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -477,7 +577,10 @@ mod tests {
             replies: Mutex::new(vec![
                 reply(None, Some(("c1", "Read", r#"{"file_path":"notes.txt"}"#))),
                 reply(Some("It says alpha."), None),
-                reply(None, Some(("c2", "Read", r#"{"file_path":"notes.txt","offset":2}"#))),
+                reply(
+                    None,
+                    Some(("c2", "Read", r#"{"file_path":"notes.txt","offset":2}"#)),
+                ),
                 reply(Some("Line 2 is beta."), None),
             ]),
             bodies: Mutex::new(vec![]),
@@ -487,7 +590,11 @@ mod tests {
         let mut tools = ToolRegistry::new();
         tools.register(Arc::new(zen_tools::ReadTool));
         let ctx = ToolContext::new(dir.clone(), "sess");
-        let config = zen_agent::AgentConfig { system_prompt: "SYSTEM".into(), auto_compact_threshold: None, ..Default::default() };
+        let config = zen_agent::AgentConfig {
+            system_prompt: "SYSTEM".into(),
+            auto_compact_threshold: None,
+            ..Default::default()
+        };
         let mut agent = zen_agent::Agent::new(
             llm,
             tools,
@@ -525,15 +632,25 @@ mod tests {
         assert_eq!(rebuilt[4].1, serde_json::to_string(&side).unwrap());
 
         assert_eq!(rebuilt[3].1.as_bytes(), sent.last().unwrap().as_bytes());
-        assert_eq!(rebuild_last_request(&transcript).unwrap().unwrap(), serde_json::to_string(&side).unwrap());
+        assert_eq!(
+            rebuild_last_request(&transcript).unwrap().unwrap(),
+            serde_json::to_string(&side).unwrap()
+        );
 
         let text = std::fs::read_to_string(&transcript).unwrap();
-        let recs: Vec<Value> = text.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+        let recs: Vec<Value> = text
+            .lines()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect();
         assert_eq!(recs.iter().filter(|r| r["type"] == "tools").count(), 1);
         let reqs: Vec<&Value> = recs.iter().filter(|r| r["type"] == "request").collect();
         assert!(reqs[0]["base"].is_null());
         assert_eq!(reqs[3]["base"], 2);
-        assert_eq!(reqs[3]["append"].as_array().unwrap().len(), 2, "assistant call + tool result");
+        assert_eq!(
+            reqs[3]["append"].as_array().unwrap().len(),
+            2,
+            "assistant call + tool result"
+        );
         assert_eq!(recs.iter().filter(|r| r["type"] == "response").count(), 4);
 
         let history = crate::session::load_history(&transcript).unwrap();
@@ -541,7 +658,10 @@ mod tests {
 
         assert!(recs.iter().any(|r| r["type"] == "tool_result"));
         assert!(recs.iter().any(|r| r["type"] == "turn_assistant"));
-        assert_eq!(resume_history(&transcript).unwrap(), (history.clone(), history));
+        assert_eq!(
+            resume_history(&transcript).unwrap(),
+            (history.clone(), history)
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -557,7 +677,10 @@ mod tests {
         let scripted = Arc::new(Scripted {
             replies: Mutex::new(vec![
                 cut(reply(Some("Let me look at the fi"), None)),
-                cut(reply(Some("le first. "), Some(("c0", "Read", r#"{"file_path":"no"#)))),
+                cut(reply(
+                    Some("le first. "),
+                    Some(("c0", "Read", r#"{"file_path":"no"#)),
+                )),
                 reply(None, Some(("c1", "Read", r#"{"file_path":"notes.txt"}"#))),
                 cut(reply(Some("It says al"), None)),
                 reply(Some("pha."), None),
@@ -569,9 +692,21 @@ mod tests {
         let mut tools = ToolRegistry::new();
         tools.register(Arc::new(zen_tools::ReadTool));
         let ctx = ToolContext::new(dir.clone(), "sess");
-        let config = zen_agent::AgentConfig { system_prompt: "SYSTEM".into(), auto_compact_threshold: None, ..Default::default() };
-        let mut agent =
-            zen_agent::Agent::new(llm, tools, Arc::new(AllowAll), None, Arc::new(NoHooks), Arc::new(NullSink), ctx, config);
+        let config = zen_agent::AgentConfig {
+            system_prompt: "SYSTEM".into(),
+            auto_compact_threshold: None,
+            ..Default::default()
+        };
+        let mut agent = zen_agent::Agent::new(
+            llm,
+            tools,
+            Arc::new(AllowAll),
+            None,
+            Arc::new(NoHooks),
+            Arc::new(NullSink),
+            ctx,
+            config,
+        );
         agent.journal = Some(recorder.clone());
         let mut writer = crate::session::TranscriptWriter::new(transcript.clone(), "sess", &dir);
         let res = agent.run_turn("what is in notes.txt?").await;
@@ -590,7 +725,10 @@ mod tests {
         assert!(sent[2].contains("in the middle of a tool call, so no tool was run"));
 
         let text = std::fs::read_to_string(&transcript).unwrap();
-        let recs: Vec<Value> = text.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+        let recs: Vec<Value> = text
+            .lines()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect();
         let reasons: Vec<&str> = recs
             .iter()
             .filter(|r| r["type"] == "response")
@@ -601,7 +739,10 @@ mod tests {
 
         let history = crate::session::load_history(&transcript).unwrap();
         assert_eq!(history, agent.messages());
-        assert_eq!(resume_history(&transcript).unwrap(), (history.clone(), history));
+        assert_eq!(
+            resume_history(&transcript).unwrap(),
+            (history.clone(), history)
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -611,7 +752,10 @@ mod tests {
         let path = dir.join("old.jsonl");
 
         let mut w = crate::session::TranscriptWriter::new(path.clone(), "old", &dir);
-        let msgs = vec![ChatMessage::user("hi"), ChatMessage::assistant(Some("hello".into()), None)];
+        let msgs = vec![
+            ChatMessage::user("hi"),
+            ChatMessage::assistant(Some("hello".into()), None),
+        ];
         w.persist_turn(&[], &msgs).unwrap();
         assert!(rebuild_requests(&path).unwrap().is_empty());
         assert_eq!(rebuild_last_request(&path).unwrap(), None);
@@ -640,11 +784,21 @@ mod tests {
         let dir = tmp("tamper");
         let path = dir.join("t.jsonl");
         let r = Recorder::new(path.clone());
-        r.record_request(&ChatRequest { model: "m".into(), messages: vec![ChatMessage::user("x")], tools: vec![], max_tokens: None })
-            .unwrap();
-        let text = std::fs::read_to_string(&path).unwrap().replace("\"model\":\"m\"", "\"model\":\"n\"");
+        r.record_request(&ChatRequest {
+            model: "m".into(),
+            messages: vec![ChatMessage::user("x")],
+            tools: vec![],
+            max_tokens: None,
+        })
+        .unwrap();
+        let text = std::fs::read_to_string(&path)
+            .unwrap()
+            .replace("\"model\":\"m\"", "\"model\":\"n\"");
         std::fs::write(&path, text).unwrap();
-        assert!(rebuild_requests(&path).unwrap_err().to_string().contains("body_hash"));
+        assert!(rebuild_requests(&path)
+            .unwrap_err()
+            .to_string()
+            .contains("body_hash"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -656,7 +810,10 @@ mod tests {
                 .map(|(id, name, args)| ToolCall {
                     id: (*id).into(),
                     call_type: "function".into(),
-                    function: FunctionCall { name: (*name).into(), arguments: (*args).into() },
+                    function: FunctionCall {
+                        name: (*name).into(),
+                        arguments: (*args).into(),
+                    },
                 })
                 .collect(),
         );
@@ -684,11 +841,20 @@ mod tests {
         }
     }
 
-    fn journaled_agent(dir: &Path, llm: Arc<dyn LlmBackend>, recorder: &Arc<Recorder>, hang: Hang) -> zen_agent::Agent {
+    fn journaled_agent(
+        dir: &Path,
+        llm: Arc<dyn LlmBackend>,
+        recorder: &Arc<Recorder>,
+        hang: Hang,
+    ) -> zen_agent::Agent {
         let mut tools = ToolRegistry::new();
         tools.register(Arc::new(zen_tools::ReadTool));
         tools.register(Arc::new(hang));
-        let config = zen_agent::AgentConfig { system_prompt: "SYSTEM".into(), auto_compact_threshold: None, ..Default::default() };
+        let config = zen_agent::AgentConfig {
+            system_prompt: "SYSTEM".into(),
+            auto_compact_threshold: None,
+            ..Default::default()
+        };
         let mut agent = zen_agent::Agent::new(
             llm,
             tools,
@@ -711,12 +877,20 @@ mod tests {
         let scripted = Arc::new(Scripted {
             replies: Mutex::new(vec![
                 reply(Some("hi"), None),
-                reply_calls(&[("c1", "Read", r#"{"file_path":"notes.txt"}"#), ("c2", hang_name, "{}")]),
+                reply_calls(&[
+                    ("c1", "Read", r#"{"file_path":"notes.txt"}"#),
+                    ("c2", hang_name, "{}"),
+                ]),
             ]),
             bodies: Mutex::new(vec![]),
         });
         let recorder = Recorder::new(path.clone());
-        let mut agent = journaled_agent(&dir, wrap(scripted.clone(), Some(&recorder)), &recorder, hang);
+        let mut agent = journaled_agent(
+            &dir,
+            wrap(scripted.clone(), Some(&recorder)),
+            &recorder,
+            hang,
+        );
         let mut writer = crate::session::TranscriptWriter::new(path.clone(), "sess", &dir);
 
         let before = agent.messages().to_vec();
@@ -724,33 +898,65 @@ mod tests {
         writer.persist_turn(&before, agent.messages()).unwrap();
         let turn1 = agent.messages().to_vec();
 
-        let killed = tokio::time::timeout(std::time::Duration::from_millis(800), agent.run_turn("read it")).await;
+        let killed = tokio::time::timeout(
+            std::time::Duration::from_millis(800),
+            agent.run_turn("read it"),
+        )
+        .await;
         assert!(killed.is_err(), "turn should still be running");
         drop(agent);
 
-        assert_eq!(crate::session::load_history(&path).unwrap(), turn1, "committed history unchanged");
+        assert_eq!(
+            crate::session::load_history(&path).unwrap(),
+            turn1,
+            "committed history unchanged"
+        );
         let (committed, history) = resume_history(&path).unwrap();
         assert_eq!(committed, turn1);
         assert_eq!(history.len(), turn1.len() + 4, "{history:#?}");
         assert_eq!(&history[..turn1.len()], &turn1[..]);
         assert_eq!(history[turn1.len()], ChatMessage::user("read it"));
-        assert_eq!(history[turn1.len() + 1].tool_calls.as_ref().unwrap().len(), 2);
+        assert_eq!(
+            history[turn1.len() + 1].tool_calls.as_ref().unwrap().len(),
+            2
+        );
         let r1 = &history[turn1.len() + 2];
         assert_eq!(r1.tool_call_id.as_deref(), Some("c1"));
-        assert!(r1.content.as_deref().unwrap().contains("alpha-durable"), "{r1:?}");
-        assert_eq!(history[turn1.len() + 3], ChatMessage::tool("c2", INTERRUPTED_TOOL_RESULT));
+        assert!(
+            r1.content.as_deref().unwrap().contains("alpha-durable"),
+            "{r1:?}"
+        );
+        assert_eq!(
+            history[turn1.len() + 3],
+            ChatMessage::tool("c2", INTERRUPTED_TOOL_RESULT)
+        );
 
         let sent = scripted.bodies.lock().unwrap().clone();
         let rebuilt = rebuild_requests(&path).unwrap();
-        assert_eq!(rebuilt.iter().map(|(_, b)| b.clone()).collect::<Vec<_>>(), sent);
+        assert_eq!(
+            rebuilt.iter().map(|(_, b)| b.clone()).collect::<Vec<_>>(),
+            sent
+        );
 
         let mut w2 = crate::session::TranscriptWriter::new(path.clone(), "sess", &dir);
         w2.persist_turn(&committed, &history).unwrap();
         assert_eq!(crate::session::load_history(&path).unwrap(), history);
-        assert_eq!(resume_history(&path).unwrap().1, history, "nothing recovered twice");
-        let resumed_llm = Arc::new(Scripted { replies: Mutex::new(vec![reply(Some("done"), None)]), bodies: Mutex::new(vec![]) });
+        assert_eq!(
+            resume_history(&path).unwrap().1,
+            history,
+            "nothing recovered twice"
+        );
+        let resumed_llm = Arc::new(Scripted {
+            replies: Mutex::new(vec![reply(Some("done"), None)]),
+            bodies: Mutex::new(vec![]),
+        });
         let r2 = Recorder::new(path.clone());
-        let mut resumed = journaled_agent(&dir, wrap(resumed_llm.clone(), Some(&r2)), &r2, Hang(hang_name, hang.1));
+        let mut resumed = journaled_agent(
+            &dir,
+            wrap(resumed_llm.clone(), Some(&r2)),
+            &r2,
+            Hang(hang_name, hang.1),
+        );
         resumed.set_messages(history.clone());
         let res = resumed.run_turn("continue").await;
         assert!(!res.is_error, "{}", res.result);

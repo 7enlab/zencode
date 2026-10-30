@@ -25,7 +25,6 @@ fn default_tier() -> String {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct CurationMeta {
-
     pub reviewer: String,
 
     pub review_date: String,
@@ -81,7 +80,10 @@ pub fn load_curated_registry(home: Option<&Path>) -> Result<CuratedRegistry> {
                         problems.join("; ")
                     ));
                 }
-                if let Some(slot) = reg.entries.iter_mut().find(|e| e.entry.name == entry.entry.name)
+                if let Some(slot) = reg
+                    .entries
+                    .iter_mut()
+                    .find(|e| e.entry.name == entry.entry.name)
                 {
                     *slot = entry;
                 } else {
@@ -123,7 +125,10 @@ pub fn validate_curated_entry(entry: &CuratedEntry) -> Vec<String> {
         problems.push("entry name is empty".to_string());
     }
     if entry.entry.description.trim().is_empty() {
-        problems.push(format!("entry '{}': description is empty", entry.entry.name));
+        problems.push(format!(
+            "entry '{}': description is empty",
+            entry.entry.name
+        ));
     }
     if entry.entry.trust_tier != "curated" {
         problems.push(format!(
@@ -273,11 +278,18 @@ pub fn format_hits(hits: &[SearchHit], curated_only: bool) -> String {
         } else {
             "[community]"
         };
-        out.push_str(&format!("{} {} v{} - {}\n", badge, h.name, h.version, h.description));
-        out.push_str(&format!("    by {}{}\n", h.author, match &h.review_summary {
-            Some(s) => format!(" · {}", s),
-            None => " · unreviewed - inspect before installing".to_string(),
-        }));
+        out.push_str(&format!(
+            "{} {} v{} - {}\n",
+            badge, h.name, h.version, h.description
+        ));
+        out.push_str(&format!(
+            "    by {}{}\n",
+            h.author,
+            match &h.review_summary {
+                Some(s) => format!(" · {}", s),
+                None => " · unreviewed - inspect before installing".to_string(),
+            }
+        ));
     }
     out
 }
@@ -386,11 +398,20 @@ mod tests {
 
     #[test]
     fn validate_rejects_bad_date() {
-        for bad in ["2026-13-01", "2026-02-30", "17-10-2026", "2026/10/17", "not-a-date", ""] {
+        for bad in [
+            "2026-13-01",
+            "2026-02-30",
+            "17-10-2026",
+            "2026/10/17",
+            "not-a-date",
+            "",
+        ] {
             let mut e = sample_curated("x");
             e.curation.review_date = bad.to_string();
             assert!(
-                validate_curated_entry(&e).iter().any(|p| p.contains("review_date")),
+                validate_curated_entry(&e)
+                    .iter()
+                    .any(|p| p.contains("review_date")),
                 "date '{}' should be rejected",
                 bad
             );
@@ -416,7 +437,8 @@ mod tests {
     #[test]
     fn validate_rejects_short_notes() {
         let mut e = sample_curated("x");
-        e.curation.review_notes = "Security: PASS. Quality: PASS. Documentation: PASS. Maintenance: PASS.".to_string();
+        e.curation.review_notes =
+            "Security: PASS. Quality: PASS. Documentation: PASS. Maintenance: PASS.".to_string();
         assert!(validate_curated_entry(&e)
             .iter()
             .any(|p| p.contains("too short")));
@@ -456,7 +478,6 @@ mod tests {
 
     #[test]
     fn curated_entries_dedupe_community_shadow() {
-
         let reg = sample_registry();
         let mut shadow = community_entry("tdd");
         shadow.trust_tier = "curated".to_string();

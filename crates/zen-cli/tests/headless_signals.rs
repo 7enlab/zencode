@@ -15,7 +15,11 @@ fn wait_for_file(p: &Path, limit: Duration) -> String {
                 return s;
             }
         }
-        assert!(start.elapsed() < limit, "timed out waiting for {}", p.display());
+        assert!(
+            start.elapsed() < limit,
+            "timed out waiting for {}",
+            p.display()
+        );
         std::thread::sleep(Duration::from_millis(50));
     }
 }
@@ -37,7 +41,10 @@ fn wait_exit(child: &mut std::process::Child, limit: Duration) -> std::process::
 
 #[cfg(unix)]
 fn ps_stat(pid: &str) -> Option<String> {
-    let o = std::process::Command::new("ps").args(["-o", "stat=", "-p", pid]).output().ok()?;
+    let o = std::process::Command::new("ps")
+        .args(["-o", "stat=", "-p", pid])
+        .output()
+        .ok()?;
     let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
     (o.status.success() && !s.is_empty()).then_some(s)
 }
@@ -48,7 +55,10 @@ fn alive(pid: &str) -> bool {
 }
 
 #[cfg(unix)]
-async fn start_sleeping_run(tag: &str, signal: &str) -> (std::process::ExitStatus, String, TempDir) {
+async fn start_sleeping_run(
+    tag: &str,
+    signal: &str,
+) -> (std::process::ExitStatus, String, TempDir) {
     let home = TempDir::new(&format!("{}_home", tag));
     let cwd = TempDir::new(&format!("{}_cwd", tag));
     let pid_file = cwd.path().join("sleep.pid");
@@ -89,7 +99,9 @@ async fn start_sleeping_run(tag: &str, signal: &str) -> (std::process::ExitStatu
         .arg("sleep please")
         .spawn();
 
-    let sleep_pid = wait_for_file(&pid_file, Duration::from_secs(20)).trim().to_string();
+    let sleep_pid = wait_for_file(&pid_file, Duration::from_secs(20))
+        .trim()
+        .to_string();
     assert!(alive(&sleep_pid), "sleep should be running");
     let st = std::process::Command::new("kill")
         .arg(signal)
@@ -100,7 +112,12 @@ async fn start_sleeping_run(tag: &str, signal: &str) -> (std::process::ExitStatu
     let status = wait_exit(&mut child, Duration::from_secs(20));
     let mut stdout = String::new();
     use std::io::Read;
-    child.stdout.take().unwrap().read_to_string(&mut stdout).unwrap();
+    child
+        .stdout
+        .take()
+        .unwrap()
+        .read_to_string(&mut stdout)
+        .unwrap();
 
     let start = Instant::now();
     while alive(&sleep_pid) && start.elapsed() < Duration::from_secs(5) {
@@ -126,7 +143,11 @@ async fn start_sleeping_run(tag: &str, signal: &str) -> (std::process::ExitStatu
 async fn c8_9_sigterm_exits_143_kills_bash_and_runs_session_end() {
     let (status, stdout, _cwd) = start_sleeping_run("sigterm", "-TERM").await;
     assert_eq!(status.code(), Some(143), "stdout: {}", stdout);
-    assert!(stdout.trim().is_empty(), "SIGTERM prints no result: {}", stdout);
+    assert!(
+        stdout.trim().is_empty(),
+        "SIGTERM prints no result: {}",
+        stdout
+    );
 }
 
 #[cfg(unix)]
@@ -149,7 +170,14 @@ async fn c8_1_stdin_over_10mb_is_rejected() {
     let big = "a".repeat(10 * 1024 * 1024 + 10);
     let (stdout, stderr, code) = tokio::time::timeout(TEST_TIMEOUT, async {
         ZenRun::new("bigstdin", &home, &cwd)
-            .args(["-p", "--output-format", "json", "--bare", "--setting-sources", ""])
+            .args([
+                "-p",
+                "--output-format",
+                "json",
+                "--bare",
+                "--setting-sources",
+                "",
+            ])
             .mock("mock-model", &server)
             .stdin(big)
             .arg("summarize")

@@ -7,8 +7,8 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
 use zen_core::{
-    EventSink, HookRunner, NoHooks, NullSink, PermissionChecker, PermissionDecision, PermissionMode,
-    ToolContext, ToolRegistry,
+    EventSink, HookRunner, NoHooks, NullSink, PermissionChecker, PermissionDecision,
+    PermissionMode, ToolContext, ToolRegistry,
 };
 
 use crate::cli::{Cli, OutputFormat, ReviewArgs};
@@ -24,7 +24,6 @@ pub enum Severity {
 }
 
 impl Severity {
-
     pub fn rank(self) -> u8 {
         match self {
             Severity::Critical => 4,
@@ -216,7 +215,9 @@ fn run_git(cwd: &Path, args: &[&str]) -> Result<String> {
     loop {
         match child.try_wait().context("failed to poll git")? {
             Some(status) => {
-                let out = child.wait_with_output().context("failed to read git output")?;
+                let out = child
+                    .wait_with_output()
+                    .context("failed to read git output")?;
                 if !status.success() {
                     let err = String::from_utf8_lossy(&out.stderr);
                     anyhow::bail!("git {} failed: {}", args.join(" "), err.trim());
@@ -229,7 +230,11 @@ fn run_git(cwd: &Path, args: &[&str]) -> Result<String> {
             None => {
                 let _ = child.kill();
                 let _ = child.wait();
-                anyhow::bail!("git {} timed out after {:?}", args.join(" "), REVIEW_GIT_TIMEOUT);
+                anyhow::bail!(
+                    "git {} timed out after {:?}",
+                    args.join(" "),
+                    REVIEW_GIT_TIMEOUT
+                );
             }
         }
     }
@@ -238,7 +243,6 @@ fn run_git(cwd: &Path, args: &[&str]) -> Result<String> {
 fn changed_files_from_diff(diff: &str) -> Vec<String> {
     let mut files = Vec::new();
     for line in diff.lines() {
-
         if let Some(rest) = line.strip_prefix("diff --git ") {
             let parts: Vec<&str> = rest.split(' ').collect();
             if parts.len() == 2 {
@@ -253,7 +257,6 @@ fn changed_files_from_diff(diff: &str) -> Vec<String> {
 }
 
 pub fn collect_diff(cwd: &Path, scope: &ReviewScope, max_bytes: usize) -> Result<CollectedDiff> {
-
     run_git(cwd, &["rev-parse", "--git-dir"]).context("not a git repository")?;
 
     let mut files: Vec<String> = Vec::new();
@@ -261,7 +264,6 @@ pub fn collect_diff(cwd: &Path, scope: &ReviewScope, max_bytes: usize) -> Result
 
     match scope {
         ReviewScope::Uncommitted => {
-
             let diff = run_git(cwd, &["diff", "HEAD", "--"])?;
             files.extend(changed_files_from_diff(&diff));
             text.push_str(&diff);
@@ -367,12 +369,13 @@ pub fn build_review_prompt(diff: &CollectedDiff) -> String {
     }
     p.push_str("\n```diff\n");
     p.push_str(&diff.diff_text);
-    p.push_str("\n```\n\nNow output your findings as the JSON array described in your instructions.");
+    p.push_str(
+        "\n```\n\nNow output your findings as the JSON array described in your instructions.",
+    );
     p
 }
 
 pub fn extract_findings(text: &str) -> Result<Vec<Finding>> {
-
     if let Some(start) = text.find("```json") {
         let inner_start = start + "```json".len();
         if let Some(end) = text[inner_start..].find("```") {
@@ -549,7 +552,10 @@ pub async fn run_review(
     args: &ReviewArgs,
 ) -> Result<i32> {
     let threshold = Severity::parse(&args.fail_on).unwrap_or_else(|| {
-        eprintln!("warning: invalid --fail-on '{}', using 'high'", args.fail_on);
+        eprintln!(
+            "warning: invalid --fail-on '{}', using 'high'",
+            args.fail_on
+        );
         Severity::High
     });
 
@@ -580,7 +586,10 @@ pub async fn run_review(
             }
             OutputFormat::Json => {
                 let report = ReviewReport::new(diff.scope_description, cfg.model.clone(), vec![]);
-                println!("{}", serde_json::to_string_pretty(&render_json_value(&report))?);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&render_json_value(&report))?
+                );
             }
             OutputFormat::StreamJson => {
                 let report = ReviewReport::new(diff.scope_description, cfg.model.clone(), vec![]);
@@ -661,7 +670,10 @@ pub async fn run_review(
             }
         }
         OutputFormat::Json => {
-            println!("{}", serde_json::to_string_pretty(&render_json_value(&report))?);
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&render_json_value(&report))?
+            );
         }
         OutputFormat::StreamJson => {
             print_stream_json(&report, threshold, exit_code);
@@ -673,11 +685,10 @@ pub async fn run_review(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
     use clap::Parser;
+    use std::path::PathBuf;
 
     fn review_args(extra: &[&str]) -> ReviewArgs {
-
         let mut argv: Vec<String> = vec!["zen".to_string(), "review".to_string()];
         argv.extend(extra.iter().map(|s| s.to_string()));
         let cli = Cli::parse_from(argv);
@@ -731,7 +742,11 @@ mod tests {
     fn git_in(dir: &Path, args: &[&str]) {
         let mut cmd = Command::new("git");
         git_env(&mut cmd);
-        let out = cmd.args(args).current_dir(dir).output().expect("git failed");
+        let out = cmd
+            .args(args)
+            .current_dir(dir)
+            .output()
+            .expect("git failed");
         assert!(out.status.success(), "git {args:?} failed");
     }
 
@@ -767,7 +782,11 @@ mod tests {
         let report = ReviewReport::new(
             "s".into(),
             "m".into(),
-            vec![mk(Severity::Critical), mk(Severity::Medium), mk(Severity::Nit)],
+            vec![
+                mk(Severity::Critical),
+                mk(Severity::Medium),
+                mk(Severity::Nit),
+            ],
         );
         assert_eq!(report.at_or_above(Severity::High).len(), 1);
         assert_eq!(report.at_or_above(Severity::Medium).len(), 2);
@@ -873,8 +892,12 @@ mod tests {
             )
             .unwrap()
         };
-        let diff =
-            collect_diff(&dir, &ReviewScope::Commit(sha.trim().to_string()), 1_000_000).unwrap();
+        let diff = collect_diff(
+            &dir,
+            &ReviewScope::Commit(sha.trim().to_string()),
+            1_000_000,
+        )
+        .unwrap();
         assert!(diff.diff_text.contains("changed"));
     }
 
@@ -915,7 +938,14 @@ mod tests {
             assert!(names.contains(&n.to_string()), "missing {n}");
         }
 
-        for n in ["Write", "Edit", "MultiEdit", "Bash", "WebFetch", "TodoWrite"] {
+        for n in [
+            "Write",
+            "Edit",
+            "MultiEdit",
+            "Bash",
+            "WebFetch",
+            "TodoWrite",
+        ] {
             assert!(r.get(n).is_none(), "write tool {n} must not be registered");
         }
 

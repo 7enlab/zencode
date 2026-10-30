@@ -117,7 +117,9 @@ impl Tool for GotoDefinitionTool {
         };
         let path = resolve_file(ctx, &file);
         match self.manager.goto_definition(&path, line, col).await {
-            Ok(locs) => ToolOutput::ok(format_locations("goto_definition", &path, line, col, &locs)),
+            Ok(locs) => {
+                ToolOutput::ok(format_locations("goto_definition", &path, line, col, &locs))
+            }
             Err(e) => ToolOutput::err(format!("goto_definition failed: {e}")),
         }
     }
@@ -188,7 +190,9 @@ impl Tool for HoverTool {
                 let mut out = format!("hover {}:{line}:{col}:\n\n{body}\n", path.display());
                 out.push_str("\n```json\n");
                 let raw = json!({"contents": body});
-                out.push_str(&serde_json::to_string_pretty(&raw).unwrap_or_else(|_| "{}".to_string()));
+                out.push_str(
+                    &serde_json::to_string_pretty(&raw).unwrap_or_else(|_| "{}".to_string()),
+                );
                 out.push_str("\n```\n");
                 ToolOutput::ok(out)
             }
@@ -264,13 +268,9 @@ impl Tool for FindReferencesTool {
             .find_references(&path, line, col, include_declaration)
             .await
         {
-            Ok(locs) => ToolOutput::ok(format_locations(
-                "find_references",
-                &path,
-                line,
-                col,
-                &locs,
-            )),
+            Ok(locs) => {
+                ToolOutput::ok(format_locations("find_references", &path, line, col, &locs))
+            }
             Err(e) => ToolOutput::err(format!("find_references failed: {e}")),
         }
     }

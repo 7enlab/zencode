@@ -418,7 +418,6 @@ async fn p0_6_failing_verify_after_edit_is_appended_with_a_40_line_tail() {
 #[cfg(unix)]
 #[tokio::test]
 async fn p0_6_verify_runs_only_after_successful_file_changes() {
-
     let (content, _) = run_one("Write", false, verify_cfg("true", 60)).await;
     assert_eq!(content, "edited");
 

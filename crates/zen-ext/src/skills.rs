@@ -31,7 +31,6 @@ pub fn split_frontmatter(content: &str) -> (Option<Frontmatter>, String) {
         }
     }
     if in_fm {
-
         return (None, content.to_string());
     }
     let mut body = body_lines.join("\n");
@@ -112,7 +111,10 @@ fn parse_tool_list(value: &str) -> Vec<String> {
 }
 
 fn parse_bool(value: &str) -> bool {
-    matches!(value.trim().to_ascii_lowercase().as_str(), "true" | "yes" | "1" | "on")
+    matches!(
+        value.trim().to_ascii_lowercase().as_str(),
+        "true" | "yes" | "1" | "on"
+    )
 }
 
 fn unquote(s: &str) -> String {
@@ -144,7 +146,6 @@ pub fn discover_skill_entries(cwd: &Path, home: Option<&Path>) -> Vec<(SkillInfo
 
     for root in roots {
         for entry in scan_skill_dir(&root) {
-
             if let Some(existing) = by_name.iter_mut().find(|s| s.0.name == entry.0.name) {
                 *existing = entry;
             } else {
@@ -159,7 +160,9 @@ pub fn discover_skill_entries(cwd: &Path, home: Option<&Path>) -> Vec<(SkillInfo
 
 fn scan_skill_dir(root: &Path) -> Vec<(SkillInfo, Frontmatter)> {
     let mut out = Vec::new();
-    let Ok(entries) = std::fs::read_dir(root) else { return out };
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return out;
+    };
     let mut dirs: Vec<PathBuf> = entries
         .filter_map(|e| e.ok())
         .map(|e| e.path())
@@ -187,8 +190,15 @@ pub fn load_skill_entry(dir: &Path) -> Option<(SkillInfo, Frontmatter)> {
     let (fm, body) = split_frontmatter(&content);
     let fm = fm.unwrap_or_default();
 
-    let dir_name = dir.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
-    let name = fm.name.clone().filter(|s| !s.is_empty()).unwrap_or(dir_name);
+    let dir_name = dir
+        .file_name()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let name = fm
+        .name
+        .clone()
+        .filter(|s| !s.is_empty())
+        .unwrap_or(dir_name);
     if name.is_empty() {
         return None;
     }
@@ -267,7 +277,11 @@ impl Tool for SkillTool {
                 ToolOutput::err(format!(
                     "Unknown skill \"{}\". Available: {}",
                     name,
-                    if available.is_empty() { "(none)".to_string() } else { available.join(", ") }
+                    if available.is_empty() {
+                        "(none)".to_string()
+                    } else {
+                        available.join(", ")
+                    }
                 ))
             }
         }
@@ -277,13 +291,17 @@ impl Tool for SkillTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
     use crate::testutil::TempDir;
+    use std::fs;
 
     fn write_skill(root: &Path, name: &str, frontmatter: &str, body: &str) {
         let dir = root.join(name);
         fs::create_dir_all(&dir).unwrap();
-        fs::write(dir.join("SKILL.md"), format!("---\n{}\n---\n{}", frontmatter, body)).unwrap();
+        fs::write(
+            dir.join("SKILL.md"),
+            format!("---\n{}\n---\n{}", frontmatter, body),
+        )
+        .unwrap();
     }
 
     #[test]
@@ -291,8 +309,18 @@ mod tests {
         let tmp = TempDir::new();
         let proj = tmp.path().join("proj");
         let skills = proj.join(".zen/skills");
-        write_skill(&skills, "alpha", "name: alpha\ndescription: Alpha skill", "alpha body");
-        write_skill(&skills, "beta", "name: beta\ndescription: Beta skill", "beta body");
+        write_skill(
+            &skills,
+            "alpha",
+            "name: alpha\ndescription: Alpha skill",
+            "alpha body",
+        );
+        write_skill(
+            &skills,
+            "beta",
+            "name: beta\ndescription: Beta skill",
+            "beta body",
+        );
 
         let found = discover_skills(&proj, Some(&tmp.path().join("nohome")));
         assert_eq!(found.len(), 2);
@@ -333,8 +361,18 @@ mod tests {
         let tmp = TempDir::new();
         let home = tmp.path().join("home");
         let proj = tmp.path().join("proj");
-        write_skill(&home.join(".zen/skills"), "dup", "name: dup\ndescription: from user", "user body");
-        write_skill(&proj.join(".zen/skills"), "dup", "name: dup\ndescription: from project", "project body");
+        write_skill(
+            &home.join(".zen/skills"),
+            "dup",
+            "name: dup\ndescription: from user",
+            "user body",
+        );
+        write_skill(
+            &proj.join(".zen/skills"),
+            "dup",
+            "name: dup\ndescription: from project",
+            "project body",
+        );
 
         let found = discover_skills(&proj, Some(&home));
         assert_eq!(found.len(), 1);
@@ -343,15 +381,13 @@ mod tests {
 
     #[test]
     fn test_skills_prompt() {
-        let skills = vec![
-            SkillInfo {
-                name: "a".into(),
-                description: "desc a".into(),
-                path: PathBuf::from("/x/a/SKILL.md"),
-                body: "body".into(),
-                allowed_tools: vec![],
-            },
-        ];
+        let skills = vec![SkillInfo {
+            name: "a".into(),
+            description: "desc a".into(),
+            path: PathBuf::from("/x/a/SKILL.md"),
+            body: "body".into(),
+            allowed_tools: vec![],
+        }];
         let p = skills_prompt(&skills);
         assert!(p.contains("a: desc a"));
         assert_eq!(skills_prompt(&[]), "");
@@ -362,7 +398,12 @@ mod tests {
         let tmp = TempDir::new();
         let proj = tmp.path().join("proj");
         let skills = proj.join(".zen/skills");
-        write_skill(&skills, "gamma", "name: gamma\ndescription: Gamma", "gamma instructions");
+        write_skill(
+            &skills,
+            "gamma",
+            "name: gamma\ndescription: Gamma",
+            "gamma instructions",
+        );
 
         let found = discover_skills(&proj, Some(&tmp.path().join("nohome")));
         let tool = SkillTool::new(found);
@@ -388,13 +429,22 @@ mod tests {
         write_skill(&skills, "auto", "name: auto\ndescription: Auto", "body");
         let home = tmp.path().join("nohome");
         let model_facing = discover_skills(&proj, Some(&home));
-        assert_eq!(model_facing.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(), vec!["auto"]);
+        assert_eq!(
+            model_facing
+                .iter()
+                .map(|s| s.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["auto"]
+        );
         assert!(!skills_prompt(&model_facing).contains("manual"));
         let all = discover_skill_entries(&proj, Some(&home));
         let (info, fm) = all.iter().find(|(i, _)| i.name == "manual").unwrap();
         assert_eq!(info.description, "Manual only");
         assert!(fm.disable_model_invocation);
-        assert_eq!(fm.extra.get("argument-hint").map(String::as_str), Some("[file]"));
+        assert_eq!(
+            fm.extra.get("argument-hint").map(String::as_str),
+            Some("[file]")
+        );
         assert_eq!(fm.extra.get("model").map(String::as_str), Some("m1"));
     }
 
@@ -402,13 +452,22 @@ mod tests {
     async fn c5_3_skill_tool_substitutes_skill_dir() {
         let tmp = TempDir::new();
         let proj = tmp.path().join("proj");
-        write_skill(&proj.join(".zen/skills"), "s", "name: s\ndescription: S", "run ${ZEN_SKILL_DIR}/x.sh");
+        write_skill(
+            &proj.join(".zen/skills"),
+            "s",
+            "name: s\ndescription: S",
+            "run ${ZEN_SKILL_DIR}/x.sh",
+        );
         let tool = SkillTool::new(discover_skills(&proj, Some(&tmp.path().join("nohome"))));
         let ctx = ToolContext::new(proj.clone(), "s1");
         let out = tool.call(serde_json::json!({"name": "s"}), &ctx).await;
         let dir = proj.join(".zen/skills/s").display().to_string();
         let norm = |s: &str| s.replace('\\', "/");
-        assert!(norm(&out.content).contains(&norm(&format!("run {}/x.sh", dir))), "{}", out.content);
+        assert!(
+            norm(&out.content).contains(&norm(&format!("run {}/x.sh", dir))),
+            "{}",
+            out.content
+        );
     }
 
     #[tokio::test]

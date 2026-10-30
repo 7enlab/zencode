@@ -143,7 +143,6 @@ pub fn latest_session_id(home: &Path) -> Option<String> {
 }
 
 pub fn summarize(session_id: &str, entries: &[CostEntry]) -> CostSummary {
-
     let mut order: Vec<(String, String)> = Vec::new();
     let mut groups: BTreeMap<(String, String), (u64, u64)> = BTreeMap::new();
     for e in entries {
@@ -298,7 +297,6 @@ mod tests {
 
     #[test]
     fn free_models_price_at_zero() {
-
         assert_eq!(price_per_1m("nvidia/nemotron-3:free"), Some((0.0, 0.0)));
         assert_eq!(price_per_1m("qwen/qwen3-coder:FREE"), Some((0.0, 0.0)));
 
@@ -311,7 +309,10 @@ mod tests {
         assert_eq!(price_per_1m("gpt-4o"), Some((2.50, 10.00)));
 
         assert_eq!(price_per_1m("openai/gpt-4o-mini"), Some((0.15, 0.60)));
-        assert_eq!(price_per_1m("anthropic/claude-sonnet-4-5"), Some((3.00, 15.00)));
+        assert_eq!(
+            price_per_1m("anthropic/claude-sonnet-4-5"),
+            Some((3.00, 15.00))
+        );
     }
 
     #[test]
@@ -330,14 +331,8 @@ mod tests {
             provider_from_base_url("https://api.openai.com/v1"),
             "openai"
         );
-        assert_eq!(
-            provider_from_base_url("http://localhost:11434/v1"),
-            "local"
-        );
-        assert_eq!(
-            provider_from_base_url("http://127.0.0.1:11434/v1"),
-            "local"
-        );
+        assert_eq!(provider_from_base_url("http://localhost:11434/v1"), "local");
+        assert_eq!(provider_from_base_url("http://127.0.0.1:11434/v1"), "local");
         assert_eq!(
             provider_from_base_url("https://api.experientiallabs.ai/api/v1"),
             "experientiallabs"
@@ -440,7 +435,14 @@ mod tests {
             200,
         );
 
-        record(Some(&home), "sess-rt", "x", "https://openrouter.ai/api/v1", 0, 0);
+        record(
+            Some(&home),
+            "sess-rt",
+            "x",
+            "https://openrouter.ai/api/v1",
+            0,
+            0,
+        );
         let loaded = load(&home, "sess-rt").expect("ledger written");
         assert_eq!(loaded.session_id, "sess-rt");
         assert_eq!(loaded.entries.len(), 1);

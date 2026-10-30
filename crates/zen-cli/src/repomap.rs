@@ -73,14 +73,21 @@ pub struct RepoMap {
 }
 
 impl RepoMap {
-
     pub fn text(&self) -> &str {
         self.rendered.as_deref().unwrap_or("")
     }
 }
 
 const SKIP_DIRS: &[&str] = &[
-    "node_modules", "target", "dist", "build", "out", "__pycache__", "venv", "vendor", "coverage",
+    "node_modules",
+    "target",
+    "dist",
+    "build",
+    "out",
+    "__pycache__",
+    "venv",
+    "vendor",
+    "coverage",
 ];
 
 fn collect_rust_files(cwd: &Path) -> Vec<PathBuf> {
@@ -129,8 +136,9 @@ fn strip_noise(line: &str) -> String {
             }
             if chars.get(j) == Some(&'"') {
                 let hashes = j - (i + 1);
-                let closing: Vec<char> =
-                    std::iter::once('"').chain(std::iter::repeat_n('#', hashes)).collect();
+                let closing: Vec<char> = std::iter::once('"')
+                    .chain(std::iter::repeat_n('#', hashes))
+                    .collect();
 
                 for _ in i..=j {
                     out.push(' ');
@@ -138,7 +146,9 @@ fn strip_noise(line: &str) -> String {
                 i = j + 1;
 
                 while i < chars.len() {
-                    if i + closing.len() <= chars.len() && chars[i..i + closing.len()] == closing[..] {
+                    if i + closing.len() <= chars.len()
+                        && chars[i..i + closing.len()] == closing[..]
+                    {
                         for _ in 0..closing.len() {
                             out.push(' ');
                         }
@@ -175,7 +185,6 @@ fn strip_noise(line: &str) -> String {
         if c == '\'' {
             match chars.get(i + 1) {
                 Some('\\') => {
-
                     for _ in 0..4 {
                         if i < chars.len() {
                             out.push(' ');
@@ -184,14 +193,12 @@ fn strip_noise(line: &str) -> String {
                     }
                 }
                 Some(_) if chars.get(i + 2) == Some(&'\'') => {
-
                     for _ in 0..3 {
                         out.push(' ');
                         i += 1;
                     }
                 }
                 _ => {
-
                     out.push(' ');
                     i += 1;
                     while i < chars.len() && (chars[i].is_alphanumeric() || chars[i] == '_') {
@@ -364,7 +371,6 @@ fn extract_symbols(path: &Path) -> Vec<Symbol> {
                 ref_files: 0,
             });
         } else if let Some(caps) = mod_re().captures(&clean) {
-
             if &caps[1] == "tests" {
                 continue;
             }
@@ -383,7 +389,6 @@ fn extract_symbols(path: &Path) -> Vec<Symbol> {
 }
 
 fn rank_symbols(entries: &mut [(PathBuf, Vec<Symbol>)]) {
-
     let mut names: Vec<String> = entries
         .iter()
         .flat_map(|(_, syms)| syms.iter().map(|s| s.name.clone()))
@@ -473,7 +478,6 @@ fn rank_symbols(entries: &mut [(PathBuf, Vec<Symbol>)]) {
 }
 
 fn apply_priority_boosts(entries: &mut [(PathBuf, Vec<Symbol>)]) {
-
     let mut order: Vec<usize> = (0..entries.len()).collect();
     order.sort_by_key(|&i| {
         std::cmp::Reverse(
@@ -647,12 +651,12 @@ mod tests {
     fn ranking_prefers_cross_file_references() {
         let dir = unique_dir("rank");
         let _ = std::fs::remove_dir_all(&dir);
+        write_file(&dir, "lib.rs", "pub fn popular() {}\npub fn lonely() {}\n");
         write_file(
             &dir,
-            "lib.rs",
-            "pub fn popular() {}\npub fn lonely() {}\n",
+            "a.rs",
+            "use lib::popular;\nfn x() { popular(); popular(); }\n",
         );
-        write_file(&dir, "a.rs", "use lib::popular;\nfn x() { popular(); popular(); }\n");
         write_file(&dir, "b.rs", "fn y() { popular(); }\n");
         let mut entries: Vec<(PathBuf, Vec<Symbol>)> = collect_rust_files(&dir)
             .into_iter()
@@ -666,7 +670,10 @@ mod tests {
         let lib = entries.iter().find(|(p, _)| p.ends_with("lib.rs")).unwrap();
         let popular = lib.1.iter().find(|s| s.name == "popular").unwrap();
         let lonely = lib.1.iter().find(|s| s.name == "lonely").unwrap();
-        assert!(popular.score > lonely.score, "popular should outrank lonely");
+        assert!(
+            popular.score > lonely.score,
+            "popular should outrank lonely"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -708,15 +715,20 @@ mod tests {
             .iter()
             .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
             .collect();
-        assert!(names.contains(&".hidden.rs".to_string()), "dotfile kept: {names:?}");
+        assert!(
+            names.contains(&".hidden.rs".to_string()),
+            "dotfile kept: {names:?}"
+        );
         assert!(names.contains(&"visible.rs".to_string()));
-        assert!(!names.contains(&"x.rs".to_string()), "hiddendir skipped: {names:?}");
+        assert!(
+            !names.contains(&"x.rs".to_string()),
+            "hiddendir skipped: {names:?}"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn strip_noise_handles_raw_strings_chars_lifetimes() {
-
         let s = strip_noise(r##"let x = r#"fn not_a_fn() {}"#;"##);
         assert!(!s.contains("not_a_fn"), "raw string leaked: {s:?}");
 
@@ -735,7 +747,6 @@ mod tests {
 
     #[test]
     fn cfg_test_attr_does_not_swallow_following_code() {
-
         let dir = unique_dir("cfgtest");
         let _ = std::fs::remove_dir_all(&dir);
         let p = write_file(
@@ -755,11 +766,7 @@ mod tests {
     fn mod_tests_declaration_without_braces_is_safe() {
         let dir = unique_dir("moddecl");
         let _ = std::fs::remove_dir_all(&dir);
-        let p = write_file(
-            &dir,
-            "e.rs",
-            "mod tests;\npub fn after_decl() {}\n",
-        );
+        let p = write_file(&dir, "e.rs", "mod tests;\npub fn after_decl() {}\n");
         let syms = extract_symbols(&p);
         assert!(
             syms.iter().any(|s| s.name == "after_decl"),
@@ -788,7 +795,6 @@ mod tests {
 
     #[test]
     fn regexes_do_not_shadow_each_other() {
-
         let cases: &[(&str, SymbolKind, &str)] = &[
             ("fn plain() {", SymbolKind::Fn, "plain"),
             ("pub fn public_fn<T>(x: T) {", SymbolKind::Fn, "public_fn"),
@@ -830,7 +836,6 @@ mod tests {
 
     #[test]
     fn definition_line_excluded_from_ranking() {
-
         let dir = unique_dir("defline");
         let _ = std::fs::remove_dir_all(&dir);
         write_file(&dir, "solo.rs", "fn only_here() {}\n");
@@ -908,7 +913,6 @@ mod tests {
 
     #[test]
     fn self_repo_map_stays_within_1k_budget() {
-
         let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let map = repo_map(&workspace_root, DEFAULT_MAP_TOKENS).expect("map");
         let est = map.text().chars().count() / 4;

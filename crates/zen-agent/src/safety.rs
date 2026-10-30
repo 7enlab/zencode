@@ -31,7 +31,6 @@ pub const PARALLEL_SESSION_WARN_THRESHOLD: usize = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ErrorClass {
-
     RateLimit,
 
     QuotaExhausted,
@@ -44,7 +43,6 @@ pub enum ErrorClass {
 }
 
 impl ErrorClass {
-
     pub fn is_retryable(self) -> bool {
         matches!(
             self,
@@ -54,7 +52,6 @@ impl ErrorClass {
 }
 
 pub fn classify_error(status: Option<u16>, body: &str) -> ErrorClass {
-
     let lower = body.to_ascii_lowercase();
     if lower.contains("insufficient_quota")
         || lower.contains("insufficient quota")
@@ -66,12 +63,8 @@ pub fn classify_error(status: Option<u16>, body: &str) -> ErrorClass {
     }
 
     match status {
-
         Some(529) => ErrorClass::Overloaded,
-        Some(429) => {
-
-            ErrorClass::RateLimit
-        }
+        Some(429) => ErrorClass::RateLimit,
         Some(402) => ErrorClass::QuotaExhausted,
         Some(code) if (400..500).contains(&code) => ErrorClass::Fatal,
         Some(code) if (500..600).contains(&code) => ErrorClass::Transient,
@@ -119,7 +112,6 @@ pub fn default_rpm_ceiling(provider: &str) -> Option<u64> {
 }
 
 pub struct RateLimiter {
-
     rpm_ceiling: f64,
 
     tokens: f64,
@@ -133,7 +125,6 @@ pub struct RateLimiter {
 }
 
 impl RateLimiter {
-
     pub fn new(rpm_ceiling: u64) -> Self {
         let now = Instant::now();
         Self {
@@ -198,13 +189,11 @@ impl RateLimiter {
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct SessionRegistry {
-
     #[serde(default)]
     entries: HashMap<String, HashMap<String, Vec<(String, u64)>>>,
 }
 
 impl SessionRegistry {
-
     pub fn load() -> Self {
         let path = registry_path();
         let Ok(data) = std::fs::read(&path) else {
@@ -258,7 +247,14 @@ impl SessionRegistry {
 }
 
 pub fn key_fingerprint(api_key: &str) -> String {
-    let tail: String = api_key.chars().rev().take(4).collect::<String>().chars().rev().collect();
+    let tail: String = api_key
+        .chars()
+        .rev()
+        .take(4)
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect();
     let prefix: String = api_key.chars().take(3).collect();
     format!("{}-...{}", prefix, tail)
 }

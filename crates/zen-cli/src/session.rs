@@ -42,7 +42,11 @@ pub fn find_session_path(home: &Path, id_or_path: &str) -> Option<PathBuf> {
 
     for e in walkdir::WalkDir::new(&projects_root).into_iter().flatten() {
         let path = e.path();
-        if path.file_name().map(|n| n.to_string_lossy() == format!("{}.jsonl", id_or_path)).unwrap_or(false) {
+        if path
+            .file_name()
+            .map(|n| n.to_string_lossy() == format!("{}.jsonl", id_or_path))
+            .unwrap_or(false)
+        {
             return Some(path.to_path_buf());
         }
     }
@@ -137,8 +141,14 @@ pub fn load_messages(path: &Path) -> Result<Vec<Value>> {
         if line.is_empty() {
             continue;
         }
-        let v: Value = serde_json::from_str(line)
-            .map_err(|e| anyhow::anyhow!("{}:{}: invalid transcript line: {}", path.display(), n + 1, e))?;
+        let v: Value = serde_json::from_str(line).map_err(|e| {
+            anyhow::anyhow!(
+                "{}:{}: invalid transcript line: {}",
+                path.display(),
+                n + 1,
+                e
+            )
+        })?;
         records.push(v);
     }
     let last_summary_idx = records
@@ -184,7 +194,6 @@ pub fn load_history(path: &Path) -> Result<Vec<zen_core::ChatMessage>> {
 }
 
 pub struct TranscriptWriter {
-
     pub path: Option<PathBuf>,
     pub session_id: String,
     pub cwd: String,
@@ -194,7 +203,6 @@ pub struct TranscriptWriter {
 }
 
 impl TranscriptWriter {
-
     pub fn new(path: PathBuf, session_id: &str, cwd: &Path) -> Self {
         Self {
             path: Some(path),
@@ -224,14 +232,16 @@ impl TranscriptWriter {
             if let Some(parent) = path.parent() {
                 std::fs::create_dir_all(parent)?;
             }
-            let f = std::fs::OpenOptions::new().create(true).append(true).open(path)?;
+            let f = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(path)?;
             self.file = Some(std::io::BufWriter::new(f));
         }
         let line = serde_json::to_string(record)?;
         let w = self.file.as_mut().expect("opened above");
         let res = writeln!(w, "{}", line).and_then(|_| w.flush());
         if let Err(e) = res {
-
             self.file = None;
             return Err(e.into());
         }
@@ -284,7 +294,11 @@ impl TranscriptWriter {
     }
 
     pub fn record_plan_approved(&mut self, plan: &str) -> Result<()> {
-        self.write("plan_approved", Some(serde_json::json!({ "plan": plan })), None)
+        self.write(
+            "plan_approved",
+            Some(serde_json::json!({ "plan": plan })),
+            None,
+        )
     }
 }
 
@@ -345,8 +359,13 @@ pub fn append_usage(path: &Path, session_id: &str, usage: &zen_core::UsageStats)
 
 pub fn load_usage(path: &Path) -> zen_core::UsageStats {
     let mut total = zen_core::UsageStats::default();
-    let Ok(content) = std::fs::read_to_string(path) else { return total };
-    for v in content.lines().filter_map(|l| serde_json::from_str::<Value>(l.trim()).ok()) {
+    let Ok(content) = std::fs::read_to_string(path) else {
+        return total;
+    };
+    for v in content
+        .lines()
+        .filter_map(|l| serde_json::from_str::<Value>(l.trim()).ok())
+    {
         if v.get("subtype").and_then(|t| t.as_str()) == Some("usage") {
             let n = |k: &str| v["usage"][k].as_u64().unwrap_or(0);
             total.input_tokens += n("input_tokens");
@@ -375,13 +394,33 @@ pub fn session_title(path: &Path) -> Option<String> {
         .lines()
         .filter_map(|l| serde_json::from_str::<Value>(l.trim()).ok())
         .filter(|v| v.get("type").and_then(|t| t.as_str()) == Some("custom-title"))
-        .filter_map(|v| v.get("customTitle").and_then(|t| t.as_str()).map(String::from))
+        .filter_map(|v| {
+            v.get("customTitle")
+                .and_then(|t| t.as_str())
+                .map(String::from)
+        })
         .next_back()
 }
 
-pub fn append_summary(path: &Path, session_id: &str, cwd: &str, uuid_val: &str, parent_uuid: Option<&str>, summary_text: &str) -> Result<()> {
+pub fn append_summary(
+    path: &Path,
+    session_id: &str,
+    cwd: &str,
+    uuid_val: &str,
+    parent_uuid: Option<&str>,
+    summary_text: &str,
+) -> Result<()> {
     let summary_val = serde_json::json!({"type":"summary","summary":summary_text});
-    append_typed(path, "summary", session_id, cwd, uuid_val, parent_uuid, None, Some(summary_val))
+    append_typed(
+        path,
+        "summary",
+        session_id,
+        cwd,
+        uuid_val,
+        parent_uuid,
+        None,
+        Some(summary_val),
+    )
 }
 
 #[cfg(test)]
@@ -392,7 +431,10 @@ mod tests {
     #[test]
     fn p0b_1_session_scratch_dir_sits_next_to_the_transcript() {
         let t = Path::new("/h/.zen/projects/-p/abc-123.jsonl");
-        assert_eq!(session_scratch_dir(t), PathBuf::from("/h/.zen/projects/-p/abc-123"));
+        assert_eq!(
+            session_scratch_dir(t),
+            PathBuf::from("/h/.zen/projects/-p/abc-123")
+        );
     }
 
     #[test]
@@ -404,13 +446,16 @@ mod tests {
         let mut w = TranscriptWriter::ephemeral("s", &dir);
         assert!(w.path.is_none());
 
-        w.persist_turn(&[], &[zen_core::ChatMessage {
-            role: "user".into(),
-            content: Some("hello".into()),
-            name: None,
-            tool_calls: None,
-            tool_call_id: None,
-        }])
+        w.persist_turn(
+            &[],
+            &[zen_core::ChatMessage {
+                role: "user".into(),
+                content: Some("hello".into()),
+                name: None,
+                tool_calls: None,
+                tool_call_id: None,
+            }],
+        )
         .unwrap();
         assert!(!ghost.exists());
         assert!(!dir.join(".zen").exists());
@@ -442,22 +487,69 @@ mod tests {
         let path = ensure_session_path(&home, &cwd, "sess-rt-1").unwrap();
         let m1 = serde_json::json!({"role":"user","content":"hello"});
         let m2 = serde_json::json!({"role":"assistant","content":"hi there"});
-        append_typed(&path, "user", "sess-rt-1", cwd.to_str().unwrap(), "u1", None, Some(m1.clone()), None).unwrap();
-        append_typed(&path, "assistant", "sess-rt-1", cwd.to_str().unwrap(), "a1", Some("u1"), Some(m2.clone()), None).unwrap();
+        append_typed(
+            &path,
+            "user",
+            "sess-rt-1",
+            cwd.to_str().unwrap(),
+            "u1",
+            None,
+            Some(m1.clone()),
+            None,
+        )
+        .unwrap();
+        append_typed(
+            &path,
+            "assistant",
+            "sess-rt-1",
+            cwd.to_str().unwrap(),
+            "a1",
+            Some("u1"),
+            Some(m2.clone()),
+            None,
+        )
+        .unwrap();
 
         let pre = load_messages(&path).unwrap();
         assert_eq!(pre, vec![m1.clone(), m2.clone()]);
 
-        append_typed(&path, "summary", "sess-rt-1", cwd.to_str().unwrap(), "sum1", Some("a1"), None, Some(serde_json::json!({"summary":"done"}))).unwrap();
+        append_typed(
+            &path,
+            "summary",
+            "sess-rt-1",
+            cwd.to_str().unwrap(),
+            "sum1",
+            Some("a1"),
+            None,
+            Some(serde_json::json!({"summary":"done"})),
+        )
+        .unwrap();
         let m3 = serde_json::json!({"role":"user","content":"after"});
-        append_typed(&path, "user", "sess-rt-1", cwd.to_str().unwrap(), "u2", Some("sum1"), Some(m3.clone()), None).unwrap();
+        append_typed(
+            &path,
+            "user",
+            "sess-rt-1",
+            cwd.to_str().unwrap(),
+            "u2",
+            Some("sum1"),
+            Some(m3.clone()),
+            None,
+        )
+        .unwrap();
 
         let msgs = load_messages(&path).unwrap();
         assert_eq!(msgs.len(), 2);
         assert_eq!(msgs[0], serde_json::json!({"role":"user","content":"done"}));
         assert_eq!(msgs[1], m3);
 
-        let first: Value = serde_json::from_str(std::fs::read_to_string(&path).unwrap().lines().next().unwrap()).unwrap();
+        let first: Value = serde_json::from_str(
+            std::fs::read_to_string(&path)
+                .unwrap()
+                .lines()
+                .next()
+                .unwrap(),
+        )
+        .unwrap();
         assert!(first.get("sessionId").is_some() && first.get("parentUuid").is_some());
     }
 
@@ -468,7 +560,10 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("s.jsonl");
         let mut w = TranscriptWriter::new(path.clone(), "s", &dir);
-        let t1 = vec![ChatMessage::user("q1"), ChatMessage::assistant(Some("a1".into()), None)];
+        let t1 = vec![
+            ChatMessage::user("q1"),
+            ChatMessage::assistant(Some("a1".into()), None),
+        ];
         w.persist_turn(&[], &t1).unwrap();
         let mut t2 = t1.clone();
         t2.push(ChatMessage::user("q2"));
@@ -484,8 +579,11 @@ mod tests {
         w.persist_turn(&t2, &t3).unwrap();
         assert_eq!(load_history(&path).unwrap(), t3);
 
-        let lines: Vec<Value> = std::fs::read_to_string(&path).unwrap().lines()
-            .map(|l| serde_json::from_str(l).unwrap()).collect();
+        let lines: Vec<Value> = std::fs::read_to_string(&path)
+            .unwrap()
+            .lines()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect();
         for pair in lines.windows(2) {
             assert_eq!(pair[1]["parentUuid"], pair[0]["uuid"]);
         }
@@ -500,10 +598,30 @@ mod tests {
         fs::create_dir_all(&cwd).unwrap();
 
         let p1 = ensure_session_path(&home, &cwd, "old").unwrap();
-        append_typed(&p1, "user", "old", cwd.to_str().unwrap(), "u", None, Some(serde_json::json!({"role":"user","content":"hi"})), None).unwrap();
+        append_typed(
+            &p1,
+            "user",
+            "old",
+            cwd.to_str().unwrap(),
+            "u",
+            None,
+            Some(serde_json::json!({"role":"user","content":"hi"})),
+            None,
+        )
+        .unwrap();
         std::thread::sleep(std::time::Duration::from_millis(30));
         let p2 = ensure_session_path(&home, &cwd, "new").unwrap();
-        append_typed(&p2, "user", "new", cwd.to_str().unwrap(), "u", None, Some(serde_json::json!({"role":"user","content":"hi"})), None).unwrap();
+        append_typed(
+            &p2,
+            "user",
+            "new",
+            cwd.to_str().unwrap(),
+            "u",
+            None,
+            Some(serde_json::json!({"role":"user","content":"hi"})),
+            None,
+        )
+        .unwrap();
 
         let latest = latest_session_for_cwd(&home, &encode_cwd(&cwd)).unwrap();
         assert_eq!(latest.file_name().unwrap(), "new.jsonl");
@@ -517,7 +635,17 @@ mod tests {
         let _ = fs::remove_dir_all(&cwd);
         fs::create_dir_all(&cwd).unwrap();
         let path = ensure_session_path(&home, &cwd, "findme").unwrap();
-        append_typed(&path, "user", "findme", cwd.to_str().unwrap(), "u", None, Some(serde_json::json!({"role":"user","content":"hi"})), None).unwrap();
+        append_typed(
+            &path,
+            "user",
+            "findme",
+            cwd.to_str().unwrap(),
+            "u",
+            None,
+            Some(serde_json::json!({"role":"user","content":"hi"})),
+            None,
+        )
+        .unwrap();
         assert!(path.exists());
         let found = find_session_path(&home, "findme").unwrap();
         assert_eq!(found, path);
@@ -532,7 +660,17 @@ mod tests {
         let _ = fs::remove_dir_all(&cwd);
         fs::create_dir_all(&cwd).unwrap();
         let path = ensure_session_path(&home, &cwd, "sess-x").unwrap();
-        append_typed(&path, "user", "sess-x", cwd.to_str().unwrap(), "u", None, None, None).unwrap();
+        append_typed(
+            &path,
+            "user",
+            "sess-x",
+            cwd.to_str().unwrap(),
+            "u",
+            None,
+            None,
+            None,
+        )
+        .unwrap();
         let found = find_session_path(&home, path.to_str().unwrap()).unwrap();
         assert_eq!(found, path);
     }
@@ -546,10 +684,30 @@ mod tests {
         fs::create_dir_all(&cwd).unwrap();
 
         let p1 = ensure_session_path(&home, &cwd, "sess-a").unwrap();
-        append_typed(&p1, "user", "sess-a", cwd.to_str().unwrap(), "u", None, Some(serde_json::json!({"role":"user","content":"hi"})), None).unwrap();
+        append_typed(
+            &p1,
+            "user",
+            "sess-a",
+            cwd.to_str().unwrap(),
+            "u",
+            None,
+            Some(serde_json::json!({"role":"user","content":"hi"})),
+            None,
+        )
+        .unwrap();
         std::thread::sleep(std::time::Duration::from_millis(30));
         let p2 = ensure_session_path(&home, &cwd, "sess-b").unwrap();
-        append_typed(&p2, "user", "sess-b", cwd.to_str().unwrap(), "u", None, Some(serde_json::json!({"role":"user","content":"hi"})), None).unwrap();
+        append_typed(
+            &p2,
+            "user",
+            "sess-b",
+            cwd.to_str().unwrap(),
+            "u",
+            None,
+            Some(serde_json::json!({"role":"user","content":"hi"})),
+            None,
+        )
+        .unwrap();
 
         let sessions = list_sessions_for_cwd(&home, &cwd);
         assert_eq!(sessions.len(), 2);
@@ -590,7 +748,10 @@ mod tests {
         let msgs = load_messages(&path).unwrap();
         assert_eq!(msgs.len(), 5);
 
-        let recs: Vec<Value> = content.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+        let recs: Vec<Value> = content
+            .lines()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect();
         let users: Vec<&Value> = recs.iter().filter(|r| r["type"] == "user").collect();
         for pair in users.windows(2) {
             assert_eq!(pair[1]["parentUuid"], pair[0]["uuid"]);

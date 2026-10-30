@@ -18,7 +18,6 @@ pub fn trust_store_path(home: Option<&Path>) -> Option<PathBuf> {
 }
 
 fn canon(p: &Path) -> PathBuf {
-
     std::fs::canonicalize(p).unwrap_or_else(|_| normalize_lexical(p))
 }
 
@@ -216,11 +215,19 @@ mod tests {
 
     #[test]
     fn canon_is_symmetric_for_missing_paths() {
-
         use std::path::Path;
-        assert_eq!(canon(Path::new("/nope/a/./b")), canon(Path::new("/nope/a/b")));
-        assert_eq!(canon(Path::new("/nope/a/b/")), canon(Path::new("/nope/a/b")));
-        assert_eq!(canon(Path::new("/nope/a/x/../b")), canon(Path::new("/nope/a/b")));
+        assert_eq!(
+            canon(Path::new("/nope/a/./b")),
+            canon(Path::new("/nope/a/b"))
+        );
+        assert_eq!(
+            canon(Path::new("/nope/a/b/")),
+            canon(Path::new("/nope/a/b"))
+        );
+        assert_eq!(
+            canon(Path::new("/nope/a/x/../b")),
+            canon(Path::new("/nope/a/b"))
+        );
     }
 
     #[test]

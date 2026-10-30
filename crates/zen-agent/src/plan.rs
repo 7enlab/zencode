@@ -75,7 +75,6 @@ pub fn safe_tail(messages: &[ChatMessage], keep: usize) -> Vec<ChatMessage> {
         if owns_everything {
             start = run_start - 1;
         }
-
     }
 
     while start < n && !window_is_valid(&messages[start..]) {
@@ -102,11 +101,7 @@ fn most_recent_complete_exchange(messages: &[ChatMessage]) -> (usize, usize) {
     }
     user_starts.sort_unstable();
     for &s in user_starts.iter().rev() {
-        let end = user_starts
-            .iter()
-            .find(|&&i| i > s)
-            .copied()
-            .unwrap_or(n);
+        let end = user_starts.iter().find(|&&i| i > s).copied().unwrap_or(n);
         for e in (s + 1..=end).rev() {
             if window_is_valid(&messages[s..e]) {
                 return (s, e);
@@ -117,7 +112,6 @@ fn most_recent_complete_exchange(messages: &[ChatMessage]) -> (usize, usize) {
 }
 
 fn window_is_valid(window: &[ChatMessage]) -> bool {
-
     let mut open: Vec<&str> = Vec::new();
     for m in window {
         if m.role == "assistant" {
@@ -125,7 +119,9 @@ fn window_is_valid(window: &[ChatMessage]) -> bool {
                 open.extend(calls.iter().map(|c| c.id.as_str()));
             }
         } else if m.role == "tool" {
-            let Some(id) = m.tool_call_id.as_deref() else { return false };
+            let Some(id) = m.tool_call_id.as_deref() else {
+                return false;
+            };
             match open.iter().rposition(|o| *o == id) {
                 Some(pos) => {
                     open.remove(pos);
@@ -148,18 +144,14 @@ pub fn ensure_tool_responses(messages: Vec<ChatMessage>) -> Vec<ChatMessage> {
             }
         } else if m.role == "tool" {
             let owns = m.tool_call_id.as_ref().and_then(|id| {
-                open_ids
-                    .iter()
-                    .position(|o| o == id)
-                    .map(|pos| {
-                        open_ids.remove(pos);
-                        true
-                    })
+                open_ids.iter().position(|o| o == id).map(|pos| {
+                    open_ids.remove(pos);
+                    true
+                })
             });
             if owns.unwrap_or(false) {
                 out.push(m);
             }
-
         } else {
             out.push(m);
         }
@@ -184,14 +176,19 @@ mod tests {
             Some(vec![ToolCall {
                 id: id.into(),
                 call_type: "function".into(),
-                function: FunctionCall { name: "Read".into(), arguments: "{}".into() },
+                function: FunctionCall {
+                    name: "Read".into(),
+                    arguments: "{}".into(),
+                },
             }]),
         )
     }
 
     #[test]
     fn safe_tail_keeps_plain_tail() {
-        let msgs: Vec<ChatMessage> = (0..6).map(|i| ChatMessage::user(format!("m{}", i))).collect();
+        let msgs: Vec<ChatMessage> = (0..6)
+            .map(|i| ChatMessage::user(format!("m{}", i)))
+            .collect();
         let tail = safe_tail(&msgs, 2);
         assert_eq!(tail.len(), 2);
         assert_eq!(tail[0].content.as_deref(), Some("m4"));
@@ -199,7 +196,6 @@ mod tests {
 
     #[test]
     fn safe_tail_drops_orphan_tool_message() {
-
         let msgs = vec![
             ChatMessage::user("u"),
             tool_call_msg("c1"),
@@ -215,8 +211,11 @@ mod tests {
 
     #[test]
     fn safe_tail_pulls_in_owning_assistant_call() {
-
-        let msgs = vec![ChatMessage::user("u"), tool_call_msg("c1"), ChatMessage::tool("c1", "r")];
+        let msgs = vec![
+            ChatMessage::user("u"),
+            tool_call_msg("c1"),
+            ChatMessage::tool("c1", "r"),
+        ];
         let tail = safe_tail(&msgs, 1);
         assert_eq!(tail.len(), 2);
         assert_eq!(tail[0].role, "assistant");
@@ -226,23 +225,33 @@ mod tests {
 
     #[test]
     fn safe_tail_includes_every_sibling_call() {
-
         let assistant = ChatMessage::assistant(
             None,
             Some(vec![
                 ToolCall {
                     id: "c1".into(),
                     call_type: "function".into(),
-                    function: FunctionCall { name: "Read".into(), arguments: "{}".into() },
+                    function: FunctionCall {
+                        name: "Read".into(),
+                        arguments: "{}".into(),
+                    },
                 },
                 ToolCall {
                     id: "c2".into(),
                     call_type: "function".into(),
-                    function: FunctionCall { name: "Read".into(), arguments: "{}".into() },
+                    function: FunctionCall {
+                        name: "Read".into(),
+                        arguments: "{}".into(),
+                    },
                 },
             ]),
         );
-        let msgs = vec![ChatMessage::user("u"), assistant, ChatMessage::tool("c1", "a"), ChatMessage::tool("c2", "b")];
+        let msgs = vec![
+            ChatMessage::user("u"),
+            assistant,
+            ChatMessage::tool("c1", "a"),
+            ChatMessage::tool("c2", "b"),
+        ];
         let tail = safe_tail(&msgs, 1);
 
         assert_eq!(tail.len(), 3);
@@ -252,7 +261,6 @@ mod tests {
 
     #[test]
     fn safe_tail_drops_unanswerable_prefix() {
-
         let msgs = vec![tool_call_msg("c1"), ChatMessage::user("later")];
         let tail = safe_tail(&msgs, 2);
         assert_eq!(tail.len(), 1);
@@ -261,7 +269,6 @@ mod tests {
 
     #[test]
     fn ensure_tool_responses_drops_orphans_and_fills_gaps() {
-
         let msgs = vec![
             tool_call_msg("c1"),
             ChatMessage::tool("c1", "r1"),
@@ -279,7 +286,9 @@ mod tests {
 
     #[test]
     fn ensure_tool_responses_leaves_clean_history_alone() {
-        let msgs: Vec<ChatMessage> = (0..4).map(|i| ChatMessage::user(format!("m{}", i))).collect();
+        let msgs: Vec<ChatMessage> = (0..4)
+            .map(|i| ChatMessage::user(format!("m{}", i)))
+            .collect();
         assert_eq!(ensure_tool_responses(msgs.clone()), msgs);
     }
 
@@ -289,7 +298,9 @@ mod tests {
             if let Some(calls) = &m.tool_calls {
                 open.extend(calls.iter().map(|c| c.id.as_str()));
             } else if m.role == "tool" {
-                let Some(id) = m.tool_call_id.as_deref() else { return false };
+                let Some(id) = m.tool_call_id.as_deref() else {
+                    return false;
+                };
                 match open.iter().rposition(|o| *o == id) {
                     Some(p) => {
                         open.remove(p);
@@ -310,7 +321,6 @@ mod tests {
 
     #[test]
     fn safe_tail_never_discards_freshest_complete_exchange() {
-
         let mut msgs = vec![
             ChatMessage::user("u"),
             tool_call_msg("c1"),
@@ -321,7 +331,10 @@ mod tests {
             calls.push(ToolCall {
                 id: "c2".into(),
                 call_type: "function".into(),
-                function: FunctionCall { name: "Read".into(), arguments: "{}".into() },
+                function: FunctionCall {
+                    name: "Read".into(),
+                    arguments: "{}".into(),
+                },
             });
         }
         let tail = safe_tail(&msgs, 10);
@@ -332,7 +345,6 @@ mod tests {
 
     #[test]
     fn safe_tail_grow_does_not_cross_exchange_boundaries() {
-
         let msgs = vec![
             ChatMessage::user("u"),
             tool_call_msg("c1"),
@@ -382,7 +394,10 @@ mod tests {
         assert!(p.contains("# Plan mode (active)"));
 
         assert_eq!(system_prompt_for_mode(&p, PermissionMode::Plan), p);
-        assert_eq!(system_prompt_for_mode("base", PermissionMode::Default), "base");
+        assert_eq!(
+            system_prompt_for_mode("base", PermissionMode::Default),
+            "base"
+        );
     }
 
     #[test]

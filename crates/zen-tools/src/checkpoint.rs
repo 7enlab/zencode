@@ -10,7 +10,6 @@ pub const DEFAULT_MAX_FILE_BYTES: u64 = 10 * 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Before {
-
     Missing,
 
     Saved(PathBuf),
@@ -48,7 +47,6 @@ pub struct UndoReport {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum UndoError {
-
     Nothing,
 
     Modified(Vec<PathBuf>),
@@ -110,7 +108,6 @@ fn label_of(prompt: &str) -> String {
 }
 
 impl Checkpoints {
-
     pub fn new(dir: PathBuf) -> Self {
         Self::with_max_bytes(dir, DEFAULT_MAX_FILE_BYTES)
     }
@@ -278,7 +275,6 @@ impl FileCheckpoints for Checkpoints {
     fn before_write(&self, path: &Path) -> Option<String> {
         let mut st = self.state.lock().unwrap();
         if st.current.is_none() {
-
             let id = st.next_id;
             st.next_id += 1;
             st.current = Some(Turn {
@@ -422,7 +418,6 @@ fn push_line(out: &mut String, sign: char, line: &str) {
 }
 
 fn hunks(a: &[&str], b: &[&str], ops: &[Op], ctx: usize) -> String {
-
     let mut pos = Vec::with_capacity(ops.len());
     let (mut ia, mut ib) = (0usize, 0usize);
     for op in ops {

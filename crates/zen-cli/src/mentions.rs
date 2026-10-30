@@ -52,7 +52,8 @@ pub fn find_mentions(input: &str, cwd: &Path) -> Vec<Mention> {
             let raw = &input[token_start..token_end];
             let token = strip_trailing_punct(raw);
             let joined = cwd.join(token);
-            if !token.is_empty() && (looks_like_path(token) || joined.is_file() || joined.is_dir()) {
+            if !token.is_empty() && (looks_like_path(token) || joined.is_file() || joined.is_dir())
+            {
                 out.push(Mention {
                     pattern: token.to_string(),
                     start: i,
@@ -69,7 +70,6 @@ pub fn find_mentions(input: &str, cwd: &Path) -> Vec<Mention> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExpandedFile {
-
     pub path: String,
 
     pub tokens: u64,
@@ -77,7 +77,6 @@ pub struct ExpandedFile {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Expansion {
-
     pub prompt: String,
 
     pub files: Vec<ExpandedFile>,
@@ -143,7 +142,6 @@ fn expand_pattern(pattern: &str, cwd: &Path) -> Result<Vec<PathBuf>, NoMatchErro
     let ignore_rules = zen_tools::gitignore::load_ignore_rules(cwd);
 
     if !has_glob_meta(&norm) {
-
         let abs = if Path::new(&norm).is_absolute() {
             PathBuf::from(&norm)
         } else {
@@ -190,7 +188,9 @@ fn expand_pattern(pattern: &str, cwd: &Path) -> Result<Vec<PathBuf>, NoMatchErro
         if !path.is_file() {
             continue;
         }
-        let Ok(rel) = path.strip_prefix(cwd) else { continue };
+        let Ok(rel) = path.strip_prefix(cwd) else {
+            continue;
+        };
         let rel_str = rel.to_string_lossy().replace('\\', "/");
         if !matcher.is_match(&rel_str) {
             continue;
@@ -248,7 +248,11 @@ pub fn expand_mentions(
             total_tokens, token_budget
         ));
     }
-    Ok(Expansion { prompt, files, warnings })
+    Ok(Expansion {
+        prompt,
+        files,
+        warnings,
+    })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -278,9 +282,7 @@ pub fn decide_shell(
                     }
                     ShellDecision::Run
                 }
-                zen_core::PromptAnswer::No => {
-                    ShellDecision::Denied("denied by user".to_string())
-                }
+                zen_core::PromptAnswer::No => ShellDecision::Denied("denied by user".to_string()),
             },
             None => ShellDecision::Denied(
                 "permission required for shell passthrough in non-interactive mode".to_string(),
@@ -291,7 +293,6 @@ pub fn decide_shell(
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShellOutput {
-
     pub combined: String,
     pub exit_code: i32,
     pub success: bool,
@@ -410,7 +411,8 @@ mod tests {
     fn expand_literal_file() {
         let cwd = tmpdir("exp1");
         write(&cwd, "src/main.rs", "fn main() {}\n");
-        let exp = expand_mentions("review @src/main.rs", &cwd, DEFAULT_MENTION_TOKEN_BUDGET).unwrap();
+        let exp =
+            expand_mentions("review @src/main.rs", &cwd, DEFAULT_MENTION_TOKEN_BUDGET).unwrap();
         assert!(exp.prompt.contains("<file path=\"src/main.rs\""));
         assert!(exp.prompt.contains("fn main() {}"));
         assert!(exp.prompt.contains("</file>"));
@@ -437,7 +439,8 @@ mod tests {
     #[test]
     fn expand_missing_is_clear_error() {
         let cwd = tmpdir("exp3");
-        let err = expand_mentions("look @nope/*.rs", &cwd, DEFAULT_MENTION_TOKEN_BUDGET).unwrap_err();
+        let err =
+            expand_mentions("look @nope/*.rs", &cwd, DEFAULT_MENTION_TOKEN_BUDGET).unwrap_err();
         assert_eq!(err, NoMatchError("nope/*.rs".to_string()));
         assert_eq!(err.to_string(), "@nope/*.rs matched no files");
     }
@@ -448,8 +451,7 @@ mod tests {
         write(&cwd, ".gitignore", "dist/\n");
         write(&cwd, "dist/bundle.js", "ignored");
         write(&cwd, "src/app.js", "kept");
-        let exp =
-            expand_mentions("check @**/*.js", &cwd, DEFAULT_MENTION_TOKEN_BUDGET).unwrap();
+        let exp = expand_mentions("check @**/*.js", &cwd, DEFAULT_MENTION_TOKEN_BUDGET).unwrap();
         assert_eq!(exp.files.len(), 1);
         assert_eq!(exp.files[0].path, "src/app.js");
     }
@@ -571,7 +573,8 @@ mod tests {
             decision: zen_core::PermissionDecision::Ask,
             added: Mutex::new(vec![]),
         });
-        let prompter: Arc<dyn zen_core::Prompter> = Arc::new(StubPrompter(zen_core::PromptAnswer::No));
+        let prompter: Arc<dyn zen_core::Prompter> =
+            Arc::new(StubPrompter(zen_core::PromptAnswer::No));
         let d = decide_shell(&perms, Some(&prompter), &test_ctx(&cwd), "echo hi");
         assert_eq!(d, ShellDecision::Denied("denied by user".to_string()));
     }
@@ -630,7 +633,8 @@ mod tests {
             "echo shell-content",
             &out,
         ))];
-        let exp = expand_mentions("summarize @note.txt", &cwd, DEFAULT_MENTION_TOKEN_BUDGET).unwrap();
+        let exp =
+            expand_mentions("summarize @note.txt", &cwd, DEFAULT_MENTION_TOKEN_BUDGET).unwrap();
         messages.push(zen_core::ChatMessage::user(exp.prompt));
         let all: String = messages
             .iter()
@@ -644,35 +648,36 @@ mod tests {
 
     #[test]
     fn plan_mode_checker_denies_shell() {
-
         let cwd = tmpdir("sh9");
         let settings = zen_core::PermissionSettings::default();
-        let perms: Arc<dyn zen_core::PermissionChecker> = Arc::new(
-            zen_tools::permissions::RulePermissions::new(
+        let perms: Arc<dyn zen_core::PermissionChecker> =
+            Arc::new(zen_tools::permissions::RulePermissions::new(
                 zen_core::PermissionMode::Plan,
                 &settings,
                 vec![],
                 vec![],
                 None,
-            ),
-        );
+            ));
         let d = decide_shell(&perms, None, &test_ctx(&cwd), "echo hi");
-        assert!(matches!(d, ShellDecision::Denied(_)), "plan mode must deny, got {:?}", d);
+        assert!(
+            matches!(d, ShellDecision::Denied(_)),
+            "plan mode must deny, got {:?}",
+            d
+        );
     }
 
     #[test]
     fn bypass_mode_checker_allows_shell() {
         let cwd = tmpdir("sh10");
         let settings = zen_core::PermissionSettings::default();
-        let perms: Arc<dyn zen_core::PermissionChecker> = Arc::new(
-            zen_tools::permissions::RulePermissions::new(
+        let perms: Arc<dyn zen_core::PermissionChecker> =
+            Arc::new(zen_tools::permissions::RulePermissions::new(
                 zen_core::PermissionMode::BypassPermissions,
                 &settings,
                 vec![],
                 vec![],
                 None,
-            ),
-        );
+            ));
         let d = decide_shell(&perms, None, &test_ctx(&cwd), "echo hi");
         assert_eq!(d, ShellDecision::Run);
     }

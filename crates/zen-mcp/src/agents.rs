@@ -40,7 +40,6 @@ pub(crate) fn split_frontmatter(text: &str) -> (Vec<(String, String)>, String) {
         }
     }
     if !in_body {
-
         return (Vec::new(), text.to_string());
     }
     (fields, body_lines.join("\n"))
@@ -55,7 +54,10 @@ fn field<'a>(fields: &'a [(String, String)], key: &str) -> Option<&'a str> {
 
 fn parse_tools(s: &str) -> Option<Vec<String>> {
     let trimmed = s.trim();
-    let trimmed = trimmed.strip_prefix('[').and_then(|t| t.strip_suffix(']')).unwrap_or(trimmed);
+    let trimmed = trimmed
+        .strip_prefix('[')
+        .and_then(|t| t.strip_suffix(']'))
+        .unwrap_or(trimmed);
     if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("all") {
         return None;
     }
@@ -85,7 +87,10 @@ fn agent_from_markdown(name_hint: &str, text: &str) -> Option<AgentDefinition> {
         return None;
     }
 
-    let description = field(&fields, "description").map(str::trim).filter(|d| !d.is_empty())?.to_string();
+    let description = field(&fields, "description")
+        .map(str::trim)
+        .filter(|d| !d.is_empty())?
+        .to_string();
     let tools = field(&fields, "tools").and_then(parse_tools);
     let model = field(&fields, "model")
         .filter(|s| !s.is_empty() && !s.eq_ignore_ascii_case("inherit"))
@@ -102,7 +107,9 @@ fn agent_from_markdown(name_hint: &str, text: &str) -> Option<AgentDefinition> {
         .or_else(|| field(&fields, "max-turns"))
         .and_then(|v| v.trim().parse::<usize>().ok())
         .filter(|n| *n > 0);
-    let skills = field(&fields, "skills").and_then(parse_tools).unwrap_or_default();
+    let skills = field(&fields, "skills")
+        .and_then(parse_tools)
+        .unwrap_or_default();
 
     Some(AgentDefinition {
         name,
@@ -138,7 +145,10 @@ fn load_dir(into: &mut Vec<AgentDefinition>, dir: &Path) {
                 into.retain(|d| d.name != def.name);
                 into.push(def);
             } else {
-                eprintln!("zen: skipping agent definition {}: missing description", path.display());
+                eprintln!(
+                    "zen: skipping agent definition {}: missing description",
+                    path.display()
+                );
             }
         }
     }
@@ -168,7 +178,11 @@ fn agent_from_json(name: &str, value: &Value) -> Option<AgentDefinition> {
                     .filter_map(|x| x.as_str().map(|s| s.trim().to_string()))
                     .filter(|s| !s.is_empty())
                     .collect();
-                if list.is_empty() { None } else { Some(list) }
+                if list.is_empty() {
+                    None
+                } else {
+                    Some(list)
+                }
             }
             _ => None,
         })
@@ -204,8 +218,8 @@ fn agent_from_json(name: &str, value: &Value) -> Option<AgentDefinition> {
 }
 
 fn load_agents_from_json(into: &mut Vec<AgentDefinition>, text: &str) -> anyhow::Result<()> {
-    let value: Value = serde_json::from_str(text)
-        .map_err(|e| anyhow::anyhow!("invalid --agents JSON: {}", e))?;
+    let value: Value =
+        serde_json::from_str(text).map_err(|e| anyhow::anyhow!("invalid --agents JSON: {}", e))?;
 
     let map = match value.get("agents").and_then(|v| v.as_object()) {
         Some(obj) => obj.clone(),
@@ -219,7 +233,10 @@ fn load_agents_from_json(into: &mut Vec<AgentDefinition>, text: &str) -> anyhow:
             into.retain(|d| d.name != def.name);
             into.push(def);
         } else {
-            eprintln!("zen: skipping --agents entry '{}': missing description", name);
+            eprintln!(
+                "zen: skipping --agents entry '{}': missing description",
+                name
+            );
         }
     }
     Ok(())
@@ -239,7 +256,12 @@ pub(crate) fn builtin_general_purpose() -> AgentDefinition {
 const READ_ONLY_TOOLS: &[&str] = &["Read", "Glob", "Grep", "WebFetch", "WebSearch", "TodoWrite"];
 
 pub fn builtin_agents() -> Vec<AgentDefinition> {
-    let read_only = Some(READ_ONLY_TOOLS.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+    let read_only = Some(
+        READ_ONLY_TOOLS
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>(),
+    );
     vec![
         builtin_general_purpose(),
         AgentDefinition {
@@ -268,7 +290,11 @@ fn home_dir(home: Option<&Path>) -> Option<PathBuf> {
     }
 }
 
-pub fn load_agents(cwd: &Path, home: Option<&Path>, cli_agents: Option<&str>) -> Vec<AgentDefinition> {
+pub fn load_agents(
+    cwd: &Path,
+    home: Option<&Path>,
+    cli_agents: Option<&str>,
+) -> Vec<AgentDefinition> {
     let mut out: Vec<AgentDefinition> = Vec::new();
 
     if let Some(h) = home_dir(home) {
@@ -335,11 +361,27 @@ mod c6_tests {
             &cwd.join(".zen/agents/reviewer.md"),
             "---\nname: reviewer\ndescription: Reviews code\ntools:\n  - Read\n  - Grep\ndisallowedTools: Bash, Write\nmodel: inherit\npermissionMode: plan\nmaxTurns: 7\nskills: [style-guide, \"lint\"]\n---\nReview carefully.\n",
         );
-        write(&cwd.join(".zen/agents/nodesc.md"), "---\nname: nodesc\ntools: Read\n---\nbody\n");
-        write(&cwd.join(".zen/agents/blankdesc.md"), "---\nname: blankdesc\ndescription:   \n---\nbody\n");
-        let agents = load_agents(&cwd, Some(&home), Some(r#"{"j":{"prompt":"no description"},"k":{"description":"K","disallowedTools":["Bash"],"permissionMode":"acceptEdits","maxTurns":3,"skills":"a, b"}}"#));
+        write(
+            &cwd.join(".zen/agents/nodesc.md"),
+            "---\nname: nodesc\ntools: Read\n---\nbody\n",
+        );
+        write(
+            &cwd.join(".zen/agents/blankdesc.md"),
+            "---\nname: blankdesc\ndescription:   \n---\nbody\n",
+        );
+        let agents = load_agents(
+            &cwd,
+            Some(&home),
+            Some(
+                r#"{"j":{"prompt":"no description"},"k":{"description":"K","disallowedTools":["Bash"],"permissionMode":"acceptEdits","maxTurns":3,"skills":"a, b"}}"#,
+            ),
+        );
         let names: Vec<&str> = agents.iter().map(|a| a.name.as_str()).collect();
-        assert!(!names.contains(&"nodesc") && !names.contains(&"blankdesc") && !names.contains(&"j"), "{:?}", names);
+        assert!(
+            !names.contains(&"nodesc") && !names.contains(&"blankdesc") && !names.contains(&"j"),
+            "{:?}",
+            names
+        );
         let r = agents.iter().find(|a| a.name == "reviewer").unwrap();
         assert_eq!(r.description, "Reviews code");
         assert_eq!(r.tools, Some(vec!["Read".to_string(), "Grep".to_string()]));
@@ -361,29 +403,75 @@ mod c6_tests {
     fn c6_2_scope_priority_cli_project_user_builtin() {
         let cwd = tmp("prio");
         let home = cwd.join("home");
-        for (dir, who) in [(home.join(".zen/agents"), "user"), (cwd.join(".zen/agents"), "project")] {
-            write(&dir.join("a.md"), &format!("---\nname: a\ndescription: {who}\n---\n"));
-            write(&dir.join("Explore.md"), &format!("---\nname: Explore\ndescription: {who} explore\n---\n"));
+        for (dir, who) in [
+            (home.join(".zen/agents"), "user"),
+            (cwd.join(".zen/agents"), "project"),
+        ] {
+            write(
+                &dir.join("a.md"),
+                &format!("---\nname: a\ndescription: {who}\n---\n"),
+            );
+            write(
+                &dir.join("Explore.md"),
+                &format!("---\nname: Explore\ndescription: {who} explore\n---\n"),
+            );
         }
-        write(&home.join(".zen/agents/u.md"), "---\nname: u\ndescription: user only\n---\n");
-        let get = |agents: &[AgentDefinition], n: &str| agents.iter().find(|a| a.name == n).map(|a| a.description.clone());
+        write(
+            &home.join(".zen/agents/u.md"),
+            "---\nname: u\ndescription: user only\n---\n",
+        );
+        let get = |agents: &[AgentDefinition], n: &str| {
+            agents
+                .iter()
+                .find(|a| a.name == n)
+                .map(|a| a.description.clone())
+        };
 
         let agents = load_agents(&cwd, Some(&home), None);
-        assert_eq!(get(&agents, "a").as_deref(), Some("project"), "project > user");
+        assert_eq!(
+            get(&agents, "a").as_deref(),
+            Some("project"),
+            "project > user"
+        );
         assert_eq!(get(&agents, "u").as_deref(), Some("user only"));
-        assert_eq!(get(&agents, "Explore").as_deref(), Some("project explore"), "files > built-in");
+        assert_eq!(
+            get(&agents, "Explore").as_deref(),
+            Some("project explore"),
+            "files > built-in"
+        );
         assert_eq!(agents.iter().filter(|a| a.name == "Explore").count(), 1);
         let plan = agents.iter().find(|a| a.name == "Plan").unwrap();
         assert_eq!(plan.permission_mode.as_deref(), Some("plan"));
         let plan_tools = plan.tools.clone().unwrap();
         assert!(plan_tools.contains(&"Read".to_string()));
-        assert!(!plan_tools.iter().any(|t| t == "Write" || t == "Edit" || t == "Bash" || t == "Task"), "built-in Plan is read-only");
-        assert!(agents.iter().any(|a| a.name == "general-purpose" && a.tools.is_none()));
+        assert!(
+            !plan_tools
+                .iter()
+                .any(|t| t == "Write" || t == "Edit" || t == "Bash" || t == "Task"),
+            "built-in Plan is read-only"
+        );
+        assert!(agents
+            .iter()
+            .any(|a| a.name == "general-purpose" && a.tools.is_none()));
 
-        let agents = load_agents(&cwd, Some(&home), Some(r#"{"a":{"description":"cli"},"general-purpose":{"description":"mine"}}"#));
-        assert_eq!(get(&agents, "a").as_deref(), Some("cli"), "--agents > project");
+        let agents = load_agents(
+            &cwd,
+            Some(&home),
+            Some(r#"{"a":{"description":"cli"},"general-purpose":{"description":"mine"}}"#),
+        );
+        assert_eq!(
+            get(&agents, "a").as_deref(),
+            Some("cli"),
+            "--agents > project"
+        );
         assert_eq!(get(&agents, "general-purpose").as_deref(), Some("mine"));
-        assert_eq!(agents.iter().filter(|a| a.name == "general-purpose").count(), 1);
+        assert_eq!(
+            agents
+                .iter()
+                .filter(|a| a.name == "general-purpose")
+                .count(),
+            1
+        );
 
         let bare = load_cli_agents(None);
         let names: Vec<&str> = bare.iter().map(|a| a.name.as_str()).collect();

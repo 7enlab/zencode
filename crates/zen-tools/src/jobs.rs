@@ -67,8 +67,11 @@ pub fn start_job(
     let dir = scratch.join("jobs");
     std::fs::create_dir_all(&dir).map_err(|e| format!("cannot create {}: {}", dir.display(), e))?;
     let log = dir.join(format!("{}-{}.log", std::process::id(), id));
-    let out = std::fs::File::create(&log).map_err(|e| format!("cannot create {}: {}", log.display(), e))?;
-    let err = out.try_clone().map_err(|e| format!("cannot open {}: {}", log.display(), e))?;
+    let out = std::fs::File::create(&log)
+        .map_err(|e| format!("cannot create {}: {}", log.display(), e))?;
+    let err = out
+        .try_clone()
+        .map_err(|e| format!("cannot open {}: {}", log.display(), e))?;
 
     let shell = zen_core::resolve_shell("bash");
     let mut cmd = tokio::process::Command::new(&shell.program);
@@ -85,7 +88,9 @@ pub fn start_job(
     }
     #[cfg(unix)]
     cmd.process_group(0);
-    let mut child = cmd.spawn().map_err(|e| format!("failed to start {}: {}", shell.program, e))?;
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("failed to start {}: {}", shell.program, e))?;
     let pid = child.id();
 
     let status = Arc::new(Mutex::new(JobStatus::Running));
@@ -108,7 +113,13 @@ pub fn start_job(
 
     jobs().lock().unwrap().insert(
         id.clone(),
-        Job { command: command.to_string(), log: log.clone(), read_pos: 0, status, kill_tx: Some(kill_tx) },
+        Job {
+            command: command.to_string(),
+            log: log.clone(),
+            read_pos: 0,
+            status,
+            kill_tx: Some(kill_tx),
+        },
     );
     Ok(Started { id, pid, log })
 }
@@ -117,7 +128,6 @@ fn kill_tree(pid: Option<u32>) {
     let Some(pid) = pid else { return };
     #[cfg(unix)]
     {
-
         let _ = std::process::Command::new("kill")
             .args(["-KILL", "--", &format!("-{}", pid)])
             .stdout(Stdio::null())
@@ -135,24 +145,40 @@ fn kill_tree(pid: Option<u32>) {
 }
 
 fn status_of(id: &str) -> Option<JobStatus> {
-    jobs().lock().unwrap().get(id).map(|j| j.status.lock().unwrap().clone())
+    jobs()
+        .lock()
+        .unwrap()
+        .get(id)
+        .map(|j| j.status.lock().unwrap().clone())
 }
 
-pub async fn read_new(id: &str, wait_ms: u64) -> Result<(String, u64, u64, JobStatus, String), String> {
+pub async fn read_new(
+    id: &str,
+    wait_ms: u64,
+) -> Result<(String, u64, u64, JobStatus, String), String> {
     if status_of(id).is_none() {
         return Err(unknown(id));
     }
-    let deadline = tokio::time::Instant::now() + Duration::from_millis(wait_ms.min(JOB_MAX_WAIT_MS));
+    let deadline =
+        tokio::time::Instant::now() + Duration::from_millis(wait_ms.min(JOB_MAX_WAIT_MS));
     while status_of(id) == Some(JobStatus::Running) && tokio::time::Instant::now() < deadline {
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
     let found = {
         let map = jobs().lock().unwrap();
-        map.get(id).map(|j| (j.log.clone(), j.read_pos, j.status.lock().unwrap().clone(), j.command.clone()))
+        map.get(id).map(|j| {
+            (
+                j.log.clone(),
+                j.read_pos,
+                j.status.lock().unwrap().clone(),
+                j.command.clone(),
+            )
+        })
     };
 
     let (log, from, status, command) = found.ok_or_else(|| unknown(id))?;
-    let bytes = read_from(&log, from).map_err(|e| format!("cannot read {}: {}", log.display(), e))?;
+    let bytes =
+        read_from(&log, from).map_err(|e| format!("cannot read {}: {}", log.display(), e))?;
     let take = match std::str::from_utf8(&bytes) {
         Ok(_) => bytes.len(),
 
@@ -199,14 +225,25 @@ fn unknown(id: &str) -> String {
     let mut ids: Vec<String> = jobs().lock().unwrap().keys().cloned().collect();
     ids.sort();
     if ids.is_empty() {
-        format!("Error: no background job '{}' (no jobs started in this session)", id)
+        format!(
+            "Error: no background job '{}' (no jobs started in this session)",
+            id
+        )
     } else {
-        format!("Error: no background job '{}' (known: {})", id, ids.join(", "))
+        format!(
+            "Error: no background job '{}' (known: {})",
+            id,
+            ids.join(", ")
+        )
     }
 }
 
 fn job_id_arg(args: &Value) -> Option<String> {
-    args.get("job_id").and_then(|v| v.as_str()).map(str::trim).filter(|s| !s.is_empty()).map(String::from)
+    args.get("job_id")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(String::from)
 }
 
 pub struct JobOutputTool;
@@ -246,7 +283,10 @@ impl Tool for JobOutputTool {
                     ToolOutput::ok(format!("{}\n(no new output; {} bytes so far)", head, to))
                 } else {
                     let body = crate::builtin::spill_output(&text, JOB_OUTPUT_MAX_CHARS, ctx);
-                    ToolOutput::ok(format!("{}\nNew output (bytes {}-{}):\n{}", head, from, to, body))
+                    ToolOutput::ok(format!(
+                        "{}\nNew output (bytes {}-{}):\n{}",
+                        head, from, to, body
+                    ))
                 }
             }
         }
@@ -282,7 +322,9 @@ impl Tool for JobKillTool {
         };
         match kill_job(&id).await {
             Err(e) => ToolOutput::err(e),
-            Ok(JobStatus::Running) => ToolOutput::err(format!("Error: job {} did not stop within 5 s", id)),
+            Ok(JobStatus::Running) => {
+                ToolOutput::err(format!("Error: job {} did not stop within 5 s", id))
+            }
             Ok(s) => ToolOutput::ok(format!("Job {}: {}", id, s.describe())),
         }
     }
