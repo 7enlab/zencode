@@ -658,3 +658,11 @@ industry ships a real verified tier), `[community]` (you approved the install,
 hash-pinned, never auto-updates), `[⚠ unverified]` (sandboxed: read-only, no
 network). Install always shows the permission diff first and requires `--yes`;
 there are no silent auto-updates.
+
+## Code review (PR Agent)
+
+Pull requests get one free-model review comment from PR Agent (Route A, config in
+`.pr_agent.toml`): model `openrouter/cohere/north-mini-code:free` with free
+fallbacks across providers, auto-approval off, fail-closed when no free model
+answers. Runs on PR opened, reopened, and ready for review only (no synchronize),
+see `.github/workflows/pr-agent-pilot.yml`.
